@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { ProductsModule } from './products/products.module';
+import { ProductImagesModule } from './product_images/product_images.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ProductsModule } from './products/products.module';
       models: [],
     }),
     ProductsModule,
+    ProductImagesModule,
   ],
   controllers: [],
   providers: [],

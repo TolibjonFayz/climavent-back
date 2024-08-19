@@ -22,13 +22,23 @@ export class ProductsService {
 
   //Get all products
   async getAllProducts() {
-    const products = await this.productRepository.findAll({});
+    const products = await this.productRepository.findAll({
+      include: { all: true },
+    });
     return products;
   }
 
   //Get product by id
   async getProductById(id: number) {
-    const product = await this.productRepository.findOne({ where: { id: id } });
+    const product = await this.productRepository.findOne({
+      where: { id: id },
+      include: { all: true },
+    });
+    //Increase views of product
+    await this.productRepository.update(
+      { views: product.views + 1 },
+      { where: { id: id } },
+    );
     if (product) return product;
     else
       throw new NotFoundException('Product not found or product id is invalid');
