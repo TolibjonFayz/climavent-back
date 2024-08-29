@@ -1,8 +1,13 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { SequelizeModule } from '@nestjs/sequelize';
-import { ProductsModule } from './products/products.module';
 import { ProductImagesModule } from './product_images/product_images.module';
+import { ProductsModule } from './products/products.module';
+import { ReviewsModule } from './reviews/reviews.module';
+import { SequelizeModule } from '@nestjs/sequelize';
+import { UsersModule } from './users/users.module';
+import { User } from './users/model/user.model';
+import { ConfigModule } from '@nestjs/config';
+import { OtpModule } from './otp/otp.module';
+import { Otp } from './otp/models/otp.model';
+import { Module } from '@nestjs/common';
 
 @Module({
   imports: [
@@ -16,10 +21,13 @@ import { ProductImagesModule } from './product_images/product_images.module';
       database: process.env.POSTGRES_DB,
       autoLoadModels: true,
       logging: false,
-      models: [],
+      models: [User, Otp],
     }),
-    ProductsModule,
     ProductImagesModule,
+    ProductsModule,
+    ReviewsModule,
+    UsersModule,
+    OtpModule,
   ],
   controllers: [],
   providers: [],

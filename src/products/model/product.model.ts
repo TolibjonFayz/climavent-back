@@ -1,6 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
 import { Table, Model, Column, DataType, HasMany } from 'sequelize-typescript';
 import { ProductImages } from 'src/product_images/model/product_image.model';
+import { ApiProperty } from '@nestjs/swagger';
 
 interface ProductAtr {
   name: String;
