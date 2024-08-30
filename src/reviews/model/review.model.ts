@@ -8,6 +8,7 @@ import {
   BelongsTo,
 } from 'sequelize-typescript';
 import { Product } from 'src/products/model/product.model';
+import { User } from 'src/users/model/user.model';
 
 interface ReviewAtr {
   review: String;
@@ -41,10 +42,20 @@ export class Review extends Model<Review, ReviewAtr> {
     description: 'How do you rate this product 1 to 5',
   })
   @Column({
-    type: DataType.STRING,
+    type: DataType.INTEGER,
     allowNull: false,
   })
   stars: number;
+
+  @ForeignKey(() => User)
+  @ApiProperty({ example: 1, description: 'User id' })
+  @Column({
+    type: DataType.INTEGER,
+    allowNull: false,
+  })
+  user_id: number;
+  @BelongsTo(() => User)
+  user: User;
 
   @ForeignKey(() => Product)
   @ApiProperty({ example: 1, description: 'Product id' })
