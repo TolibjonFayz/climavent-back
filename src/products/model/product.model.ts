@@ -1,6 +1,7 @@
 import { Table, Model, Column, DataType, HasMany } from 'sequelize-typescript';
 import { ProductImages } from 'src/product_images/model/product_image.model';
 import { ApiProperty } from '@nestjs/swagger';
+import { Review } from 'src/reviews/model/review.model';
 
 interface ProductAtr {
   name: String;
@@ -83,4 +84,7 @@ export class Product extends Model<Product, ProductAtr> {
 
   @HasMany(() => ProductImages)
   images: ProductImages;
+
+  @HasMany(() => Review)
+  reviews: Review;
 }

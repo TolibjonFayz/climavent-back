@@ -25,9 +25,7 @@ export class ProductImagesService {
 
   //Get all product images
   async getAllProductImages() {
-    const productImages = await this.productImageRepository.findAll({
-      include: { all: true },
-    });
+    const productImages = await this.productImageRepository.findAll();
     return productImages;
   }
 
