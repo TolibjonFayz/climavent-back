@@ -17,7 +17,7 @@ export class LikesService {
     @InjectModel(Like) private readonly likeRepository: typeof Like,
   ) {}
 
-  //Create likenpm
+  //Create like
   async createLike(createLikeDto: CreateLikeDto) {
     //Is user liked this proiduct before???
     const isUserLikedThisProductBefore = await this.likeRepository.findOne({

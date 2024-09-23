@@ -62,4 +62,4 @@ export class LikesController {
   async deleteOne(@Body() body: { user_id: number; product_id: number }) {
     return this.likesService.deleteOneLikeById(body.user_id, body.product_id);
   }
-}
+} 

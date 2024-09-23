@@ -9,6 +9,7 @@ import { OtpModule } from './otp/otp.module';
 import { Otp } from './otp/models/otp.model';
 import { Module } from '@nestjs/common';
 import { LikesModule } from './likes/likes.module';
+import { BannersModule } from './banners/banners.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { LikesModule } from './likes/likes.module';
     UsersModule,
     OtpModule,
     LikesModule,
+    BannersModule,
   ],
   controllers: [],
   providers: [],
