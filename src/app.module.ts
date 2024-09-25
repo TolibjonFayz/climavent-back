@@ -23,6 +23,12 @@ import { BannersModule } from './banners/banners.module';
       database: process.env.POSTGRES_DB,
       autoLoadModels: true,
       logging: false,
+      dialectOptions: {
+        ssl: {
+          require: true,
+          rejectUnauthorized: false,
+        },
+      },
       models: [User, Otp],
     }),
     ProductImagesModule,
