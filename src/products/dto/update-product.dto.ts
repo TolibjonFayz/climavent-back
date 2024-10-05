@@ -31,4 +31,9 @@ export class UpdateProductDto {
     description: 'Producer(maker) of product',
   })
   producer: string;
+
+  @ApiProperty({ example: 1, description: 'Id of category' })
+  @IsNumber()
+  @IsNotEmpty()
+  category_id: number;
 }

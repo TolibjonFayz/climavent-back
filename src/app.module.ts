@@ -10,6 +10,7 @@ import { Otp } from './otp/models/otp.model';
 import { Module } from '@nestjs/common';
 import { LikesModule } from './likes/likes.module';
 import { BannersModule } from './banners/banners.module';
+import { CategoryModule } from './category/category.module';
 
 @Module({
   imports: [
@@ -31,10 +32,11 @@ import { BannersModule } from './banners/banners.module';
       },
       models: [User, Otp],
     }),
-    ProductImagesModule,
-    ProductsModule,
-    ReviewsModule,
     UsersModule,
+    ProductsModule,
+    ProductImagesModule,
+    CategoryModule,
+    ReviewsModule,
     OtpModule,
     LikesModule,
     BannersModule,

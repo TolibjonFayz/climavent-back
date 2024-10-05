@@ -40,4 +40,9 @@ export class CreateProductDto {
   @IsNotEmpty()
   @IsString()
   producer: string;
+
+  @ApiProperty({ example: 1, description: 'Id of category' })
+  @IsNumber()
+  @IsNotEmpty()
+  category_id: number;
 }

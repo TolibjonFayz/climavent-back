@@ -1,9 +1,19 @@
-import { Table, Model, Column, DataType, HasMany } from 'sequelize-typescript';
+import {
+  Table,
+  Model,
+  Column,
+  DataType,
+  HasMany,
+  ForeignKey,
+  BelongsTo,
+} from 'sequelize-typescript';
 import { ProductImages } from 'src/product_images/model/product_image.model';
 import { ApiProperty } from '@nestjs/swagger';
 import { Review } from 'src/reviews/model/review.model';
+import { Category } from 'src/category/model/category.model';
 
 interface ProductAtr {
+  category_id: Number;
   name: String;
   description_short: String;
   price: Number;
@@ -71,7 +81,6 @@ export class Product extends Model<Product, ProductAtr> {
     allowNull: false,
   })
   quantity: number;
-
   @ApiProperty({
     example: 'Hisense',
     description: 'Producer(maker) of product',
@@ -81,6 +90,16 @@ export class Product extends Model<Product, ProductAtr> {
     allowNull: false,
   })
   producer: string;
+
+  @ForeignKey(() => Category)
+  @ApiProperty({ example: 1, description: 'Category of product' })
+  @Column({
+    type: DataType.INTEGER,
+    allowNull: false,
+  })
+  category_id: number;
+  @BelongsTo(() => Category)
+  category: Category;
 
   @HasMany(() => ProductImages)
   images: ProductImages;
