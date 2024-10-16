@@ -12,6 +12,8 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Category } from './model/category.model';
+import { Product } from 'src/products/model/product.model';
+import { SortbyCategoryIdProductDto } from './dto/sortbycategoryid-product.dto';
 
 @ApiTags('Category')
 @Controller('category')
@@ -37,6 +39,17 @@ export class CategoryController {
   @Get('one/:id')
   async getOne(@Param('id') id: number): Promise<Category> {
     return this.categoryService.getCategoryById(id);
+  }
+
+  //Get products by category
+  @ApiOperation({ summary: 'Get products by category' })
+  @Post('slug')
+  async getBySlug(
+    @Body() sortbyCategoryIdProduct: SortbyCategoryIdProductDto,
+  ): Promise<Product[]> {
+    return this.categoryService.sortProductsByCategoryId(
+      sortbyCategoryIdProduct,
+    );
   }
 
   //Update category by id

@@ -3,11 +3,15 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { InjectModel } from '@nestjs/sequelize';
 import { Product } from './model/product.model';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { SortProductDto } from './dto/sort-product.dto';
+import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-product.dto';
+import { Category } from 'src/category/model/category.model';
 
 @Injectable()
 export class ProductsService {
   constructor(
     @InjectModel(Product) private readonly productRepository: typeof Product,
+    @InjectModel(Category) private readonly categoryRepository: typeof Category,
   ) {}
 
   //Create product
@@ -26,6 +30,100 @@ export class ProductsService {
       include: { all: true },
     });
     return products;
+  }
+
+  //Get products by sort
+  async getProductsBySort(searchProductDto: SortProductDto) {
+    //Regular (ommabop) serach
+    if (
+      searchProductDto.price == 'Ommabop' ||
+      searchProductDto.price == 'kopbuyurtirilgan'
+    ) {
+      const products = await this.productRepository.findAll({
+        include: { all: true },
+      });
+      return products;
+    }
+    //Sorting by ASC or DESC
+    else {
+      const products = await this.productRepository.findAll({
+        include: { all: true },
+        order: [['price', searchProductDto.price]],
+      });
+      return products;
+    }
+  }
+
+  //Get products by category
+  async sortProductsByCategoryId(
+    sortbyCategoryIdProduct: SortbyCategoryIdProductDto,
+  ) {
+    //Regular (ommabop) serach
+    if (
+      sortbyCategoryIdProduct.price == 'Ommabop' ||
+      sortbyCategoryIdProduct.price == 'kopbuyurtirilgan'
+    ) {
+      const categoryProducts = await this.productRepository.findAll({
+        where: { category_id: sortbyCategoryIdProduct.category_id },
+        include: { all: true },
+      });
+
+      //Parent category products finding
+      const allProductsForParentCatIds = [];
+      const res = await this.categoryRepository.findAll({
+        where: { category_id: sortbyCategoryIdProduct.category_id },
+      });
+      if (res.length) {
+        for (let i = 0; i < res.length; i++) {
+          const hehe = await this.productRepository.findAll({
+            where: { category_id: res[i].id },
+            include: { all: true },
+          });
+          for (let index = 0; index < hehe.length; index++) {
+            allProductsForParentCatIds.push(hehe[index]);
+          }
+        }
+        return allProductsForParentCatIds;
+      } else {
+        return categoryProducts;
+      }
+    }
+    //Sorting by ASC or DESC
+    else {
+      const categoryProducts = await this.productRepository.findAll({
+        where: { category_id: sortbyCategoryIdProduct.category_id },
+        include: { all: true },
+        order: [['price', sortbyCategoryIdProduct.price]],
+      });
+
+      //Parent category products finding
+      const allProductsForParentCatIds = [sortbyCategoryIdProduct.category_id];
+      let allProductsForParentCatProducts = [];
+      const res1 = await this.categoryRepository.findAll({
+        where: { category_id: sortbyCategoryIdProduct.category_id },
+      });
+      if (res1.length) {
+        for (let i = 0; i < res1.length; i++) {
+          allProductsForParentCatIds.push(res1[i].id);
+          const products = await this.productRepository.findAll({
+            where: { category_id: res1[i].id },
+            include: { all: true },
+          });
+          for (let i = 0; i < products.length; i++) {
+            allProductsForParentCatProducts.push(products[i]);
+          }
+        }
+        if (sortbyCategoryIdProduct.price == 'ASC')
+          allProductsForParentCatProducts =
+            allProductsForParentCatProducts.sort((a, b) => a.price - b.price);
+        else if (sortbyCategoryIdProduct.price == 'DESC')
+          allProductsForParentCatProducts =
+            allProductsForParentCatProducts.sort((a, b) => b.price - a.price);
+        return allProductsForParentCatProducts;
+      } else {
+        return categoryProducts;
+      }
+    }
   }
 
   //Get product by id

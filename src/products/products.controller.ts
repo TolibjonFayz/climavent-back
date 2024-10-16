@@ -12,6 +12,8 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Product } from './model/product.model';
+import { SortProductDto } from './dto/sort-product.dto';
+import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-product.dto';
 
 @ApiTags('Products')
 @Controller('products')
@@ -30,6 +32,26 @@ export class ProductsController {
   @Get('all')
   async getAll(): Promise<Product[]> {
     return this.productsService.getAllProducts();
+  }
+
+  //Get all products
+  @ApiOperation({ summary: 'Get products by sort' })
+  @Post('bysort')
+  async getProductsBySort(
+    @Body() searchProductDto: SortProductDto,
+  ): Promise<Product[]> {
+    return this.productsService.getProductsBySort(searchProductDto);
+  }
+
+  //Get products by category
+  @ApiOperation({ summary: 'Get products by category' })
+  @Post('categoryslug')
+  async getBySlug(
+    @Body() sortbyCategoryIdProduct: SortbyCategoryIdProductDto,
+  ): Promise<Product[]> {
+    return this.productsService.sortProductsByCategoryId(
+      sortbyCategoryIdProduct,
+    );
   }
 
   //Get product by id
