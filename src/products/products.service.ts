@@ -6,6 +6,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { SortProductDto } from './dto/sort-product.dto';
 import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-product.dto';
 import { Category } from 'src/category/model/category.model';
+import { GetRecentlyAddedProductsDto } from './dto/getlastadded-product.dto';
 
 @Injectable()
 export class ProductsService {
@@ -32,8 +33,38 @@ export class ProductsService {
     return products;
   }
 
+  //Get all products
+  async getAllProductsCount() {
+    const products = await this.productRepository.count({});
+    return products;
+  }
+
+  //Get recently added products
+  async getRecentlyAddedProducts(
+    getRecentlyAddedProductsDto: GetRecentlyAddedProductsDto,
+  ) {
+    const offset =
+      (getRecentlyAddedProductsDto.page - 1) *
+      getRecentlyAddedProductsDto.limit;
+    const count = await this.getAllProductsCount();
+
+    const products = await this.productRepository.findAll({
+      order: [['createdAt', 'DESC']],
+      limit: getRecentlyAddedProductsDto.limit,
+      offset: offset,
+      include: { all: true },
+    });
+
+    const result = {
+      totalPages: Math.ceil(count / getRecentlyAddedProductsDto.limit),
+      products,
+    };
+    return result;
+  }
+
   //Get products by sort
   async getProductsBySort(searchProductDto: SortProductDto) {
+    const offset = (searchProductDto.page - 1) * searchProductDto.limit;
     //Regular (ommabop) serach
     if (
       searchProductDto.price == 'Ommabop' ||
@@ -41,6 +72,8 @@ export class ProductsService {
     ) {
       const products = await this.productRepository.findAll({
         include: { all: true },
+        limit: searchProductDto.limit,
+        offset: offset,
       });
       return products;
     }
@@ -49,6 +82,8 @@ export class ProductsService {
       const products = await this.productRepository.findAll({
         include: { all: true },
         order: [['price', searchProductDto.price]],
+        limit: searchProductDto.limit,
+        offset: offset,
       });
       return products;
     }

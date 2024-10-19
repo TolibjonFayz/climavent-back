@@ -14,6 +14,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Product } from './model/product.model';
 import { SortProductDto } from './dto/sort-product.dto';
 import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-product.dto';
+import { GetRecentlyAddedProductsDto } from './dto/getlastadded-product.dto';
 
 @ApiTags('Products')
 @Controller('products')
@@ -27,6 +28,13 @@ export class ProductsController {
     return this.productsService.createProduct(createProfuctDto);
   }
 
+  //Get all products count
+  @ApiOperation({ summary: 'Get all products count' })
+  @Get('allcount')
+  async getAllCount(): Promise<number> {
+    return this.productsService.getAllProductsCount();
+  }
+
   //Get all products
   @ApiOperation({ summary: 'Get all products' })
   @Get('all')
@@ -34,7 +42,18 @@ export class ProductsController {
     return this.productsService.getAllProducts();
   }
 
-  //Get all products
+  //Get last added products
+  @ApiOperation({ summary: 'Get last added products' })
+  @Post('lastadded')
+  async getLastAddedProducts(
+    @Body() getRecentlyAddedProductsDto: GetRecentlyAddedProductsDto,
+  ): Promise<any> {
+    return this.productsService.getRecentlyAddedProducts(
+      getRecentlyAddedProductsDto,
+    );
+  }
+
+  //Get all products by sort
   @ApiOperation({ summary: 'Get products by sort' })
   @Post('bysort')
   async getProductsBySort(
