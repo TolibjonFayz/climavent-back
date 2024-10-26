@@ -11,6 +11,9 @@ import { Module } from '@nestjs/common';
 import { LikesModule } from './likes/likes.module';
 import { BannersModule } from './banners/banners.module';
 import { CategoryModule } from './category/category.module';
+import { ProductModelsModule } from './product_models/product_models.module';
+import { ProductModelHeadersModule } from './product_model_headers/product_model_headers.module';
+import { ProductModelInfosModule } from './product_model_infos/product_model_infos.module';
 
 @Module({
   imports: [
@@ -40,6 +43,9 @@ import { CategoryModule } from './category/category.module';
     OtpModule,
     LikesModule,
     BannersModule,
+    ProductModelsModule,
+    ProductModelHeadersModule,
+    ProductModelInfosModule,
   ],
   controllers: [],
   providers: [],

@@ -11,6 +11,8 @@ import { ProductImages } from 'src/product_images/model/product_image.model';
 import { ApiProperty } from '@nestjs/swagger';
 import { Review } from 'src/reviews/model/review.model';
 import { Category } from 'src/category/model/category.model';
+import { ProductModels } from 'src/product_models/models/product_model.model';
+import { ProductModelHeader } from 'src/product_model_headers/models/product_model_header.model';
 
 interface ProductAtr {
   category_id: Number;
@@ -106,4 +108,10 @@ export class Product extends Model<Product, ProductAtr> {
 
   @HasMany(() => Review)
   reviews: Review;
+
+  @HasMany(() => ProductModels)
+  models: ProductModels;
+
+  @HasMany(() => ProductModelHeader)
+  modelheaders: ProductModelHeader;
 }

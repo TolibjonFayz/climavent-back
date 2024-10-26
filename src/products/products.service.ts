@@ -1,12 +1,15 @@
+import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-product.dto';
+import { GetRecentlyAddedProductsDto } from './dto/getlastadded-product.dto';
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Category } from 'src/category/model/category.model';
 import { CreateProductDto } from './dto/create-product.dto';
-import { InjectModel } from '@nestjs/sequelize';
-import { Product } from './model/product.model';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { SortProductDto } from './dto/sort-product.dto';
-import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-product.dto';
-import { Category } from 'src/category/model/category.model';
-import { GetRecentlyAddedProductsDto } from './dto/getlastadded-product.dto';
+import { InjectModel } from '@nestjs/sequelize';
+import { Product } from './model/product.model';
+import { ProductModelHeader } from 'src/product_model_headers/models/product_model_header.model';
+import { ProductModelInfo } from 'src/product_model_infos/models/product_model_info.model';
+import { ProductModels } from 'src/product_models/models/product_model.model';
 
 @Injectable()
 export class ProductsService {
@@ -33,7 +36,7 @@ export class ProductsService {
     return products;
   }
 
-  //Get all products
+  //Get all products count
   async getAllProductsCount() {
     const products = await this.productRepository.count({});
     return products;
@@ -165,7 +168,25 @@ export class ProductsService {
   async getProductById(id: number) {
     const product = await this.productRepository.findOne({
       where: { id: id },
-      include: { all: true },
+      include: [
+        {
+          all: true,
+          nested: true,
+        },
+        {
+          model: ProductModelHeader,
+          include: [
+            {
+              model: ProductModelInfo,
+              include: [
+                {
+                  model: ProductModels,
+                },
+              ],
+            },
+          ],
+        },
+      ],
     });
     //Increase views of product
     await this.productRepository.update(
