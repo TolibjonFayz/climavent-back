@@ -26,7 +26,7 @@ export class ProductModelsService {
   //Get all product models
   async getAllProductModels() {
     const productModels = await this.productModelRepository.findAll();
-    return productModels; 
+    return productModels;
   }
 
   //Get product model by id
@@ -40,6 +40,18 @@ export class ProductModelsService {
       throw new NotFoundException(
         'Product model not found or product id is invalid',
       );
+  }
+
+  //Get product model by slot
+  async getProductModelBySlot(slot: string) {
+    const productModel = await this.productModelRepository.findOne({
+      where: { name: slot },
+      include: { all: true },
+    });
+
+    if (productModel) return productModel;
+    else
+      throw new NotFoundException('Product model not found or slot is invalid');
   }
 
   //Update product model by id

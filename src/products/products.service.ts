@@ -168,25 +168,7 @@ export class ProductsService {
   async getProductById(id: number) {
     const product = await this.productRepository.findOne({
       where: { id: id },
-      include: [
-        {
-          all: true,
-          nested: true,
-        },
-        {
-          model: ProductModelHeader,
-          include: [
-            {
-              model: ProductModelInfo,
-              include: [
-                {
-                  model: ProductModels,
-                },
-              ],
-            },
-          ],
-        },
-      ],
+      include: [{ all: true }],
     });
     //Increase views of product
     await this.productRepository.update(

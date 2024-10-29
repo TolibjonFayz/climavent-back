@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Delete,
+  NotFoundException,
 } from '@nestjs/common';
 import { ProductModelsService } from './product_models.service';
 import { CreateProductModelDto } from './dto/create-product_model.dto';
@@ -37,6 +38,24 @@ export class ProductModelsController {
   @Get('one/:id')
   async getOne(@Param('id') id: number): Promise<ProductModels> {
     return this.productModelsService.getProductModelById(id);
+  }
+
+  // Get product model by slot
+  @ApiOperation({ summary: 'Get product model by slot' })
+  @Get('slot/:slot')
+  async getOneBySlot(@Param('slot') slot: string): Promise<ProductModels> {
+    try {
+      const productModel =
+        await this.productModelsService.getProductModelBySlot(slot);
+      if (!productModel) {
+        throw new NotFoundException(
+          'Product model not found or slot is invalid',
+        );
+      }
+      return productModel;
+    } catch (error) {
+      throw new NotFoundException('Product model not found or slot is invalid');
+    }
   }
 
   //Update product model by id

@@ -6,7 +6,9 @@ import {
   DataType,
   ForeignKey,
   BelongsTo,
+  HasMany,
 } from 'sequelize-typescript';
+import { ProductModelInfo } from 'src/product_model_infos/models/product_model_info.model';
 import { Product } from 'src/products/model/product.model';
 
 interface ProductModelsAtr {
@@ -38,4 +40,7 @@ export class ProductModels extends Model<ProductModels, ProductModelsAtr> {
   product_id: number;
   @BelongsTo(() => Product)
   product: Product;
+
+  @HasMany(() => ProductModelInfo)
+  modelinfo: ProductModelInfo;
 }
