@@ -4,7 +4,6 @@ import {
   Column,
   DataType,
   ForeignKey,
-  BelongsTo,
 } from 'sequelize-typescript';
 import { ApiProperty } from '@nestjs/swagger';
 

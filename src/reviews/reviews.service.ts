@@ -66,5 +66,4 @@ export class ReviewsService {
         'Product review not found or something wrong',
       );
   }
-  s;
 }
