@@ -17,9 +17,4 @@ export class UpdateCartItemDto extends PartialType(CreateCartItemDto) {
   @IsNumber()
   @IsNotEmpty()
   quantity: number;
-
-  @ApiProperty({ example: 25000, description: 'Price of product' })
-  @IsNumber()
-  @IsNotEmpty()
-  price: number;
 }

@@ -7,17 +7,18 @@ import {
   BelongsTo,
 } from 'sequelize-typescript';
 import { ApiProperty } from '@nestjs/swagger';
-import { Cart } from 'src/cart/models/cart.model';
+import { User } from 'src/users/model/user.model';
 import { Product } from 'src/products/model/product.model';
 
-interface CartItemAtr {
-  cart_id: number;
+interface OrderItemAtr {
+  user_id: number;
   product_id: number;
   quantity: number;
+  price: number;
 }
 
-@Table({ tableName: 'cart_item' })
-export class CartItem extends Model<CartItem, CartItemAtr> {
+@Table({ tableName: 'order-items' })
+export class OrderItem extends Model<OrderItem, OrderItemAtr> {
   @ApiProperty({ example: 1, description: 'Unique id' })
   @Column({
     type: DataType.INTEGER,
@@ -26,15 +27,15 @@ export class CartItem extends Model<CartItem, CartItemAtr> {
   })
   id: number;
 
-  @ForeignKey(() => Cart)
-  @ApiProperty({ example: 1, description: 'Cart id' })
+  @ForeignKey(() => User)
+  @ApiProperty({ example: 1, description: 'User id' })
   @Column({
     type: DataType.INTEGER,
     allowNull: false,
   })
-  cart_id: number;
-  @BelongsTo(() => Cart)
-  cart: Cart;
+  user_id: number;
+  @BelongsTo(() => User)
+  user: User;
 
   @ForeignKey(() => Product)
   @ApiProperty({ example: 1, description: 'Product id' })
@@ -46,10 +47,17 @@ export class CartItem extends Model<CartItem, CartItemAtr> {
   @BelongsTo(() => Product)
   product: Product;
 
-  @ApiProperty({ example: 52, description: 'Quantity of product' })
+  @ApiProperty({ example: 1, description: 'Quantity of product' })
   @Column({
     type: DataType.INTEGER,
     allowNull: false,
   })
   quantity: number;
+
+  @ApiProperty({ example: 1200000, description: 'Price of product' })
+  @Column({
+    type: DataType.INTEGER,
+    allowNull: false,
+  })
+  price: number;
 }

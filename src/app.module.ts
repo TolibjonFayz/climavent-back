@@ -16,6 +16,8 @@ import { ProductModelHeadersModule } from './product_model_headers/product_model
 import { ProductModelInfosModule } from './product_model_infos/product_model_infos.module';
 import { CartModule } from './cart/cart.module';
 import { CartItemsModule } from './cart_items/cart_items.module';
+import { OrdersModule } from './orders/orders.module';
+import { OrderItemsModule } from './order_items/order_items.module';
 
 @Module({
   imports: [
@@ -50,6 +52,8 @@ import { CartItemsModule } from './cart_items/cart_items.module';
     ProductModelInfosModule,
     CartModule,
     CartItemsModule,
+    OrdersModule,
+    OrderItemsModule,
   ],
   controllers: [],
   providers: [],

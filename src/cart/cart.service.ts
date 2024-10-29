@@ -30,7 +30,7 @@ export class CartService {
       include: { all: true },
     });
     if (cart) return cart;
-    else throw new NotFoundException('Cart not found or product id is invalid');
+    else throw new NotFoundException('Cart not found or id is invalid');
   }
 
   //Get cart by userid
@@ -40,10 +40,7 @@ export class CartService {
       include: { all: true },
     });
     if (userCart) return userCart;
-    else
-      throw new NotFoundException(
-        'User cart not found or product id is invalid',
-      );
+    else throw new NotFoundException('User cart not found or id is invalid');
   }
 
   //Update cart by id
