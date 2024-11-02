@@ -1,8 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateCartDto } from './dto/create-cart.dto';
 import { UpdateCartDto } from './dto/update-cart.dto';
 import { InjectModel } from '@nestjs/sequelize';
 import { Cart } from './models/cart.model';
+import { CartItem } from 'src/cart_items/model/cart_item.model';
+import { Product } from 'src/products/model/product.model';
+import { ProductImages } from 'src/product_images/model/product_image.model';
 
 @Injectable()
 export class CartService {
@@ -37,8 +44,24 @@ export class CartService {
   async getCartByUserId(id: number) {
     const userCart = await this.CartRepository.findOne({
       where: { user_id: id },
-      include: { all: true },
+      include: [
+        {
+          model: CartItem,
+          include: [
+            {
+              model: Product,
+              include: [
+                {
+                  model: ProductImages,
+                  as: 'images',
+                },
+              ],
+            },
+          ],
+        },
+      ],
     });
+
     if (userCart) return userCart;
     else throw new NotFoundException('User cart not found or id is invalid');
   }

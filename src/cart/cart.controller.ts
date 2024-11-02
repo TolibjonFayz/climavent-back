@@ -42,7 +42,7 @@ export class CartController {
   //Get cart by user id
   @ApiOperation({ summary: 'Get cart by user id' })
   @Get('oneuser/:id')
-  async getOneByUserId(@Param('id') id: number): Promise<Cart> {
+  async getOneByUserId(@Param('id') id: number): Promise<any> {
     return this.cartService.getCartByUserId(id);
   }
 

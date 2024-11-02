@@ -12,9 +12,37 @@ export class CartItemsService {
 
   //Creating a cart item
   async createCartItem(createCartItemDto: CreateCartItemDto) {
-    const newCartItem = await this.CartItemRepository.create(createCartItemDto);
-    const response = { message: 'Cart item successfully created', newCartItem };
-    return response;
+    const isThisExists = await this.CartItemRepository.findOne({
+      where: {
+        cart_id: createCartItemDto.cart_id,
+        product_id: createCartItemDto.product_id,
+        product_model: createCartItemDto.product_model,
+      },
+    });
+    if (isThisExists == null) {
+      const newCartItem =
+        await this.CartItemRepository.create(createCartItemDto);
+      const response = {
+        message: 'Cart item successfully created',
+        newCartItem,
+      };
+      return response;
+    } else {
+      const response = await this.CartItemRepository.update(
+        { quantity: isThisExists.quantity + createCartItemDto.quantity },
+        {
+          where: {
+            cart_id: createCartItemDto.cart_id,
+            product_id: createCartItemDto.product_id,
+            product_model: createCartItemDto.product_model,
+          },
+        },
+      );
+      return {
+        message: 'Cart item successfully created',
+        response,
+      };
+    }
   }
 
   //Get all cart items

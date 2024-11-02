@@ -13,7 +13,9 @@ import { Product } from 'src/products/model/product.model';
 interface CartItemAtr {
   cart_id: number;
   product_id: number;
+  product_model: string;
   quantity: number;
+  price: number;
 }
 
 @Table({ tableName: 'cart_item' })
@@ -25,6 +27,26 @@ export class CartItem extends Model<CartItem, CartItemAtr> {
     primaryKey: true,
   })
   id: number;
+
+  @ApiProperty({
+    example: 'ВНВ243.1-078-050-02-2,2-04-1',
+    description: 'Product model name',
+  })
+  @Column({
+    type: DataType.STRING,
+    allowNull: false,
+  })
+  product_model: string;
+
+  @ApiProperty({
+    example: 543000,
+    description: 'Product price',
+  })
+  @Column({
+    type: DataType.INTEGER,
+    allowNull: false,
+  })
+  price: string;
 
   @ForeignKey(() => Cart)
   @ApiProperty({ example: 1, description: 'Cart id' })
