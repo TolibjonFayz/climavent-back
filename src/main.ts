@@ -13,7 +13,7 @@ const start = async () => {
 
     app.enableCors({
       origin: '*',
-      methods: 'GET,PUT,POST,DELETE',
+      methods: 'GET,PUT,PATCH,POST,DELETE',
       allowedHeaders: 'Content-Type, Authorization',
       credentials: true,
       optionsSuccessStatus: 200,

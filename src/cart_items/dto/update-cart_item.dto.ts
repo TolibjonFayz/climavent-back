@@ -13,6 +13,11 @@ export class UpdateCartItemDto extends PartialType(CreateCartItemDto) {
   @IsNotEmpty()
   product_id: number;
 
+  @ApiProperty({ example: 543000, description: 'Product price' })
+  @IsNumber()
+  @IsNotEmpty()
+  price: number;
+
   @ApiProperty({
     example: 'ВНВ243.1-078-050-02-2,2-04-1',
     description: 'Product model name',

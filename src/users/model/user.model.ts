@@ -8,6 +8,12 @@ interface UserAtr {
   email: String;
   password: String;
   image_url: String;
+  city: String;
+  district: String;
+  neighbourhood: String;
+  dom: String;
+  floor: Number;
+  house_number: Number;
   is_active: Boolean;
   unique_id: String;
 }
@@ -63,6 +69,42 @@ export class User extends Model<User, UserAtr> {
     type: DataType.STRING,
   })
   image_url: string;
+
+  @ApiProperty({ example: 'Tashkent', description: 'City of user' })
+  @Column({
+    type: DataType.STRING,
+  })
+  city: string;
+
+  @ApiProperty({
+    example: 'Qorovulbozor district',
+    description: 'District of user',
+  })
+  @Column({
+    type: DataType.STRING,
+  })
+  district: string;
+
+  @ApiProperty({
+    example: "Naqshbandiy ko'chasi",
+    description: 'Neighbouhood of user',
+  })
+  @Column({
+    type: DataType.STRING,
+  })
+  neighbourhood: string;
+
+  @ApiProperty({ example: '7-dom', description: 'Dom number of user' })
+  @Column({
+    type: DataType.STRING,
+  })
+  dom: string;
+
+  @ApiProperty({ example: 4, description: 'Floor number of user' })
+  @Column({
+    type: DataType.STRING,
+  })
+  floor: string;
 
   @Column({
     type: DataType.STRING,

@@ -38,15 +38,12 @@ export class CartItem extends Model<CartItem, CartItemAtr> {
   })
   product_model: string;
 
-  @ApiProperty({
-    example: 543000,
-    description: 'Product price',
-  })
+  @ApiProperty({ example: 543000, description: 'Product price' })
   @Column({
     type: DataType.INTEGER,
     allowNull: false,
   })
-  price: string;
+  price: number;
 
   @ForeignKey(() => Cart)
   @ApiProperty({ example: 1, description: 'Cart id' })
