@@ -84,7 +84,7 @@ export class UsersController {
   ): Promise<User> {
     return this.usersService.updateUser(+id, updateUserdto);
   }
-  
+
   //Delete user by id
   @ApiOperation({ summary: 'Delete user by id' })
   @Delete('delete/:id')

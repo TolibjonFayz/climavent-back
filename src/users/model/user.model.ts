@@ -5,15 +5,13 @@ interface UserAtr {
   name: String;
   surname: String;
   phone_number: String;
+  additional_phone_number: String;
   email: String;
   password: String;
   image_url: String;
+  region: String;
   city: String;
-  district: String;
-  neighbourhood: String;
-  dom: String;
-  floor: Number;
-  house_number: Number;
+  adress: String;
   is_active: Boolean;
   unique_id: String;
 }
@@ -51,6 +49,13 @@ export class User extends Model<User, UserAtr> {
   })
   phone_number: string;
 
+  @ApiProperty({
+    example: '+998908150513',
+    description: 'Additional phone number of user',
+  })
+  @Column({})
+  additional_phone_number: string;
+
   @ApiProperty({ example: 'user@gmail.com', description: 'Email of user' })
   @Column({
     type: DataType.STRING,
@@ -70,6 +75,12 @@ export class User extends Model<User, UserAtr> {
   })
   image_url: string;
 
+  @ApiProperty({ example: 'Tashkent city', description: 'Region of user' })
+  @Column({
+    type: DataType.STRING,
+  })
+  region: string;
+
   @ApiProperty({ example: 'Tashkent', description: 'City of user' })
   @Column({
     type: DataType.STRING,
@@ -77,34 +88,13 @@ export class User extends Model<User, UserAtr> {
   city: string;
 
   @ApiProperty({
-    example: 'Qorovulbozor district',
-    description: 'District of user',
+    example: 'Chilonzor tumani 19-kvartal 16-dom 86-honodon',
+    description: 'Adress of user',
   })
   @Column({
     type: DataType.STRING,
   })
-  district: string;
-
-  @ApiProperty({
-    example: "Naqshbandiy ko'chasi",
-    description: 'Neighbouhood of user',
-  })
-  @Column({
-    type: DataType.STRING,
-  })
-  neighbourhood: string;
-
-  @ApiProperty({ example: '7-dom', description: 'Dom number of user' })
-  @Column({
-    type: DataType.STRING,
-  })
-  dom: string;
-
-  @ApiProperty({ example: 4, description: 'Floor number of user' })
-  @Column({
-    type: DataType.STRING,
-  })
-  floor: string;
+  adress: string;
 
   @Column({
     type: DataType.STRING,

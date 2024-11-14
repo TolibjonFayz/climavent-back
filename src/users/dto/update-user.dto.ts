@@ -20,17 +20,30 @@ export class UpdateUserDto extends PartialType(RegisterUserDto) {
   @IsNotEmpty()
   phone_number: string;
 
+  @ApiProperty({
+    example: '+998908150513',
+    description: 'Additional phone number of user',
+  })
+  additional_phone_number: string;
+
   @ApiProperty({ example: 'user@gmail.com', description: 'Email of user' })
   @IsString()
   @IsNotEmpty()
   email: string;
 
-  @ApiProperty({ example: 'qwerty', description: 'Password of user' })
-  @IsNotEmpty()
-  @IsString()
-  password: string;
-
   @ApiProperty({ example: 'myimg.jpg', description: 'Image of user' })
   @IsString()
   image_url: string;
+
+  @ApiProperty({ example: 'myimg.jpg', description: 'Image of user' })
+  @IsString()
+  region: string;
+
+  @ApiProperty({ example: 'myimg.jpg', description: 'Image of user' })
+  @IsString()
+  city: string;
+
+  @ApiProperty({ example: 'myimg.jpg', description: 'Image of user' })
+  @IsString()
+  adress: string;
 }

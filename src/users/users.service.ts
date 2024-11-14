@@ -181,16 +181,10 @@ export class UsersService {
 
   //Update user by id
   async updateUser(id: number, updateUserDto: UpdateUserDto) {
-    //Password is hashing
-    const hashed_password = await bcrypt.hash(updateUserDto.password, 8);
-
-    const updating = await this.UsersRepository.update(
-      { ...updateUserDto, password: hashed_password },
-      {
-        where: { id },
-        returning: true,
-      },
-    );
+    const updating = await this.UsersRepository.update(updateUserDto, {
+      where: { id },
+      returning: true,
+    });
     return updating[1][0].dataValues;
   }
 
