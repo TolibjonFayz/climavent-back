@@ -4,10 +4,12 @@ import { ApiProperty } from '@nestjs/swagger';
 interface UserAtr {
   name: String;
   surname: String;
+  fathername: String;
+  birthdate: Date;
+  sex: String;
   phone_number: String;
   additional_phone_number: String;
   email: String;
-  password: String;
   image_url: String;
   region: String;
   city: String;
@@ -29,7 +31,6 @@ export class User extends Model<User, UserAtr> {
   @ApiProperty({ example: 'Adam', description: 'Name of user' })
   @Column({
     type: DataType.STRING,
-    allowNull: false,
   })
   name: string;
 
@@ -38,6 +39,24 @@ export class User extends Model<User, UserAtr> {
     type: DataType.STRING,
   })
   surname: string;
+
+  @ApiProperty({ example: "Adam o'g'li", description: "Name of user's father" })
+  @Column({
+    type: DataType.STRING,
+  })
+  fathername: string;
+
+  @ApiProperty({ example: '04.09.2005', description: 'Birthday of user' })
+  @Column({
+    type: DataType.DATE,
+  })
+  birthdate: Date;
+
+  @ApiProperty({ example: 'Man', description: 'Sex of user (man or woman)' })
+  @Column({
+    type: DataType.STRING,
+  })
+  sex: string;
 
   @ApiProperty({
     example: '+998908150513',
@@ -61,13 +80,6 @@ export class User extends Model<User, UserAtr> {
     type: DataType.STRING,
   })
   email: string;
-
-  @ApiProperty({ example: 'qwerty', description: 'Password of user' })
-  @Column({
-    type: DataType.STRING,
-    allowNull: false,
-  })
-  password: string;
 
   @ApiProperty({ example: 'myimg.jpg', description: 'Image of user' })
   @Column({

@@ -7,12 +7,13 @@ import {
   BelongsTo,
 } from 'sequelize-typescript';
 import { ApiProperty } from '@nestjs/swagger';
-import { User } from 'src/users/model/user.model';
 import { Product } from 'src/products/model/product.model';
+import { Order } from 'src/orders/model/order.model';
 
 interface OrderItemAtr {
-  user_id: number;
+  order_id: number;
   product_id: number;
+  product_model: string;
   quantity: number;
   price: number;
 }
@@ -27,15 +28,15 @@ export class OrderItem extends Model<OrderItem, OrderItemAtr> {
   })
   id: number;
 
-  @ForeignKey(() => User)
-  @ApiProperty({ example: 1, description: 'User id' })
+  @ForeignKey(() => Order)
+  @ApiProperty({ example: 1, description: 'Order id' })
   @Column({
     type: DataType.INTEGER,
     allowNull: false,
   })
-  user_id: number;
-  @BelongsTo(() => User)
-  user: User;
+  order_id: number;
+  @BelongsTo(() => Order)
+  order: Order;
 
   @ForeignKey(() => Product)
   @ApiProperty({ example: 1, description: 'Product id' })
@@ -46,6 +47,13 @@ export class OrderItem extends Model<OrderItem, OrderItemAtr> {
   product_id: number;
   @BelongsTo(() => Product)
   product: Product;
+
+  @ApiProperty({ example: 'HVAUSDHVOH', description: 'Model of product' })
+  @Column({
+    type: DataType.STRING,
+    allowNull: false,
+  })
+  product_model: string;
 
   @ApiProperty({ example: 1, description: 'Quantity of product' })
   @Column({

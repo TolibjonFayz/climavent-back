@@ -11,11 +11,14 @@ import {
 import { CookieGetter } from 'src/decorators/cookieGetter.decorator';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { RegisterUserDto } from './dto/register-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
 import { LoginUserDto } from './dto/login-user.dto.';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { UsersService } from './users.service';
 import { User } from './model/user.model';
 import { Response } from 'express';
-import { UpdateUserDto } from './dto/update-user.dto';
+import { SendOtpDto } from './dto/send-otp.dto';
+import { SignoutDto } from './dto/signout.dto';
 
 @ApiTags('Users')
 @Controller('users')
@@ -52,13 +55,13 @@ export class UsersController {
   }
 
   //Sign out user
-  @ApiOperation({ summary: 'Signout user' })
+  @ApiOperation({ summary: 'Sign out user' })
   @Post('signout')
   async signOutUser(
-    @CookieGetter('refresh_token') refresh_token: string,
+    @Body() signoutDto: SignoutDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return this.usersService.signOutUser(refresh_token, res);
+    return this.usersService.signOutUser(signoutDto, res);
   }
 
   //Get all users
@@ -71,8 +74,19 @@ export class UsersController {
   //Get user by id
   @ApiOperation({ summary: 'Get user by id' })
   @Get('one/:id')
-  async getUserById(@Param('id') id: number): Promise<User | any> {
+  async getUserById(@Param('id') id: number): Promise<User> {
     return this.usersService.getUserById(id);
+  }
+
+  //Verify OTP
+  @ApiOperation({ summary: 'Verify OTP' })
+  @ApiResponse({ status: 200, description: 'OTP verified successfully' })
+  @Post('verify-otp')
+  verifyOtp(
+    @Body() verifyOtpDto: VerifyOtpDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.usersService.verifyOtpClient(verifyOtpDto, res);
   }
 
   //Update user by id

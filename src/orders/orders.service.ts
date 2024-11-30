@@ -3,6 +3,10 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { InjectModel } from '@nestjs/sequelize';
 import { Order } from './model/order.model';
+import { OrderItem } from 'src/order_items/model/order_item.model';
+import { Product } from 'src/products/model/product.model';
+import { User } from 'src/users/model/user.model';
+import { ProductImages } from 'src/product_images/model/product_image.model';
 
 @Injectable()
 export class OrdersService {
@@ -39,10 +43,26 @@ export class OrdersService {
   async getOrderByUserId(id: number) {
     const userOrder = await this.OrderRepository.findOne({
       where: { user_id: id },
-      include: { all: true },
+      include: [
+        {
+          model: OrderItem,
+          include: [
+            {
+              model: Product,
+              include: [
+                {
+                  model: ProductImages,
+                },
+              ],
+            },
+          ],
+        },
+        {
+          model: User, // If you want user details (optional)
+        },
+      ],
     });
-    if (userOrder) return userOrder;
-    else throw new NotFoundException('User order not found or id is invalid');
+    return userOrder;
   }
 
   //Update order by id

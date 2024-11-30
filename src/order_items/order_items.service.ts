@@ -37,10 +37,10 @@ export class OrderItemsService {
     else throw new NotFoundException('Order item not found or id is invalid');
   }
 
-  //Get order item by userid
-  async getOrderItemByUserId(id: number) {
+  //Get order item by order
+  async getOrderItemByOrderId(id: number) {
     const userOrder = await this.OrderItemRepository.findOne({
-      where: { user_id: id },
+      where: { order_id: id },
       include: { all: true },
     });
     if (userOrder) return userOrder;

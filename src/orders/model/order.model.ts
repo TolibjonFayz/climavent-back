@@ -5,9 +5,11 @@ import {
   DataType,
   ForeignKey,
   BelongsTo,
+  HasMany,
 } from 'sequelize-typescript';
 import { ApiProperty } from '@nestjs/swagger';
 import { User } from 'src/users/model/user.model';
+import { OrderItem } from 'src/order_items/model/order_item.model';
 
 interface OrderAtr {
   user_id: number;
@@ -48,4 +50,7 @@ export class Order extends Model<Order, OrderAtr> {
     allowNull: false,
   })
   status: string;
+
+  @HasMany(() => OrderItem)
+  orderItems: OrderItem;
 }

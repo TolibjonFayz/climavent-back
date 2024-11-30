@@ -49,7 +49,7 @@ export class OtpService {
         },
         data: {
           mobile_phone: phone,
-          message: `Furniro\n\nYour verification OTP: ${otp}`,
+          message: `Climavent.uz saytiga ro‘yxatdan o‘tish uchun tasdiqlash kodi: ${otp}`,
           from: 4546,
           callback_url: this.webhookurl,
         },

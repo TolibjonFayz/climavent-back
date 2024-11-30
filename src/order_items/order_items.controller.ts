@@ -43,7 +43,7 @@ export class OrderItemsController {
   @ApiOperation({ summary: 'Get order item by user id' })
   @Get('oneuser/:id')
   async getOneByUserId(@Param('id') id: number): Promise<OrderItem> {
-    return this.orderItemsService.getOrderItemByUserId(id);
+    return this.orderItemsService.getOrderItemByOrderId(id);
   }
 
   //Update order by id

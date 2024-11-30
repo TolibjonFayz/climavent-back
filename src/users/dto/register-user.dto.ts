@@ -24,11 +24,6 @@ export class RegisterUserDto {
   @IsNotEmpty()
   email: string;
 
-  @ApiProperty({ example: 'qwerty', description: 'Password of user' })
-  @IsNotEmpty()
-  @IsString()
-  password: string;
-
   @ApiProperty({ example: 'myimg.jpg', description: 'Image of user' })
   image_url: string;
 }
