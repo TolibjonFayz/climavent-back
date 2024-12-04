@@ -3,7 +3,6 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { dates, decode, encode } from '../common/helpers/crypto';
 import { AddMinutesToDate } from '../common/helpers/addMinutes';
@@ -15,7 +14,6 @@ import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { MailService } from '../mail/mail.service';
 import { OtpService } from 'src/otp/otp.service';
 import { InjectModel } from '@nestjs/sequelize';
-import { SendOtpDto } from './dto/send-otp.dto';
 import { Otp } from 'src/otp/models/otp.model';
 import * as otpGenerator from 'otp-generator';
 import { User } from './model/user.model';
@@ -24,12 +22,16 @@ import { v4 as uuidv4 } from 'uuid';
 import { Response } from 'express';
 import * as bcrypt from 'bcrypt';
 import { SignoutDto } from './dto/signout.dto';
+import { Like } from 'src/likes/model/like.model';
+import { Cart } from 'src/cart/models/cart.model';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectModel(User) private UsersRepository: typeof User,
     @InjectModel(Otp) private readonly otpRepo: typeof Otp,
+    @InjectModel(Like) private readonly likeRepo: typeof Like,
+    @InjectModel(Cart) private readonly cartRepo: typeof Cart,
     private readonly jwtservice: JwtService,
     private readonly mailService: MailService,
     private readonly otpService: OtpService,
@@ -378,5 +380,18 @@ export class UsersService {
     );
     if (verified) return true;
     throw new BadRequestException('Wrong one time password ...');
+  }
+
+  async getUserBadgeNumbers(id: number) {
+    const likes = await this.likeRepo.count({ where: { user_id: id } });
+    const carts = await this.cartRepo.findOne({
+      where: { user_id: id },
+      include: { all: true },
+    });
+    const payload = {
+      likes,
+      carts: carts.cartItems,
+    };
+    return payload;
   }
 }

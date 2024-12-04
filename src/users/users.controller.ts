@@ -8,7 +8,6 @@ import {
   Get,
   Res,
 } from '@nestjs/common';
-import { CookieGetter } from 'src/decorators/cookieGetter.decorator';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -17,7 +16,6 @@ import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { UsersService } from './users.service';
 import { User } from './model/user.model';
 import { Response } from 'express';
-import { SendOtpDto } from './dto/send-otp.dto';
 import { SignoutDto } from './dto/signout.dto';
 
 @ApiTags('Users')
@@ -76,6 +74,13 @@ export class UsersController {
   @Get('one/:id')
   async getUserById(@Param('id') id: number): Promise<User> {
     return this.usersService.getUserById(id);
+  }
+
+  //Get user badges by id
+  @ApiOperation({ summary: 'Get user badges by id' })
+  @Get('badges/:id')
+  async getUserBadgeById(@Param('id') id: number) {
+    return this.usersService.getUserBadgeNumbers(id);
   }
 
   //Verify OTP
