@@ -42,7 +42,7 @@ export class OrdersController {
   //Get order by user id
   @ApiOperation({ summary: 'Get order by user id' })
   @Get('oneuser/:id')
-  async getOneByUserId(@Param('id') id: number): Promise<Order> {
+  async getOneByUserId(@Param('id') id: number): Promise<Order[]> {
     return this.ordersService.getOrderByUserId(id);
   }
 

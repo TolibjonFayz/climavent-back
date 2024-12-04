@@ -12,6 +12,8 @@ import { ProductImages } from 'src/product_images/model/product_image.model';
 export class OrdersService {
   constructor(
     @InjectModel(Order) private readonly OrderRepository: typeof Order,
+    @InjectModel(OrderItem)
+    private readonly OrderItemsRepository: typeof OrderItem,
   ) {}
 
   //Creating a order
@@ -41,7 +43,7 @@ export class OrdersService {
 
   //Get order by userid
   async getOrderByUserId(id: number) {
-    const userOrder = await this.OrderRepository.findOne({
+    const userOrder = await this.OrderRepository.findAll({
       where: { user_id: id },
       include: [
         {
@@ -58,9 +60,11 @@ export class OrdersService {
           ],
         },
         {
-          model: User, // If you want user details (optional)
+          model: User,
+          attributes: ['name', 'region', 'city', 'adress'],
         },
       ],
+      order: [['updatedAt', 'DESC']],
     });
     return userOrder;
   }
@@ -78,6 +82,7 @@ export class OrdersService {
   //Delete order by id
   async deleteOrderById(id: number) {
     const deleting = await this.OrderRepository.destroy({ where: { id: id } });
+    await this.OrderItemsRepository.destroy({ where: { order_id: id } });
     if (deleting) return deleting;
     else throw new NotFoundException('Order not found or something wrong');
   }

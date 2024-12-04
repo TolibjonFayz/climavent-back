@@ -3,18 +3,19 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { CreateCartDto } from './dto/create-cart.dto';
-import { UpdateCartDto } from './dto/update-cart.dto';
-import { InjectModel } from '@nestjs/sequelize';
 import { Cart } from './models/cart.model';
-import { CartItem } from 'src/cart_items/model/cart_item.model';
+import { InjectModel } from '@nestjs/sequelize';
+import { UpdateCartDto } from './dto/update-cart.dto';
+import { CreateCartDto } from './dto/create-cart.dto';
 import { Product } from 'src/products/model/product.model';
+import { CartItem } from 'src/cart_items/model/cart_item.model';
 import { ProductImages } from 'src/product_images/model/product_image.model';
 
 @Injectable()
 export class CartService {
   constructor(
     @InjectModel(Cart) private readonly CartRepository: typeof Cart,
+    @InjectModel(CartItem) private readonly CartItemRepository: typeof CartItem,
   ) {}
 
   //Creating a cart
@@ -62,8 +63,7 @@ export class CartService {
       ],
     });
 
-    if (userCart) return userCart;
-    else throw new NotFoundException('User cart not found or id is invalid');
+    return userCart;
   }
 
   //Update cart by id
@@ -79,6 +79,7 @@ export class CartService {
   //Delete cart by id
   async deleteCartById(id: number) {
     const deleting = await this.CartRepository.destroy({ where: { id: id } });
+    await this.CartItemRepository.destroy({ where: { cart_id: id } });
     if (deleting) return deleting;
     else throw new NotFoundException('Cart not found or something wrong');
   }
