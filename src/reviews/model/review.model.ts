@@ -38,11 +38,11 @@ export class Review extends Model<Review, ReviewAtr> {
   review: string;
 
   @ApiProperty({
-    example: 5,
+    example: 4.5,
     description: 'How do you rate this product 1 to 5',
   })
   @Column({
-    type: DataType.INTEGER,
+    type: DataType.FLOAT,
     allowNull: false,
   })
   stars: number;

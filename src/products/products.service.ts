@@ -10,6 +10,8 @@ import { Product } from './model/product.model';
 import { ProductModelHeader } from 'src/product_model_headers/models/product_model_header.model';
 import { ProductModelInfo } from 'src/product_model_infos/models/product_model_info.model';
 import { ProductModels } from 'src/product_models/models/product_model.model';
+import { Review } from 'src/reviews/model/review.model';
+import { User } from 'src/users/model/user.model';
 
 @Injectable()
 export class ProductsService {
@@ -168,7 +170,13 @@ export class ProductsService {
   async getProductById(id: number) {
     const product = await this.productRepository.findOne({
       where: { id: id },
-      include: [{ all: true }],
+      include: [
+        {
+          model: Review,
+          include: [{ model: User, attributes: ['name'] }],
+        },
+        { all: true },
+      ],
     });
     //Increase views of product
     await this.productRepository.update(

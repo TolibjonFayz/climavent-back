@@ -29,6 +29,15 @@ export class ReviewsService {
     return productReviews;
   }
 
+  //Get product reviews by product id
+  async getProductReviewsByProductId(id: number) {
+    const productReviews = await this.ReviewReviewRepository.findAll({
+      where: { product_id: id },
+      include: { all: true },
+    });
+    return productReviews;
+  }
+
   //Get product review by id
   async getProductReviewById(id: number) {
     const productReview = await this.ReviewReviewRepository.findOne({

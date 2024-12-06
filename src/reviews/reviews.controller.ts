@@ -32,6 +32,13 @@ export class ReviewsController {
     return this.reviewsService.getAllProductreviews();
   }
 
+  //Get product reviews by product id
+  @ApiOperation({ summary: 'Get product reviews by product id' })
+  @Get('productone/:id')
+  async getProductReviews(@Param('id') id: number): Promise<Review[]> {
+    return this.reviewsService.getProductReviewsByProductId(id);
+  }
+
   //Get product review by id
   @ApiOperation({ summary: 'Get product review by id' })
   @Get('one/:id')
