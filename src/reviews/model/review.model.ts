@@ -6,7 +6,7 @@ import {
   DataType,
   ForeignKey,
   BelongsTo,
-} from 'sequelize-typescript';
+} from 'seque54glize-typescript';
 import { Product } from 'src/products/model/product.model';
 import { User } from 'src/users/model/user.model';
 
