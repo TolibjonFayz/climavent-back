@@ -390,7 +390,7 @@ export class UsersService {
     });
     const payload = {
       likes,
-      carts: carts.cartItems,
+      carts: carts?.cartItems,
     };
     return payload;
   }
