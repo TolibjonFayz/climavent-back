@@ -30,7 +30,7 @@ import { OrderItemsModule } from './order_items/order_items.module';
       password: String(process.env.POSTGRES_PASSWORD),
       database: process.env.POSTGRES_DB,
       autoLoadModels: true,
-      logging: true,
+      logging: false,
       dialectOptions: {
         ssl: {
           require: true,
