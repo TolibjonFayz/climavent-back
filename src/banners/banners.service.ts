@@ -13,6 +13,8 @@ export class BannersService {
   //Create banner
   async createBanner(createBannerDto: CreateBannerDto) {
     const newBaner = await this.bannerRepository.create(createBannerDto);
+    console.log("everything is fine");
+    
     const response = {
       message: 'Banner successfully created',
       newBaner,
