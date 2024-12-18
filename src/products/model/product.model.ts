@@ -16,10 +16,13 @@ import { ProductModelHeader } from 'src/product_model_headers/models/product_mod
 
 interface ProductAtr {
   category_id: Number;
-  name: String;
-  description_short: String;
+  name_uz: String;
+  name_ru: String;
+  name_en: String;
+  description_short_uz: String;
+  description_short_ru: String;
+  description_short_en: String;
   price: Number;
-  model: String;
   views: Number;
   quantity: Number;
   producer: String;
@@ -28,11 +31,7 @@ interface ProductAtr {
 @Table({ tableName: 'products' })
 export class Product extends Model<Product, ProductAtr> {
   @ApiProperty({ example: 1, description: 'Unique id' })
-  @Column({
-    type: DataType.INTEGER,
-    autoIncrement: true,
-    primaryKey: true,
-  })
+  @Column({ type: DataType.INTEGER, autoIncrement: true, primaryKey: true })
   id: number;
 
   @ApiProperty({
@@ -43,7 +42,27 @@ export class Product extends Model<Product, ProductAtr> {
     type: DataType.STRING,
     allowNull: false,
   })
-  name: string;
+  name_uz: string;
+
+  @ApiProperty({
+    example: 'Centrifugal fan type vs14-46',
+    description: 'Name of product',
+  })
+  @Column({
+    type: DataType.STRING,
+    allowNull: false,
+  })
+  name_ru: string;
+
+  @ApiProperty({
+    example: 'Centrifugal fan type vs14-46',
+    description: 'Name of product',
+  })
+  @Column({
+    type: DataType.STRING,
+    allowNull: false,
+  })
+  name_en: string;
 
   @ApiProperty({
     example: 'Its great, good...',
@@ -53,7 +72,27 @@ export class Product extends Model<Product, ProductAtr> {
     type: DataType.TEXT,
     allowNull: false,
   })
-  description_short: string;
+  description_short_uz: string;
+
+  @ApiProperty({
+    example: 'Its great, good...',
+    description: 'About the product',
+  })
+  @Column({
+    type: DataType.TEXT,
+    allowNull: false,
+  })
+  description_short_ru: string;
+
+  @ApiProperty({
+    example: 'Its great, good...',
+    description: 'About the product',
+  })
+  @Column({
+    type: DataType.TEXT,
+    allowNull: false,
+  })
+  description_short_en: string;
 
   @ApiProperty({ example: 20000, description: 'Price of product' })
   @Column({
@@ -61,13 +100,6 @@ export class Product extends Model<Product, ProductAtr> {
     allowNull: false,
   })
   price: number;
-
-  @ApiProperty({ example: 'Y36', description: 'Model of product' })
-  @Column({
-    type: DataType.STRING,
-    allowNull: false,
-  })
-  model: string;
 
   @ApiProperty({ example: 158, description: 'Views count of product' })
   @Column({

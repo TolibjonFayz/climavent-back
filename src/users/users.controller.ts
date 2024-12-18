@@ -7,6 +7,7 @@ import {
   Body,
   Get,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { RegisterUserDto } from './dto/register-user.dto';
@@ -17,6 +18,9 @@ import { UsersService } from './users.service';
 import { User } from './model/user.model';
 import { Response } from 'express';
 import { SignoutDto } from './dto/signout.dto';
+import { UserSelfGuard } from 'src/guards/user_self.guard';
+import { UserGuard } from 'src/guards/user.guard';
+import { JwtGuard } from 'src/guards/jwt.guard';
 
 @ApiTags('Users')
 @Controller('users')
@@ -65,12 +69,14 @@ export class UsersController {
   //Get all users
   @ApiOperation({ summary: 'Get all users' })
   @Get('all')
+  @UseGuards(UserGuard)
   async getAllUsers(): Promise<User[] | any> {
     return this.usersService.getAllUsers();
   }
 
   //Get user by id
   @ApiOperation({ summary: 'Get user by id' })
+  @UseGuards(UserSelfGuard)
   @Get('one/:id')
   async getUserById(@Param('id') id: number): Promise<User> {
     return this.usersService.getUserById(id);
@@ -96,6 +102,7 @@ export class UsersController {
 
   //Update user by id
   @ApiOperation({ summary: 'Update user by id' })
+  @UseGuards(UserSelfGuard)
   @Patch('update/:id')
   async updateUser(
     @Param('id') id: number,
@@ -106,6 +113,7 @@ export class UsersController {
 
   //Delete user by id
   @ApiOperation({ summary: 'Delete user by id' })
+  @UseGuards(UserSelfGuard)
   @Delete('delete/:id')
   async deleteUser(@Param('id') id: number): Promise<string> {
     return this.usersService.deleteUser(id);

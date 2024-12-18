@@ -17,11 +17,7 @@ interface ProductImagesAtr {
 @Table({ tableName: 'product_images' })
 export class ProductImages extends Model<ProductImages, ProductImagesAtr> {
   @ApiProperty({ example: 1, description: 'Unique id' })
-  @Column({
-    type: DataType.INTEGER,
-    autoIncrement: true,
-    primaryKey: true,
-  })
+  @Column({ type: DataType.INTEGER, autoIncrement: true, primaryKey: true })
   id: number;
 
   @ApiProperty({ example: 'kdjasjbfs.png', description: 'Image of product' })

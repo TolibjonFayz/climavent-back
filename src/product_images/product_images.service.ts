@@ -13,14 +13,19 @@ export class ProductImagesService {
 
   //Create product image
   async createProductImage(createProductImageDto: CreateProductImageDto) {
-    const newProductImage = await this.productImageRepository.create(
-      createProductImageDto,
-    );
-    const response = {
-      message: 'Product image successfully created',
-      newProductImage,
-    };
-    return response;
+    try {
+      const newProductImage = await this.productImageRepository.create(
+        createProductImageDto,
+      );
+      const response = {
+        message: 'Product image successfully created',
+        newProductImage,
+      };
+      return response;
+    } catch (err) {
+      console.log(err);
+      return err;
+    }
   }
 
   //Get all product images

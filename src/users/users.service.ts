@@ -394,4 +394,36 @@ export class UsersService {
     };
     return payload;
   }
+
+  async refreshToken(user_id: number, refreshToken: string, res: Response) {
+    const decodedToken = this.jwtservice.decode(refreshToken);
+    if (user_id != decodedToken['id']) {
+      throw new BadRequestException('Worker not found');
+    }
+    const worker = await this.UsersRepository.findOne({
+      where: { id: user_id },
+    });
+    if (!worker || !worker.refresh_token) {
+      throw new BadRequestException('Worker not found');
+    }
+    const tokenMatch = await bcrypt.compare(refreshToken, worker.refresh_token);
+    if (!tokenMatch) throw new ForbiddenException('Forbidden');
+
+    const token = await this.getTokens(worker);
+    const hashed_refresh_token = await bcrypt.hash(token.refreshToken, 7);
+    const updateWorker = await this.UsersRepository.update(
+      { refresh_token: hashed_refresh_token },
+      { where: { id: worker.id }, returning: true },
+    );
+    res.cookie('refresh_token', token.refreshToken, {
+      maxAge: 15 * 24 * 60 * 60 * 1000,
+      httpOnly: true,
+    });
+    const response = {
+      message: 'Worker refreshed',
+      worker: updateWorker[1][0],
+      token,
+    };
+    return response;
+  }
 }

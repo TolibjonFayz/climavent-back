@@ -7,6 +7,7 @@ import { OrderItem } from 'src/order_items/model/order_item.model';
 import { Product } from 'src/products/model/product.model';
 import { User } from 'src/users/model/user.model';
 import { ProductImages } from 'src/product_images/model/product_image.model';
+import { Review } from 'src/reviews/model/review.model';
 
 @Injectable()
 export class OrdersService {
@@ -54,6 +55,9 @@ export class OrdersService {
               include: [
                 {
                   model: ProductImages,
+                },
+                {
+                  model: Review,
                 },
               ],
             },
