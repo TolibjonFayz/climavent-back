@@ -13,14 +13,19 @@ export class ProductModelsService {
 
   //Create product model
   async createProductModel(createProductModelDto: CreateProductModelDto) {
-    const newProductModel = await this.productModelRepository.create(
-      createProductModelDto,
-    );
-    const response = {
-      message: 'Product model successfully created',
-      newProductModel,
-    };
-    return response;
+    try {
+      const newProductModel = await this.productModelRepository.create(
+        createProductModelDto,
+      );
+      const response = {
+        message: 'Product model successfully created',
+        newProductModel,
+      };``
+      return response;
+    } catch (error) {
+      console.log(error);
+      return error;
+    }
   }
 
   //Get all product models
