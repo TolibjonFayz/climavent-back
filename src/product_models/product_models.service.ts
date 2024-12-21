@@ -20,7 +20,8 @@ export class ProductModelsService {
       const response = {
         message: 'Product model successfully created',
         newProductModel,
-      };``
+      };
+      ``;
       return response;
     } catch (error) {
       console.log(error);
@@ -45,6 +46,15 @@ export class ProductModelsService {
       throw new NotFoundException(
         'Product model not found or product id is invalid',
       );
+  }
+
+  //Get product model by id
+  async getProductModelByProductId(id: number) {
+    const productModel = await this.productModelRepository.findOne({
+      where: { product_id: id },
+      include: { all: true },
+    });
+    return productModel;
   }
 
   //Get product model by slot

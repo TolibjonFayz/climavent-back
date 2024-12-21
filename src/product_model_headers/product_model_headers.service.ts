@@ -47,6 +47,15 @@ export class ProductModelHeadersService {
       );
   }
 
+  //Get product model header by id
+  async getProductModelHeaderByProductId(id: number) {
+    const productModel = await this.productModelHeaderRepository.findAll({
+      where: { product_id: id },
+      include: { all: true },
+    });
+    return productModel;
+  }
+
   //Update product model header by id
   async updateProductModelHeaderById(
     id: number,

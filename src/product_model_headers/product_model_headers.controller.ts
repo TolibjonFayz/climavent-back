@@ -45,6 +45,15 @@ export class ProductModelHeadersController {
     return this.productModelHeadersService.getProductModelHeaderById(id);
   }
 
+  //Get product model header by product id
+  @ApiOperation({ summary: 'Get product model header by product id' })
+  @Get('oneproductid/:id')
+  async getOneByProductid(
+    @Param('id') id: number,
+  ): Promise<ProductModelHeader[]> {
+    return this.productModelHeadersService.getProductModelHeaderByProductId(id);
+  }
+
   //Update product model header by id
   @ApiOperation({ summary: 'Update product model header by id' })
   @Patch('update/:id')

@@ -40,6 +40,13 @@ export class ProductModelsController {
     return this.productModelsService.getProductModelById(id);
   }
 
+  //Get product model by product id
+  @ApiOperation({ summary: 'Get product model by id' })
+  @Get('oneproductid/:id')
+  async getOneByPdroductid(@Param('id') id: number): Promise<ProductModels> {
+    return this.productModelsService.getProductModelByProductId(id);
+  }
+
   // Get product model by slot
   @ApiOperation({ summary: 'Get product model by slot' })
   @Get('slot/:slot')
