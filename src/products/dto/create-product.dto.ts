@@ -60,11 +60,6 @@ export class CreateProductDto {
   @IsNotEmpty()
   quantity: number;
 
-  @ApiProperty({ example: 'Y36', description: 'Model of product' })
-  @IsNotEmpty()
-  @IsString()
-  model: string;
-
   @ApiProperty({
     example: 'Hisense',
     description: 'Producer(maker) of product',

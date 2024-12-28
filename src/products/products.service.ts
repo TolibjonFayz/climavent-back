@@ -98,7 +98,7 @@ export class ProductsService {
   async sortProductsByCategoryId(
     sortbyCategoryIdProduct: SortbyCategoryIdProductDto,
   ) {
-    //Regular (ommabop) serach
+    //Regular (ommabop) serach  
     if (
       sortbyCategoryIdProduct.price == 'Ommabop' ||
       sortbyCategoryIdProduct.price == 'kopbuyurtirilgan'
@@ -106,6 +106,7 @@ export class ProductsService {
       const categoryProducts = await this.productRepository.findAll({
         where: { category_id: sortbyCategoryIdProduct.category_id },
         include: { all: true },
+        limit: sortbyCategoryIdProduct.limit,
       });
 
       //Parent category products finding
@@ -118,6 +119,7 @@ export class ProductsService {
           const hehe = await this.productRepository.findAll({
             where: { category_id: res[i].id },
             include: { all: true },
+            limit: sortbyCategoryIdProduct.limit,
           });
           for (let index = 0; index < hehe.length; index++) {
             allProductsForParentCatIds.push(hehe[index]);
@@ -134,6 +136,7 @@ export class ProductsService {
         where: { category_id: sortbyCategoryIdProduct.category_id },
         include: { all: true },
         order: [['price', sortbyCategoryIdProduct.price]],
+        limit: sortbyCategoryIdProduct.limit,
       });
 
       //Parent category products finding
@@ -148,6 +151,7 @@ export class ProductsService {
           const products = await this.productRepository.findAll({
             where: { category_id: res1[i].id },
             include: { all: true },
+            limit: sortbyCategoryIdProduct.limit,
           });
           for (let i = 0; i < products.length; i++) {
             allProductsForParentCatProducts.push(products[i]);
