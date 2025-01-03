@@ -35,7 +35,8 @@ export class OtpService {
     }
   }
 
-  async sendOtp(phone: number, otp: number) {
+  async 
+  sendOtp(phone: number, otp: number) {
     try {
       const tokenData = JSON.parse(
         fs.readFileSync(path.join(__dirname, 'token.json'), 'utf-8'),
