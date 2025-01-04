@@ -97,7 +97,6 @@ export class Product extends Model<Product, ProductAtr> {
   @ApiProperty({ example: 20000, description: 'Price of product' })
   @Column({
     type: DataType.INTEGER,
-    allowNull: false,
   })
   price: number;
 
