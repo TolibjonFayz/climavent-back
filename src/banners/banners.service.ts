@@ -13,8 +13,8 @@ export class BannersService {
   //Create banner
   async createBanner(createBannerDto: CreateBannerDto) {
     const newBaner = await this.bannerRepository.create(createBannerDto);
-    console.log("everything is fine");
-    
+    console.log('everything is fine');
+
     const response = {
       message: 'Banner successfully created',
       newBaner,
@@ -26,6 +26,7 @@ export class BannersService {
   async getAllBanners() {
     const banners = await this.bannerRepository.findAll({
       include: { all: true },
+      order: [['createdAt', 'DESC']],
     });
     return banners;
   }
