@@ -59,7 +59,7 @@ export class OtpService {
       try {
         response = await axios(config);
       } catch (error) {
-        console.log(error.data);
+        console.log(error);
       }
       return true;
     } catch (error) {
@@ -70,51 +70,6 @@ export class OtpService {
       ) {
         await this.auth();
         return this.sendOtp(phone, otp);
-      }
-      console.error('Send error:', error.message);
-      return {
-        error: true,
-        message: error.response ? error.response.data.message : 'Unknown error',
-        status: error.response ? error.response.status : 'Unknown status',
-      };
-    }
-  }
-
-  async sendOrder(phone: number) {
-    try {
-      const tokenData = JSON.parse(
-        fs.readFileSync(path.join(__dirname, 'token.json'), 'utf-8'),
-      );
-
-      const config = {
-        method: 'post',
-        url: `${API_BASE_URL}/message/sms/send`,
-        headers: {
-          Authorization: `Bearer ${tokenData?.data?.token}`,
-        },
-        data: {
-          mobile_phone: phone,
-          message: `Ashyo.uz\n\n Sizning buyurtmangiz qabul qilindi. Tabriklaymiz 🎉`,
-          from: 4546,
-          callback_url: this.webhookurl,
-        },
-      };
-
-      let response;
-      try {
-        response = await axios(config);
-      } catch (error) {
-        console.log(error.data);
-      }
-      return true;
-    } catch (error) {
-      console.log(`Error ${error}`);
-      if (
-        error.response &&
-        (error.response.status === 401 || error.response.status === 403)
-      ) {
-        await this.auth();
-        return this.sendOrder(phone);
       }
       console.error('Send error:', error.message);
       return {
