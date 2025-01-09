@@ -10,6 +10,7 @@ import { Like } from './model/like.model';
 import { User } from 'src/users/model/user.model';
 import { Product } from 'src/products/model/product.model';
 import { ProductImages } from 'src/product_images/model/product_image.model';
+import { ProductModels } from 'src/product_models/models/product_model.model';
 
 @Injectable()
 export class LikesService {
@@ -47,6 +48,10 @@ export class LikesService {
             {
               model: ProductImages,
               as: 'images',
+            },
+            {
+              model: ProductModels,
+              as: 'models',
             },
           ],
         },
