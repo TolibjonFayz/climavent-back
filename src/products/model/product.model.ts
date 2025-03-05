@@ -26,6 +26,7 @@ interface ProductAtr {
   views: Number;
   quantity: Number;
   producer: String;
+  fileid: String;
 }
 
 @Table({ tableName: 'products' })
@@ -38,10 +39,7 @@ export class Product extends Model<Product, ProductAtr> {
     example: 'Centrifugal fan type vs14-46',
     description: 'Name of product',
   })
-  @Column({
-    type: DataType.STRING,
-    allowNull: false,
-  })
+  @Column({ type: DataType.STRING, allowNull: false })
   name_uz: string;
 
   @ApiProperty({
@@ -58,40 +56,28 @@ export class Product extends Model<Product, ProductAtr> {
     example: 'Centrifugal fan type vs14-46',
     description: 'Name of product',
   })
-  @Column({
-    type: DataType.STRING,
-    allowNull: false,
-  })
+  @Column({ type: DataType.STRING, allowNull: false })
   name_en: string;
 
   @ApiProperty({
     example: 'Its great, good...',
     description: 'About the product',
   })
-  @Column({
-    type: DataType.TEXT,
-    allowNull: false,
-  })
+  @Column({ type: DataType.TEXT, allowNull: false })
   description_short_uz: string;
 
   @ApiProperty({
     example: 'Its great, good...',
     description: 'About the product',
   })
-  @Column({
-    type: DataType.TEXT,
-    allowNull: false,
-  })
+  @Column({ type: DataType.TEXT, allowNull: false })
   description_short_ru: string;
 
   @ApiProperty({
     example: 'Its great, good...',
     description: 'About the product',
   })
-  @Column({
-    type: DataType.TEXT,
-    allowNull: false,
-  })
+  @Column({ type: DataType.TEXT, allowNull: false })
   description_short_en: string;
 
   @ApiProperty({ example: 20000, description: 'Price of product' })
@@ -109,11 +95,13 @@ export class Product extends Model<Product, ProductAtr> {
   views: number;
 
   @ApiProperty({ example: 20, description: 'Quantity of product' })
-  @Column({
-    type: DataType.INTEGER,
-    allowNull: false,
-  })
+  @Column({ type: DataType.INTEGER, allowNull: false })
   quantity: number;
+
+  @ApiProperty({ example: '76312sd', description: 'Id of the file' })
+  @Column({ type: DataType.STRING })
+  fileid: string;
+
   @ApiProperty({
     example: 'Hisense',
     description: 'Producer(maker) of product',
