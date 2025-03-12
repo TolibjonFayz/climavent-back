@@ -62,4 +62,9 @@ export class CreateBannerDto {
   @IsNumber()
   @IsNotEmpty()
   product_id: number;
+
+  @ApiProperty({ example: 1, description: 'Order id' })
+  @IsNumber()
+  @IsNotEmpty()
+  orderid: number;
 }

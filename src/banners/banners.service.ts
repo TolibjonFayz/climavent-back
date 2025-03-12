@@ -26,7 +26,7 @@ export class BannersService {
   async getAllBanners() {
     const banners = await this.bannerRepository.findAll({
       include: { all: true },
-      order: [['updatedAt', 'ASC']],
+      order: [['orderid', 'ASC']],
     });
     return banners;
   }

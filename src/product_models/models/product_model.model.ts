@@ -13,7 +13,7 @@ import { Product } from 'src/products/model/product.model';
 
 interface ProductModelsAtr {
   name: String;
-  price: Number;
+  price: String;
   product_id: Number;
 }
 
@@ -31,8 +31,8 @@ export class ProductModels extends Model<ProductModels, ProductModelsAtr> {
   name: string;
 
   @ApiProperty({ example: 1200000, description: 'Price of product' })
-  @Column({ type: DataType.INTEGER, allowNull: false })
-  price: number;
+  @Column({ type: DataType.STRING, allowNull: false })
+  price: string;
 
   @ForeignKey(() => Product)
   @ApiProperty({ example: 1, description: 'Product id' })

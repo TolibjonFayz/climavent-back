@@ -18,6 +18,7 @@ interface BannerAtr {
   text_en: String;
   img_url: String;
   product_id: Number;
+  orderid: Number;
 }
 
 @Table({ tableName: 'banner' })
@@ -99,6 +100,13 @@ export class Banner extends Model<Banner, BannerAtr> {
     allowNull: false,
   })
   img_url: string;
+
+  @ApiProperty({ example: 1, description: 'Order id' })
+  @Column({
+    type: DataType.INTEGER,
+    allowNull: false,
+  })
+  orderid: number;  
 
   @ForeignKey(() => Product)
   @ApiProperty({ example: 1, description: 'Product id' })

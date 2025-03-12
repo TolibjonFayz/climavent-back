@@ -11,9 +11,9 @@ export class CreateProductModelDto {
   name: string;
 
   @ApiProperty({ example: 1200000, description: 'Price of product' })
-  @IsNumber()
+  @IsString()
   @IsNotEmpty()
-  price: number;
+  price: string;
 
   @ApiProperty({ example: 1, description: 'Product id' })
   @IsNumber()
