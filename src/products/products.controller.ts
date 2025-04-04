@@ -15,6 +15,7 @@ import { Product } from './model/product.model';
 import { SortProductDto } from './dto/sort-product.dto';
 import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-product.dto';
 import { GetRecentlyAddedProductsDto } from './dto/getlastadded-product.dto';
+import { SearchProductsByQueryDto } from './dto/search-product.dto';
 
 @ApiTags('Products')
 @Controller('products')
@@ -26,6 +27,13 @@ export class ProductsController {
   @Post('create')
   async create(@Body() createProfuctDto: CreateProductDto) {
     return this.productsService.createProduct(createProfuctDto);
+  }
+
+  //Search product by query
+  @ApiOperation({ summary: 'Search product by query' })
+  @Post('search')
+  async search(@Body() searchProductsByQueryDto: SearchProductsByQueryDto) {
+    return this.productsService.searchProducts(searchProductsByQueryDto);
   }
 
   //Get all products count

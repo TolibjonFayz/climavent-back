@@ -1,18 +1,18 @@
 import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-product.dto';
 import { GetRecentlyAddedProductsDto } from './dto/getlastadded-product.dto';
+import { SearchProductsByQueryDto } from './dto/search-product.dto';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Category } from 'src/category/model/category.model';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { SortProductDto } from './dto/sort-product.dto';
-import { InjectModel } from '@nestjs/sequelize';
-import { Product } from './model/product.model';
-import { ProductModelHeader } from 'src/product_model_headers/models/product_model_header.model';
-import { ProductModelInfo } from 'src/product_model_infos/models/product_model_info.model';
-import { ProductModels } from 'src/product_models/models/product_model.model';
 import { Review } from 'src/reviews/model/review.model';
 import { User } from 'src/users/model/user.model';
+import { InjectModel } from '@nestjs/sequelize';
+import { Product } from './model/product.model';
+import Sequelize, { where } from 'sequelize';
 
+const { Op } = Sequelize;
 @Injectable()
 export class ProductsService {
   constructor(
@@ -28,6 +28,24 @@ export class ProductsService {
       newProduct,
     };
     return response;
+  }
+
+  //Search product by query
+  async searchProducts(searchProductsByQueryDto: SearchProductsByQueryDto) {
+    const blogs = await this.productRepository.findAll({
+      where: {
+        [Op.or]: [
+          { name_uz: { [Op.iLike]: `%${searchProductsByQueryDto.text}%` } },
+          { name_en: { [Op.iLike]: `%${searchProductsByQueryDto.text}%` } },
+          { name_ru: { [Op.iLike]: `%${searchProductsByQueryDto.text}%` } },
+        ],
+      },
+      include: { all: true },
+    });
+    if (blogs.length == 0) {
+      return [{ not: 'Products not found' }];
+    }
+    return blogs;
   }
 
   //Get all products
@@ -98,7 +116,7 @@ export class ProductsService {
   async sortProductsByCategoryId(
     sortbyCategoryIdProduct: SortbyCategoryIdProductDto,
   ) {
-    //Regular (ommabop) serach  
+    //Regular (ommabop) serach
     if (
       sortbyCategoryIdProduct.price == 'Ommabop' ||
       sortbyCategoryIdProduct.price == 'kopbuyurtirilgan'
