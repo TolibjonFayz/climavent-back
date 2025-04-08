@@ -25,10 +25,12 @@ export class OtpService {
           password: this.password,
         });
         const data = response.data;
+        console.log('Hehe', data);
 
         fs.writeFileSync(tokenFilePath, JSON.stringify(data, null, 2));
         return;
       }
+      console.log('What is that bro');
       return;
     } catch (error) {
       throw new InternalServerErrorException(error?.message);
@@ -40,6 +42,24 @@ export class OtpService {
       const tokenData = JSON.parse(
         fs.readFileSync(path.join(__dirname, 'token.json'), 'utf-8'),
       );
+
+      const res = await this.auth();
+      // // Update token function
+      // var updatetoken = {
+      //   method: 'patch',
+      //   maxBodyLength: Infinity,
+      //   url: `${API_BASE_URL}/auth/refresh`,
+      //   headers: {
+      //     Authorization: `Bearer ${tokenData?.data?.token}`,
+      //   },
+      // };
+      // axios(updatetoken)
+      //   .then(function (response) {
+      //     console.log(JSON.stringify(response.data));
+      //   })
+      //   .catch(function (error) {
+      //     console.log(error);
+      //   });
 
       const config = {
         method: 'post',

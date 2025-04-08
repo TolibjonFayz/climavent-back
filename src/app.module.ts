@@ -18,6 +18,7 @@ import { CartModule } from './cart/cart.module';
 import { CartItemsModule } from './cart_items/cart_items.module';
 import { OrdersModule } from './orders/orders.module';
 import { OrderItemsModule } from './order_items/order_items.module';
+import { SelectedToCheckoutModule } from './selected_to_checkout/selected_to_checkout.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { OrderItemsModule } from './order_items/order_items.module';
     CartItemsModule,
     OrdersModule,
     OrderItemsModule,
+    SelectedToCheckoutModule,
   ],
   controllers: [],
   providers: [],
