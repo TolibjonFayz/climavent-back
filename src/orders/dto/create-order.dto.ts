@@ -16,4 +16,9 @@ export class CreateOrderDto {
   @IsString()
   @IsNotEmpty()
   status: string;
+
+  @ApiProperty({ example: 'Location', description: 'Location of order' })
+  @IsString()
+  @IsNotEmpty()
+  location: string;
 }

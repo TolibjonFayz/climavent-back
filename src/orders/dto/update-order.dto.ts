@@ -11,4 +11,7 @@ export class UpdateOrderDto extends PartialType(CreateOrderDto) {
 
   @ApiProperty({ example: 'Delivered', description: 'Status of order' })
   status: string;
+
+  @ApiProperty({ example: 'Location', description: 'Location of order' })
+  location: string;
 }

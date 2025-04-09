@@ -15,6 +15,7 @@ interface OrderAtr {
   user_id: number;
   totalAmount: number;
   status: string;
+  location: string;
 }
 
 @Table({ tableName: 'orders' })
@@ -50,6 +51,13 @@ export class Order extends Model<Order, OrderAtr> {
     allowNull: false,
   })
   status: string;
+
+  @ApiProperty({ example: 'Location', description: 'Location of order' })
+  @Column({
+    type: DataType.STRING,
+    allowNull: false,
+  })
+  location: string;
 
   @HasMany(() => OrderItem)
   orderItems: OrderItem;

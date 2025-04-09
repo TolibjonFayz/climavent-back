@@ -22,7 +22,7 @@ const start = async () => {
     const config = new DocumentBuilder()
       .setTitle('Climavent backend')
       .setDescription('Backend project for Climavent company')
-      .setVersion('0.0.1')
+      .setVersion('1.0.1')
       .addTag('NestJS, Postgres, Sequelize')
       .build();
     const document = SwaggerModule.createDocument(app, config);
