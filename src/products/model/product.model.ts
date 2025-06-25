@@ -15,18 +15,19 @@ import { ProductModels } from 'src/product_models/models/product_model.model';
 import { ProductModelHeader } from 'src/product_model_headers/models/product_model_header.model';
 
 interface ProductAtr {
-  category_id: Number;
-  name_uz: String;
-  name_ru: String;
-  name_en: String;
-  description_short_uz: String;
-  description_short_ru: String;
-  description_short_en: String;
-  price: Number;
-  views: Number;
-  quantity: Number;
-  producer: String;
-  fileid: String;
+  category_id: number;
+  name_uz: string;
+  name_ru: string;
+  name_en: string;
+  description_short_uz: string;
+  description_short_ru: string;
+  description_short_en: string;
+  price: number;
+  views: number;
+  quantity: number;
+  producer: string;
+  fileid: string;
+  isRishotka: boolean;
 }
 
 @Table({ tableName: 'products' })
@@ -112,6 +113,10 @@ export class Product extends Model<Product, ProductAtr> {
   })
   producer: string;
 
+  @ApiProperty({ example: true, description: 'Is product a rishotka' })
+  @Column({ type: DataType.BOOLEAN, defaultValue: false })
+  isRishotka: boolean;
+
   @ForeignKey(() => Category)
   @ApiProperty({ example: 1, description: 'Category of product' })
   @Column({
@@ -123,14 +128,14 @@ export class Product extends Model<Product, ProductAtr> {
   category: Category;
 
   @HasMany(() => ProductImages)
-  images: ProductImages;
+  images: ProductImages[];
 
   @HasMany(() => Review)
-  reviews: Review;
+  reviews: Review[];
 
   @HasMany(() => ProductModels)
-  models: ProductModels;
+  models: ProductModels[];
 
   @HasMany(() => ProductModelHeader)
-  modelheaders: ProductModelHeader;
+  modelheaders: ProductModelHeader[];
 }
