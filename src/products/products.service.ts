@@ -56,6 +56,15 @@ export class ProductsService {
     return products;
   }
 
+  //Get all products FOR ADMIN
+  async getAllProductsForAdmin() {
+    const products = await this.productRepository.findAll({
+      include: { all: true },
+      order: [['createdAt', 'DESC']],
+    });
+    return products;
+  }
+
   //Get all products count
   async getAllProductsCount() {
     const products = await this.productRepository.count({});

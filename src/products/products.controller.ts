@@ -50,6 +50,13 @@ export class ProductsController {
     return this.productsService.getAllProducts();
   }
 
+  //Get all products for admin
+  @ApiOperation({ summary: 'Get all products for admin' })
+  @Get('alladmin')
+  async getAllProductsForAdmin(): Promise<Product[]> {
+    return this.productsService.getAllProductsForAdmin();
+  }
+
   //Get last added products
   @ApiOperation({ summary: 'Get last added products' })
   @Post('lastadded')
