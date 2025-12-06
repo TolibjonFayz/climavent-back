@@ -40,7 +40,7 @@ export class ProductsService {
           { name_ru: { [Op.iLike]: `%${searchProductsByQueryDto.text}%` } },
         ],
       },
-      include: { all: true },
+      attributes: ['id', 'name_uz', 'name_en', 'name_ru'],
     });
     if (blogs.length == 0) {
       return [{ not: 'Products not found' }];
