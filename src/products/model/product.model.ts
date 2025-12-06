@@ -13,6 +13,7 @@ import { Review } from 'src/reviews/model/review.model';
 import { Category } from 'src/category/model/category.model';
 import { ProductModels } from 'src/product_models/models/product_model.model';
 import { ProductModelHeader } from 'src/product_model_headers/models/product_model_header.model';
+import { Characteristic } from 'src/characteristics/model/characteristic.model';
 
 interface ProductAtr {
   category_id: number;
@@ -27,6 +28,14 @@ interface ProductAtr {
   quantity: number;
   producer: string;
   fileid: string;
+  sizes: string;
+  sizesJson: string;
+  opisaniya: string;
+  opisaniyaJson: string;
+  naznacheniya: string;
+  naznacheniyaJson: string;
+  markirovka: string;
+  markirovkaJson: string;
   isRishotka: boolean;
 }
 
@@ -117,6 +126,59 @@ export class Product extends Model<Product, ProductAtr> {
   @Column({ type: DataType.BOOLEAN, defaultValue: false })
   isRishotka: boolean;
 
+  @ApiProperty({ example: 'Size info', description: 'Product sizes' })
+  @Column({ type: DataType.TEXT, allowNull: true })
+  sizes: string;
+
+  @ApiProperty({
+    example: 'Size info as Json',
+    description: 'Product sizes as Json',
+  })
+  @Column({ type: DataType.JSONB, allowNull: true })
+  sizesJson: string;
+
+  @ApiProperty({
+    example: 'Description info',
+    description: 'Product description',
+  })
+  @Column({ type: DataType.TEXT, allowNull: true })
+  opisaniya: string;
+
+  @ApiProperty({
+    example: 'Description info as Json',
+    description: 'Product description as Json',
+  })
+  @Column({ type: DataType.JSONB, allowNull: true })
+  opisaniyaJson: string;
+
+  @ApiProperty({
+    example: 'Purpose info',
+    description: 'Product purpose/usage',
+  })
+  @Column({ type: DataType.TEXT, allowNull: true })
+  naznacheniya: string;
+
+  @ApiProperty({
+    example: 'Purpose info as Json',
+    description: 'Product purpose/usage as Json',
+  })
+  @Column({ type: DataType.JSONB, allowNull: true })
+  naznacheniyaJson: string;
+
+  @ApiProperty({
+    example: 'Purpose info',
+    description: 'Product marking/labeling',
+  })
+  @Column({ type: DataType.TEXT, allowNull: true })
+  markirovka: string;
+
+  @ApiProperty({
+    example: 'Product marking/labeling as Json',
+    description: 'Product marking/labeling as Json',
+  })
+  @Column({ type: DataType.JSONB, allowNull: true })
+  markirovkaJson: string;
+
   @ForeignKey(() => Category)
   @ApiProperty({ example: 1, description: 'Category of product' })
   @Column({
@@ -138,4 +200,7 @@ export class Product extends Model<Product, ProductAtr> {
 
   @HasMany(() => ProductModelHeader)
   modelheaders: ProductModelHeader[];
+
+  @HasMany(() => Characteristic)
+  characters: Characteristic[];
 }

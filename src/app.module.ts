@@ -20,6 +20,7 @@ import { OrdersModule } from './orders/orders.module';
 import { OrderItemsModule } from './order_items/order_items.module';
 import { SelectedToCheckoutModule } from './selected_to_checkout/selected_to_checkout.module';
 import { RishotkalarModule } from './rishotkalar/rishotkalar.module';
+import { CharacteristicsModule } from './characteristics/characteristics.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { RishotkalarModule } from './rishotkalar/rishotkalar.module';
     OrderItemsModule,
     SelectedToCheckoutModule,
     RishotkalarModule,
+    CharacteristicsModule,
   ],
   controllers: [],
   providers: [],
