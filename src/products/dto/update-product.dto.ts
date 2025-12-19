@@ -38,6 +38,51 @@ export class UpdateProductDto {
   })
   description_short_en: string;
 
+  @ApiProperty({ example: 'Size info', description: 'Product sizes' })
+  sizes: string;
+
+  @ApiProperty({
+    example: 'Size info as Json',
+    description: 'Product sizes as Json',
+  })
+  sizesJson: string;
+
+  @ApiProperty({
+    example: 'Description info',
+    description: 'Product description',
+  })
+  opisaniya: string;
+
+  @ApiProperty({
+    example: 'Description info as Json',
+    description: 'Product description as Json',
+  })
+  opisaniyaJson: string;
+
+  @ApiProperty({
+    example: 'Purpose info',
+    description: 'Product purpose/usage',
+  })
+  naznacheniya: string;
+
+  @ApiProperty({
+    example: 'Purpose info as Json',
+    description: 'Product purpose/usage as Json',
+  })
+  naznacheniyaJson: string;
+
+  @ApiProperty({
+    example: 'Purpose info',
+    description: 'Product marking/labeling',
+  })
+  markirovka: string;
+
+  @ApiProperty({
+    example: 'Product marking/labeling as Json',
+    description: 'Product marking/labeling as Json',
+  })
+  markirovkaJson: string;
+
   @ApiProperty({ example: 20000, description: 'Price of product' })
   price: number;
 

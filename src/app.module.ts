@@ -21,6 +21,7 @@ import { OrderItemsModule } from './order_items/order_items.module';
 import { SelectedToCheckoutModule } from './selected_to_checkout/selected_to_checkout.module';
 import { RishotkalarModule } from './rishotkalar/rishotkalar.module';
 import { CharacteristicsModule } from './characteristics/characteristics.module';
+import { R2Module } from './r2/r2.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { CharacteristicsModule } from './characteristics/characteristics.module'
     SelectedToCheckoutModule,
     RishotkalarModule,
     CharacteristicsModule,
+    R2Module,
   ],
   controllers: [],
   providers: [],

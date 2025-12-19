@@ -49,7 +49,7 @@ export class Characteristic extends Model<Characteristic, CharasteristicAtr> {
     description: 'Information of the characteristic',
   })
   @Column({
-    type: DataType.TEXT,
+    type: DataType.STRING,
     allowNull: false,
   })
   content: string;

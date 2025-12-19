@@ -11,6 +11,8 @@ import { User } from 'src/users/model/user.model';
 import { InjectModel } from '@nestjs/sequelize';
 import { Product } from './model/product.model';
 import Sequelize, { where } from 'sequelize';
+import { v4 as uuidv4 } from 'uuid';
+import { R2Service } from 'src/r2/r2.service';
 
 const { Op } = Sequelize;
 @Injectable()
@@ -18,7 +20,10 @@ export class ProductsService {
   constructor(
     @InjectModel(Product) private readonly productRepository: typeof Product,
     @InjectModel(Category) private readonly categoryRepository: typeof Category,
+    private r2Service: R2Service,
   ) {}
+
+  uniqueId = uuidv4();
 
   //Create product
   async createProduct(createProductDto: CreateProductDto) {
@@ -59,8 +64,17 @@ export class ProductsService {
   //Get all products FOR ADMIN
   async getAllProductsForAdmin() {
     const products = await this.productRepository.findAll({
-      include: { all: true },
       order: [['createdAt', 'DESC']],
+      attributes: [
+        'name_uz',
+        'name_ru',
+        'name_en',
+        'price',
+        'quantity',
+        'description_short_uz',
+        'id',
+      ],
+      include: ['category'],
     });
     return products;
   }
@@ -221,6 +235,79 @@ export class ProductsService {
 
   //Update product by id
   async updateProductById(id: number, updateProductDto: UpdateProductDto) {
+    //Updating size
+    if (
+      Object.keys(updateProductDto).includes('sizes') &&
+      Object.keys(updateProductDto).includes('sizesJson') &&
+      Object.keys(updateProductDto).length == 2
+    ) {
+      const sizesR2Link = await this.r2Service.uploadJson(
+        (this.uniqueId = uuidv4()),
+        updateProductDto.sizes,
+      );
+      const sizesJsonR2Link = await this.r2Service.uploadJson(
+        (this.uniqueId = uuidv4()),
+        updateProductDto.sizesJson,
+      );
+      updateProductDto.sizes = sizesR2Link;
+      updateProductDto.sizesJson = sizesJsonR2Link;
+    }
+
+    //Updating opisaniya
+    else if (
+      Object.keys(updateProductDto).includes('opisaniya') &&
+      Object.keys(updateProductDto).includes('opisaniyaJson') &&
+      Object.keys(updateProductDto).length == 2
+    ) {
+      const opisaniyaR2Link = await this.r2Service.uploadJson(
+        (this.uniqueId = uuidv4()),
+        updateProductDto.opisaniya,
+      );
+      const opisaniyaJsonR2Link = await this.r2Service.uploadJson(
+        (this.uniqueId = uuidv4()),
+        updateProductDto.opisaniyaJson,
+      );
+      updateProductDto.opisaniya = opisaniyaR2Link;
+      updateProductDto.opisaniyaJson = opisaniyaJsonR2Link;
+    }
+
+    //Updating naznacheniya
+    else if (
+      Object.keys(updateProductDto).includes('naznacheniya') &&
+      Object.keys(updateProductDto).includes('naznacheniyaJson') &&
+      Object.keys(updateProductDto).length == 2
+    ) {
+      const naznacheniyaR2Link = await this.r2Service.uploadJson(
+        (this.uniqueId = uuidv4()),
+        updateProductDto.naznacheniya,
+      );
+      const naznacheniyaJsonR2Link = await this.r2Service.uploadJson(
+        (this.uniqueId = uuidv4()),
+        updateProductDto.naznacheniyaJson,
+      );
+      updateProductDto.naznacheniya = naznacheniyaR2Link;
+      updateProductDto.naznacheniyaJson = naznacheniyaJsonR2Link;
+    }
+
+    //Updating markirovka
+    else if (
+      Object.keys(updateProductDto).includes('markirovka') &&
+      Object.keys(updateProductDto).includes('markirovkaJson') &&
+      Object.keys(updateProductDto).length == 2
+    ) {
+      console.log(updateProductDto);
+      const markirovkaR2Link = await this.r2Service.uploadJson(
+        (this.uniqueId = uuidv4()),
+        updateProductDto.markirovka,
+      );
+      const markirovkaJsonR2Link = await this.r2Service.uploadJson(
+        (this.uniqueId = uuidv4()),
+        updateProductDto.markirovkaJson,
+      );
+      updateProductDto.markirovka = markirovkaR2Link;
+      updateProductDto.markirovkaJson = markirovkaJsonR2Link;
+    }
+
     const updated = await this.productRepository.update(updateProductDto, {
       where: { id: id },
       returning: true,

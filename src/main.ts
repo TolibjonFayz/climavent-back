@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import * as cookieParser from 'cookie-parser';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
+import * as bodyParser from 'body-parser';
 
 const start = async () => {
   try {
@@ -10,6 +11,9 @@ const start = async () => {
 
     const app = await NestFactory.create(AppModule);
     app.setGlobalPrefix('api');
+
+    app.use(bodyParser.json({ limit: '10mb' }));
+    app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 
     app.enableCors({
       origin: '*',
