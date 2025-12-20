@@ -27,21 +27,28 @@ export class UserSelfGuard implements CanActivate {
     }
 
     async function verify(token: string, jwtService: JwtService) {
-      const user: Partial<User> = await jwtService.verify(token, {
-        secret: process.env.ACCESS_TOKEN_KEY_USER,
-      });
-      if (!user) {
-        throw new UnauthorizedException('Invalid token provided');
-      }
+      try {
+        const user: Partial<User> = await jwtService.verify(token, {
+          secret: process.env.ACCESS_TOKEN_KEY_USER,
+        });
+        if (!user) {
+          throw new UnauthorizedException('Invalid token provided');
+        }
 
-      if (user.id != id) {
-        throw new UnauthorizedException('You are not you');
-      }
+        if (user.id != id) {
+          throw new UnauthorizedException('You are not you');
+        }
 
-      // if (!user.is_active) {
-      //   throw new BadRequestException('User is not active');
-      // }
-      return true;
+        // if (!user.is_active) {
+        //   throw new BadRequestException('User is not active');
+        // }
+        return true;
+      } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+          throw new UnauthorizedException('token expired');
+        }
+        throw error;
+      }
     }
     return verify(token, this.jwtService);
   }

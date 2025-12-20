@@ -11,7 +11,6 @@ import { ProductImages } from 'src/product_images/model/product_image.model';
 import { ApiProperty } from '@nestjs/swagger';
 import { Review } from 'src/reviews/model/review.model';
 import { Category } from 'src/category/model/category.model';
-import { ProductModels } from 'src/product_models/models/product_model.model';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
 
 interface ProductAtr {
@@ -26,7 +25,6 @@ interface ProductAtr {
   views: number;
   quantity: number;
   producer: string;
-  fileid: string;
   sizes: string;
   sizesJson: string;
   opisaniya: string;
@@ -97,10 +95,6 @@ export class Product extends Model<Product, ProductAtr> {
   @ApiProperty({ example: 20, description: 'Quantity of product' })
   @Column({ type: DataType.INTEGER, allowNull: false })
   quantity: number;
-
-  @ApiProperty({ example: '76312sd', description: 'Id of the file' })
-  @Column({ type: DataType.STRING })
-  fileid: string;
 
   @ApiProperty({
     example: 'Hisense',
@@ -178,9 +172,6 @@ export class Product extends Model<Product, ProductAtr> {
 
   @HasMany(() => Review)
   reviews: Review[];
-
-  @HasMany(() => ProductModels)
-  models: ProductModels[];
 
   @HasMany(() => Characteristic)
   characters: Characteristic[];

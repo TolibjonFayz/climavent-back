@@ -25,12 +25,10 @@ export class OtpService {
           password: this.password,
         });
         const data = response.data;
-        console.log('Hehe', data);
 
         fs.writeFileSync(tokenFilePath, JSON.stringify(data, null, 2));
         return;
       }
-      console.log('What is that bro');
       return;
     } catch (error) {
       throw new InternalServerErrorException(error?.message);

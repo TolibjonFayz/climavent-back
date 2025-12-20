@@ -7,7 +7,6 @@ import {
   BelongsTo,
 } from 'sequelize-typescript';
 import { ApiProperty } from '@nestjs/swagger';
-import { ProductModels } from 'src/product_models/models/product_model.model';
 
 interface ProductModelInfoAtr {
   info: String;
@@ -29,11 +28,4 @@ export class ProductModelInfo extends Model<
   })
   @Column({ type: DataType.STRING, allowNull: false })
   info: string;
-
-  @ForeignKey(() => ProductModels)
-  @ApiProperty({ example: 1, description: 'Product model id' })
-  @Column({ type: DataType.INTEGER, allowNull: false })
-  product_model_id: number;
-  @BelongsTo(() => ProductModels)
-  productmodel: ProductModels;
 }

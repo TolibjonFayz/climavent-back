@@ -95,9 +95,6 @@ export class UpdateProductDto {
   })
   producer: string;
 
-  @ApiProperty({ example: '76312sd', description: 'Id of the file' })
-  fileid: string;
-
   @ApiProperty({ example: 1, description: 'Id of category' })
   category_id: number;
 }

@@ -11,7 +11,6 @@ import { Module } from '@nestjs/common';
 import { LikesModule } from './likes/likes.module';
 import { BannersModule } from './banners/banners.module';
 import { CategoryModule } from './category/category.module';
-import { ProductModelsModule } from './product_models/product_models.module';
 import { ProductModelInfosModule } from './product_model_infos/product_model_infos.module';
 import { CartModule } from './cart/cart.module';
 import { CartItemsModule } from './cart_items/cart_items.module';
@@ -50,7 +49,6 @@ import { R2Module } from './r2/r2.module';
     OtpModule,
     LikesModule,
     BannersModule,
-    ProductModelsModule,
     ProductModelInfosModule,
     CartModule,
     CartItemsModule,
