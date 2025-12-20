@@ -14,9 +14,4 @@ export class UpdateProductModelInfoDto extends PartialType(
   @IsNumber()
   @IsNotEmpty()
   product_model_id: number;
-
-  @ApiProperty({ example: 1, description: 'Product model header id' })
-  @IsNumber()
-  @IsNotEmpty()
-  product_model_header_id: number;
 }

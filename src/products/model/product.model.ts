@@ -12,7 +12,6 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Review } from 'src/reviews/model/review.model';
 import { Category } from 'src/category/model/category.model';
 import { ProductModels } from 'src/product_models/models/product_model.model';
-import { ProductModelHeader } from 'src/product_model_headers/models/product_model_header.model';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
 
 interface ProductAtr {
@@ -56,10 +55,7 @@ export class Product extends Model<Product, ProductAtr> {
     example: 'Centrifugal fan type vs14-46',
     description: 'Name of product',
   })
-  @Column({
-    type: DataType.STRING,
-    allowNull: false,
-  })
+  @Column({ type: DataType.STRING, allowNull: false })
   name_ru: string;
 
   @ApiProperty({
@@ -91,17 +87,11 @@ export class Product extends Model<Product, ProductAtr> {
   description_short_en: string;
 
   @ApiProperty({ example: 20000, description: 'Price of product' })
-  @Column({
-    type: DataType.INTEGER,
-  })
+  @Column({ type: DataType.INTEGER })
   price: number;
 
   @ApiProperty({ example: 158, description: 'Views count of product' })
-  @Column({
-    type: DataType.INTEGER,
-    allowNull: false,
-    defaultValue: 0,
-  })
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
   views: number;
 
   @ApiProperty({ example: 20, description: 'Quantity of product' })
@@ -116,10 +106,7 @@ export class Product extends Model<Product, ProductAtr> {
     example: 'Hisense',
     description: 'Producer(maker) of product',
   })
-  @Column({
-    type: DataType.STRING,
-    allowNull: false,
-  })
+  @Column({ type: DataType.STRING, allowNull: false })
   producer: string;
 
   @ApiProperty({ example: true, description: 'Is product a rishotka' })
@@ -181,10 +168,7 @@ export class Product extends Model<Product, ProductAtr> {
 
   @ForeignKey(() => Category)
   @ApiProperty({ example: 1, description: 'Category of product' })
-  @Column({
-    type: DataType.INTEGER,
-    allowNull: false,
-  })
+  @Column({ type: DataType.INTEGER, allowNull: false })
   category_id: number;
   @BelongsTo(() => Category)
   category: Category;
@@ -197,9 +181,6 @@ export class Product extends Model<Product, ProductAtr> {
 
   @HasMany(() => ProductModels)
   models: ProductModels[];
-
-  @HasMany(() => ProductModelHeader)
-  modelheaders: ProductModelHeader[];
 
   @HasMany(() => Characteristic)
   characters: Characteristic[];
