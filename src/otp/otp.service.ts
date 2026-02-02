@@ -17,7 +17,12 @@ export class OtpService {
   }
 
   async auth() {
+    const response = await axios.post(`${API_BASE_URL}/auth/login`, {
+      email: this.login,
+      password: this.password,
+    });
     const tokenFilePath = path.join(__dirname, 'token.json');
+    fs.writeFileSync(tokenFilePath, JSON.stringify(response.data, null, 2));
     try {
       if (!fs.existsSync(tokenFilePath)) {
         const response = await axios.post(`${API_BASE_URL}/auth/login`, {
