@@ -42,22 +42,22 @@ export class OtpService {
       );
 
       const res = await this.auth();
-      // // Update token function
-      // var updatetoken = {
-      //   method: 'patch',
-      //   maxBodyLength: Infinity,
-      //   url: `${API_BASE_URL}/auth/refresh`,
-      //   headers: {
-      //     Authorization: `Bearer ${tokenData?.data?.token}`,
-      //   },
-      // };
-      // axios(updatetoken)
-      //   .then(function (response) {
-      //     console.log(JSON.stringify(response.data));
-      //   })
-      //   .catch(function (error) {
-      //     console.log(error);
-      //   });
+      // Update token function
+      var updatetoken = {
+        method: 'patch',
+        maxBodyLength: Infinity,
+        url: `${API_BASE_URL}/auth/refresh`,
+        headers: {
+          Authorization: `Bearer ${tokenData?.data?.token}`,
+        },
+      };
+      axios(updatetoken)
+        .then(function (response) {
+          console.log(JSON.stringify(response.data));
+        })
+        .catch(function (error) {
+          console.log(error);
+        });
 
       const config = {
         method: 'post',
