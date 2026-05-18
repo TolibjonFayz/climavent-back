@@ -34,6 +34,7 @@ interface ProductAtr {
   markirovka: string;
   markirovkaJson: string;
   isRishotka: boolean;
+  sap_name: string;
 }
 
 @Table({ tableName: 'products' })
@@ -106,6 +107,10 @@ export class Product extends Model<Product, ProductAtr> {
   @ApiProperty({ example: true, description: 'Is product a rishotka' })
   @Column({ type: DataType.BOOLEAN, defaultValue: false })
   isRishotka: boolean;
+
+  @ApiProperty({ example: 'SAP name info', description: 'SAP name of product' })
+  @Column({ type: DataType.STRING, allowNull: true })
+  sap_name: string;
 
   @ApiProperty({ example: 'Size info', description: 'Product sizes' })
   @Column({ type: DataType.TEXT, allowNull: true })
