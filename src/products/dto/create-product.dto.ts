@@ -61,7 +61,6 @@ export class CreateProductDto {
   quantity: number;
 
   @ApiProperty({ example: 'SAP name info', description: 'SAP name of product' })
-  @IsString()
   sap_name: string;
 
   @ApiProperty({
