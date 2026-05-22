@@ -21,7 +21,6 @@ export class UpdateProductDto {
   name_en: string;
 
   @ApiProperty({ example: 'SAP name info', description: 'SAP name of product' })
-  @IsString()
   sap_name: string;
 
   @ApiProperty({
