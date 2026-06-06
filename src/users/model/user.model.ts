@@ -119,6 +119,13 @@ export class User extends Model<User, UserAtr> {
   })
   is_active: boolean;
 
+  @Column({
+    type: DataType.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+  })
+  is_admin: boolean;
+
   @ApiProperty({
     example: 'sdlak',
     description: 'Adminni activ qilish uchun ishlatiladigan id',

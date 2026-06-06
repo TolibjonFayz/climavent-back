@@ -320,7 +320,6 @@ export class UsersService {
               const response = {
                 client: client,
                 tokens: tokens,
-                role: 'client',
                 status: 1,
                 ress,
               };
