@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { InjectModel } from '@nestjs/sequelize';
@@ -73,18 +77,44 @@ export class OrdersService {
     return userOrder;
   }
 
-  //Update order by id
-  async updateOrderById(id: number, updateOrderDto: UpdateOrderDto) {
+  // Buyurtma egasini (yoki admin ekanini) tekshiradi
+  private async ensureOwnerOrAdmin(
+    id: number,
+    requester: { id?: number; is_admin?: boolean },
+  ) {
+    const order = await this.OrderRepository.findOne({ where: { id } });
+    if (!order) {
+      throw new NotFoundException('Order not found or something wrong');
+    }
+    if (order.user_id !== requester?.id && !requester?.is_admin) {
+      throw new ForbiddenException('Bu buyurtma sizga tegishli emas');
+    }
+    return order;
+  }
+
+  //Update order by id — faqat egasi yoki admin
+  async updateOrderById(
+    id: number,
+    updateOrderDto: UpdateOrderDto,
+    requester: { id?: number; is_admin?: boolean },
+  ) {
+    await this.ensureOwnerOrAdmin(id, requester);
+
     const updated = await this.OrderRepository.update(updateOrderDto, {
       where: { id: id },
       returning: true,
     });
     if (updated[1][0]?.dataValues) return updated[1][0].dataValues;
-    else return new NotFoundException('Order not found or something wrong');
+    else throw new NotFoundException('Order not found or something wrong');
   }
 
-  //Delete order by id
-  async deleteOrderById(id: number) {
+  //Delete order by id — faqat egasi yoki admin
+  async deleteOrderById(
+    id: number,
+    requester: { id?: number; is_admin?: boolean },
+  ) {
+    await this.ensureOwnerOrAdmin(id, requester);
+
     const deleting = await this.OrderRepository.destroy({ where: { id: id } });
     await this.OrderItemsRepository.destroy({ where: { order_id: id } });
     if (deleting) return deleting;

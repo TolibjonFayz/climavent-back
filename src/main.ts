@@ -15,8 +15,15 @@ const start = async () => {
     app.use(bodyParser.json({ limit: '10mb' }));
     app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 
+    // credentials: true bilan origin '*' ishlamaydi — brauzer rad etadi.
+    // Shuning uchun aniq domenlar ro'yxatini .env dan o'qiymiz.
+    const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean);
+
     app.enableCors({
-      origin: '*',
+      origin: allowedOrigins,
       methods: 'GET,PUT,PATCH,POST,DELETE',
       allowedHeaders: 'Content-Type, Authorization',
       credentials: true,
@@ -33,7 +40,13 @@ const start = async () => {
     SwaggerModule.setup('/api/docs', app, document);
 
     app.use(cookieParser());
-    app.useGlobalPipes(new ValidationPipe());
+    app.useGlobalPipes(
+      new ValidationPipe({
+        transform: true, // DTO tiplarini (masalan number) avtomatik o'giradi
+        whitelist: true, // DTO da yo'q maydonlarni tozalaydi
+        transformOptions: { enableImplicitConversion: true },
+      }),
+    );
     await app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
     });

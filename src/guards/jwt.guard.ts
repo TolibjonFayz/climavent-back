@@ -16,37 +16,25 @@ export class JwtGuard implements CanActivate {
     if (!authHeader) {
       throw new UnauthorizedException('Unauthorized(token not found)');
     }
-    const bearer = authHeader.split(' ')[0];
-    const token = authHeader.split(' ')[1];
-    console.log(token);
+    const [bearer, token] = authHeader.split(' ');
 
     if (bearer != 'Bearer' || !token) {
       throw new UnauthorizedException('Unauthorized(token not found)');
     }
 
     const payload = this.verifyAccessToken(token);
-    console.log(payload);
     req.payload = payload;
 
     return true;
   }
 
   private verifyAccessToken(token: string) {
-    let check: any;
     try {
-      check = this.jwtService.verify(token, {
+      return this.jwtService.verify(token, {
         secret: process.env.ACCESS_TOKEN_KEY_USER,
       });
     } catch (error) {
-      console.log(error);
-      try {
-        check = this.jwtService.verify(token, {
-          secret: process.env.ACCESS_TOKEN_KEY_USER,
-        });
-      } catch (secondError) {
-        throw new UnauthorizedException(secondError);
-      }
+      throw new UnauthorizedException('Invalid or expired token');
     }
-    return check;
   }
 }

@@ -6,11 +6,13 @@ import {
   Patch,
   Param,
   Delete,
+  UseGuards,
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { AdminGuard } from 'src/guards/admin.guard';
 import { Product } from './model/product.model';
 import { SortProductDto } from './dto/sort-product.dto';
 import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-product.dto';
@@ -23,10 +25,12 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   //Create product
-  @ApiOperation({ summary: 'Create product' })
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create product (admin)' })
+  @UseGuards(AdminGuard)
   @Post('create')
-  async create(@Body() createProfuctDto: CreateProductDto) {
-    return this.productsService.createProduct(createProfuctDto);
+  async create(@Body() createProductDto: CreateProductDto) {
+    return this.productsService.createProduct(createProductDto);
   }
 
   //Search product by query
@@ -51,6 +55,8 @@ export class ProductsController {
   }
 
   //Get all products for admin
+  // Eslatma: bu endpoint sitemap (nuxt.config) tomonidan tokensiz ishlatiladi
+  // va faqat katalog darajasidagi maydonlarni qaytaradi, shuning uchun ochiq.
   @ApiOperation({ summary: 'Get all products for admin' })
   @Get('alladmin')
   async getAllProductsForAdmin(): Promise<Product[]> {
@@ -96,17 +102,21 @@ export class ProductsController {
   }
 
   //Update product by id
-  @ApiOperation({ summary: 'Update product by id' })
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update product by id (admin)' })
+  @UseGuards(AdminGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id') id: number,
-    @Body() updateProducrDto: UpdateProductDto,
+    @Body() updateProductDto: UpdateProductDto,
   ) {
-    return this.productsService.updateProductById(id, updateProducrDto);
+    return this.productsService.updateProductById(id, updateProductDto);
   }
 
   //Delete product by id
-  @ApiOperation({ summary: 'Delete product by id' })
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete product by id (admin)' })
+  @UseGuards(AdminGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id') id: number) {
     return this.productsService.deleteProductById(id);

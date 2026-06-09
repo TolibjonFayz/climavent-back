@@ -3,18 +3,28 @@ import { CreateOrderItemDto } from './dto/create-order_item.dto';
 import { UpdateOrderItemDto } from './dto/update-order_item.dto';
 import { InjectModel } from '@nestjs/sequelize';
 import { OrderItem } from './model/order_item.model';
+import { Product } from 'src/products/model/product.model';
 
 @Injectable()
 export class OrderItemsService {
   constructor(
     @InjectModel(OrderItem)
     private readonly OrderItemRepository: typeof OrderItem,
+    @InjectModel(Product)
+    private readonly productRepository: typeof Product,
   ) {}
 
   //Creating a order item
   async createOrderItem(createOrderItemDto: CreateOrderItemDto) {
     const newOrderItem =
       await this.OrderItemRepository.create(createOrderItemDto);
+
+    // "kopbuyurtirilgan" sort uchun mahsulotning sotilgan sonini oshiramiz
+    await this.productRepository.increment('sold_count', {
+      by: createOrderItemDto.quantity,
+      where: { id: createOrderItemDto.product_id },
+    });
+
     const response = { message: 'Order successfully created', newOrderItem };
     return response;
   }

@@ -23,8 +23,6 @@ export class ProductsService {
     private r2Service: R2Service,
   ) {}
 
-  uniqueId = uuidv4();
-
   //Create product
   async createProduct(createProductDto: CreateProductDto) {
     const newProduct = await this.productRepository.create(createProductDto);
@@ -47,9 +45,7 @@ export class ProductsService {
       },
       attributes: ['id', 'name_uz', 'name_en', 'name_ru'],
     });
-    if (blogs.length == 0) {
-      return [{ not: 'Products not found' }];
-    }
+    // Topilmasa bo'sh massiv qaytaramiz (frontend uni .length === 0 bilan tekshiradi)
     return blogs;
   }
 
@@ -108,107 +104,52 @@ export class ProductsService {
     return result;
   }
 
+  // Sort qiymatini Sequelize order bandiga aylantiradi
+  // 'Ommabop' -> views, 'kopbuyurtirilgan' -> sold_count, 'ASC'/'DESC' -> price
+  private buildOrder(price: string): any[] | null {
+    if (price === 'Ommabop') return [['views', 'DESC']];
+    if (price === 'kopbuyurtirilgan') return [['sold_count', 'DESC']];
+    if (price === 'ASC' || price === 'DESC') return [['price', price]];
+    return null;
+  }
+
   //Get products by sort
   async getProductsBySort(searchProductDto: SortProductDto) {
     const offset = (searchProductDto.page - 1) * searchProductDto.limit;
-    //Regular (ommabop) serach
-    if (
-      searchProductDto.price == 'Ommabop' ||
-      searchProductDto.price == 'kopbuyurtirilgan'
-    ) {
-      const products = await this.productRepository.findAll({
-        include: { all: true },
-        limit: searchProductDto.limit,
-        offset: offset,
-      });
-      return products;
-    }
-    //Sorting by ASC or DESC
-    else {
-      const products = await this.productRepository.findAll({
-        include: { all: true },
-        order: [['price', searchProductDto.price]],
-        limit: searchProductDto.limit,
-        offset: offset,
-      });
-      return products;
-    }
+    const order = this.buildOrder(searchProductDto.price);
+
+    return this.productRepository.findAll({
+      include: { all: true },
+      ...(order ? { order } : {}),
+      limit: searchProductDto.limit,
+      offset,
+    });
   }
 
-  //Get products by category
+  //Get products by category (+ bola kategoriyalar) — bitta query, DB darajasida sort
   async sortProductsByCategoryId(
     sortbyCategoryIdProduct: SortbyCategoryIdProductDto,
   ) {
-    //Regular (ommabop) serach
-    if (
-      sortbyCategoryIdProduct.price == 'Ommabop' ||
-      sortbyCategoryIdProduct.price == 'kopbuyurtirilgan'
-    ) {
-      const categoryProducts = await this.productRepository.findAll({
-        where: { category_id: sortbyCategoryIdProduct.category_id },
-        include: { all: true },
-        limit: sortbyCategoryIdProduct.limit,
-      });
+    const order = this.buildOrder(sortbyCategoryIdProduct.price);
 
-      //Parent category products finding
-      const allProductsForParentCatIds = [];
-      const res = await this.categoryRepository.findAll({
-        where: { category_id: sortbyCategoryIdProduct.category_id },
-      });
-      if (res.length) {
-        for (let i = 0; i < res.length; i++) {
-          const hehe = await this.productRepository.findAll({
-            where: { category_id: res[i].id },
-            include: { all: true },
-            limit: sortbyCategoryIdProduct.limit,
-          });
-          for (let index = 0; index < hehe.length; index++) {
-            allProductsForParentCatIds.push(hehe[index]);
-          }
-        }
-        return allProductsForParentCatIds;
-      } else {
-        return categoryProducts;
-      }
-    }
-    //Sorting by ASC or DESC
-    else {
-      const categoryProducts = await this.productRepository.findAll({
-        where: { category_id: sortbyCategoryIdProduct.category_id },
-        include: { all: true },
-        order: [['price', sortbyCategoryIdProduct.price]],
-        limit: sortbyCategoryIdProduct.limit,
-      });
+    // Bola (sub) kategoriyalarni topamiz
+    const children = await this.categoryRepository.findAll({
+      where: { category_id: sortbyCategoryIdProduct.category_id },
+      attributes: ['id'],
+    });
 
-      //Parent category products finding
-      const allProductsForParentCatIds = [sortbyCategoryIdProduct.category_id];
-      let allProductsForParentCatProducts = [];
-      const res1 = await this.categoryRepository.findAll({
-        where: { category_id: sortbyCategoryIdProduct.category_id },
-      });
-      if (res1.length) {
-        for (let i = 0; i < res1.length; i++) {
-          allProductsForParentCatIds.push(res1[i].id);
-          const products = await this.productRepository.findAll({
-            where: { category_id: res1[i].id },
-            include: { all: true },
-            limit: sortbyCategoryIdProduct.limit,
-          });
-          for (let i = 0; i < products.length; i++) {
-            allProductsForParentCatProducts.push(products[i]);
-          }
-        }
-        if (sortbyCategoryIdProduct.price == 'ASC')
-          allProductsForParentCatProducts =
-            allProductsForParentCatProducts.sort((a, b) => a.price - b.price);
-        else if (sortbyCategoryIdProduct.price == 'DESC')
-          allProductsForParentCatProducts =
-            allProductsForParentCatProducts.sort((a, b) => b.price - a.price);
-        return allProductsForParentCatProducts;
-      } else {
-        return categoryProducts;
-      }
-    }
+    // Parent kategoriya + barcha bola kategoriyalar id'lari
+    const categoryIds = [
+      sortbyCategoryIdProduct.category_id,
+      ...children.map((c) => c.id),
+    ];
+
+    return this.productRepository.findAll({
+      where: { category_id: { [Op.in]: categoryIds } },
+      include: { all: true },
+      ...(order ? { order } : {}),
+      limit: sortbyCategoryIdProduct.limit,
+    });
   }
 
   //Get product by id
@@ -223,14 +164,16 @@ export class ProductsService {
         { all: true },
       ],
     });
+    // Avval null tekshiruvi — aks holda product.views da crash bo'ladi
+    if (!product) {
+      throw new NotFoundException('Product not found or product id is invalid');
+    }
     //Increase views of product
     await this.productRepository.update(
       { views: product.views + 1 },
       { where: { id: id } },
     );
-    if (product) return product;
-    else
-      throw new NotFoundException('Product not found or product id is invalid');
+    return product;
   }
 
   //Update product by id
@@ -242,11 +185,11 @@ export class ProductsService {
       Object.keys(updateProductDto).length == 2
     ) {
       const sizesR2Link = await this.r2Service.uploadJson(
-        (this.uniqueId = uuidv4()),
+        uuidv4(),
         updateProductDto.sizes,
       );
       const sizesJsonR2Link = await this.r2Service.uploadJson(
-        (this.uniqueId = uuidv4()),
+        uuidv4(),
         updateProductDto.sizesJson,
       );
       updateProductDto.sizes = sizesR2Link;
@@ -260,11 +203,11 @@ export class ProductsService {
       Object.keys(updateProductDto).length == 2
     ) {
       const opisaniyaR2Link = await this.r2Service.uploadJson(
-        (this.uniqueId = uuidv4()),
+        uuidv4(),
         updateProductDto.opisaniya,
       );
       const opisaniyaJsonR2Link = await this.r2Service.uploadJson(
-        (this.uniqueId = uuidv4()),
+        uuidv4(),
         updateProductDto.opisaniyaJson,
       );
       updateProductDto.opisaniya = opisaniyaR2Link;
@@ -278,11 +221,11 @@ export class ProductsService {
       Object.keys(updateProductDto).length == 2
     ) {
       const naznacheniyaR2Link = await this.r2Service.uploadJson(
-        (this.uniqueId = uuidv4()),
+        uuidv4(),
         updateProductDto.naznacheniya,
       );
       const naznacheniyaJsonR2Link = await this.r2Service.uploadJson(
-        (this.uniqueId = uuidv4()),
+        uuidv4(),
         updateProductDto.naznacheniyaJson,
       );
       updateProductDto.naznacheniya = naznacheniyaR2Link;
@@ -297,11 +240,11 @@ export class ProductsService {
     ) {
       console.log(updateProductDto);
       const markirovkaR2Link = await this.r2Service.uploadJson(
-        (this.uniqueId = uuidv4()),
+        uuidv4(),
         updateProductDto.markirovka,
       );
       const markirovkaJsonR2Link = await this.r2Service.uploadJson(
-        (this.uniqueId = uuidv4()),
+        uuidv4(),
         updateProductDto.markirovkaJson,
       );
       updateProductDto.markirovka = markirovkaR2Link;

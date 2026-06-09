@@ -25,6 +25,9 @@ import { SignoutDto } from './dto/signout.dto';
 import { Like } from 'src/likes/model/like.model';
 import { Cart } from 'src/cart/models/cart.model';
 
+// Refresh token cookie muddati: 15 kun
+const REFRESH_TOKEN_COOKIE_MAX_AGE = 15 * 24 * 60 * 60 * 1000;
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -109,8 +112,8 @@ export class UsersService {
     return response;
   }
 
-  // Login user
-  async loginUser(loginuserDto: LoginUserDto, res: Response) {
+  // Login user — faqat OTP yuboradi. Token OTP tasdiqlangandan keyin beriladi.
+  async loginUser(loginuserDto: LoginUserDto) {
     //Is user exists?
     let user = await this.UsersRepository.findOne({
       where: { phone_number: loginuserDto.phone_number },
@@ -123,24 +126,10 @@ export class UsersService {
 
     const otpinfo = await this.signInWithOtp(loginuserDto.phone_number);
 
-    //Generate new tokens
-    const tokens = await this.getTokens(user);
-    const hashed_refresh_token = await bcrypt.hash(tokens.refreshToken, 7);
-    const updateUser = await this.UsersRepository.update(
-      { refresh_token: hashed_refresh_token },
-      { where: { id: user.id }, returning: true },
-    );
-
-    //Cookie setting
-    res.cookie('refresh_token', tokens.refreshToken, {
-      maxAge: 15 * 24 * 60 * 60 * 10000,
-      httpOnly: true,
-    });
-
+    // MUHIM: token bu yerda BERILMAYDI — aks holda OTP tekshiruvi ma'nosiz bo'ladi.
     const response = {
       message: 'Verification code sent to user',
-      user: updateUser[1][0],
-      tokens,
+      user: { id: user.id, phone_number: user.phone_number },
       otpinfo,
     };
     return response;
@@ -208,6 +197,7 @@ export class UsersService {
     const JwtPayload = {
       id: user.id,
       is_active: user.is_active,
+      is_admin: user.is_admin,
     };
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtservice.signAsync(JwtPayload, {
@@ -241,13 +231,14 @@ export class UsersService {
   }
 
   async newOtp(phone_number: number) {
-    const otp = Number(
-      otpGenerator.generate(5, {
-        upperCaseAlphabets: false,
-        lowerCaseAlphabets: false,
-        specialChars: false,
-      }),
-    );
+    // MUHIM: Number() ishlatilmaydi — aks holda "01234" kabi 0 bilan boshlangan
+    // kodlar "1234" ga aylanib, tasdiqlash mumkin bo'lmay qoladi.
+    const otp = otpGenerator.generate(5, {
+      digits: true,
+      upperCaseAlphabets: false,
+      lowerCaseAlphabets: false,
+      specialChars: false,
+    });
     await this.otpService.sendOtp(phone_number, otp);
 
     const now = new Date();
@@ -276,96 +267,63 @@ export class UsersService {
   }
 
   async verifyOtpClient(verifyOtpDto: VerifyOtpDto, res: Response) {
-    const { verification_key, otp, phone_number, userId } = verifyOtpDto;
-    const check_number = phone_number;
+    const { verification_key, otp, phone_number } = verifyOtpDto;
 
-    const obj: IOtpType = JSON.parse(await decode(verification_key));
+    let obj: IOtpType;
+    try {
+      obj = JSON.parse(await decode(verification_key));
+    } catch {
+      throw new BadRequestException('Tasdiqlash kaliti yaroqsiz');
+    }
 
-    if (obj.phone_number != check_number) {
+    if (obj.phone_number != phone_number) {
       throw new BadRequestException('Tasdiqlash kodi bu raqamga yuborilmagan');
     }
 
-    let otpDB = await this.otpRepo.findOne({
+    const otpRow = await this.otpRepo.findOne({
       where: { phone_number: obj.phone_number },
     });
-
-    if (!otpDB) {
-      throw new BadRequestException('Wrong one time password');
-    }
-    otpDB = otpDB.dataValues;
-    await this.UsersRepository.update(
-      { is_active: true },
-      { where: { phone_number: phone_number } },
-    );
-
-    if (otpDB) {
-      if (!otpDB.verified) {
-        if (dates.compare(otpDB.expiration_time, new Date())) {
-          if (otpDB.otp === otp) {
-            const client = await this.UsersRepository.findOne({
-              where: {
-                phone_number: obj.phone_number,
-              },
-            });
-            if (client) {
-              const ress = await this.makeVerifyTrue(otpDB.unique_id);
-              const tokens = await this.getTokens(client);
-              client.refresh_token = await bcrypt.hash(tokens.refreshToken, 8);
-              client.save();
-              res.cookie('refresh_token', tokens.refreshToken, {
-                maxAge: 15 * 21 * 60 * 60 * 1000,
-                httpOnly: true,
-              });
-
-              const response = {
-                client: client,
-                tokens: tokens,
-                status: 1,
-                ress,
-              };
-              return response;
-            } else {
-              await this.UsersRepository.update(
-                {
-                  phone_number: phone_number,
-                  name: null,
-                },
-                { where: { id: userId } },
-              );
-              const client = await this.UsersRepository.findOne({
-                where: { id: userId },
-              });
-              const tokens = await this.getTokens(client);
-              client.refresh_token = await bcrypt.hash(tokens.refreshToken, 8);
-              client.save();
-
-              res.cookie('refresh_token', tokens.refreshToken, {
-                maxAge: 15 * 21 * 60 * 60 * 1000,
-                httpOnly: true,
-              });
-
-              const response = {
-                client: client,
-                tokens: tokens,
-                role: 'client',
-                status: 0,
-              };
-              return response;
-            }
-          } else {
-            throw new BadRequestException(`Tasdiqlash kodi xato`);
-          }
-        } else {
-          throw new BadRequestException('Tasdiqlash kodi muddati tugagan');
-        }
-      } else {
-        throw new BadRequestException(
-          'Tasdiqlash kodi allaqchon qabul qilingan',
-        );
-      }
-    } else {
+    if (!otpRow) {
       throw new BadRequestException('Bunday OTP mavjud emas');
     }
+    const otpDB = otpRow.dataValues;
+
+    // Tekshiruvlar — kod to'g'ri bo'lmaguncha hech narsa o'zgartirmaymiz
+    if (otpDB.verified) {
+      throw new BadRequestException('Tasdiqlash kodi allaqachon qabul qilingan');
+    }
+    if (!dates.compare(otpDB.expiration_time, new Date())) {
+      throw new BadRequestException('Tasdiqlash kodi muddati tugagan');
+    }
+    // OTP string sifatida saqlanadi — string bilan solishtiramiz (0 bilan boshlangan kodlar uchun)
+    if (String(otpDB.otp) !== String(otp)) {
+      throw new BadRequestException('Tasdiqlash kodi xato');
+    }
+
+    // Kod to'g'ri — endi OTP ni ishlatilgan deb belgilaymiz, userni aktivlashtiramiz va token beramiz
+    await this.makeVerifyTrue(otpDB.unique_id);
+    await this.UsersRepository.update(
+      { is_active: true },
+      { where: { phone_number } },
+    );
+
+    const client = await this.UsersRepository.findOne({
+      where: { phone_number },
+    });
+    if (!client) {
+      throw new BadRequestException('Foydalanuvchi topilmadi');
+    }
+
+    const tokens = await this.getTokens(client);
+    client.refresh_token = await bcrypt.hash(tokens.refreshToken, 8);
+    await client.save();
+
+    res.cookie('refresh_token', tokens.refreshToken, {
+      maxAge: REFRESH_TOKEN_COOKIE_MAX_AGE,
+      httpOnly: true,
+    });
+
+    return { client, tokens, status: 1 };
   }
 
   async makeVerifyTrue(otp_id: string) {

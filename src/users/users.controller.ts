@@ -19,8 +19,7 @@ import { User } from './model/user.model';
 import { Response } from 'express';
 import { SignoutDto } from './dto/signout.dto';
 import { UserSelfGuard } from 'src/guards/user_self.guard';
-import { UserGuard } from 'src/guards/user.guard';
-import { JwtGuard } from 'src/guards/jwt.guard';
+import { AdminGuard } from 'src/guards/admin.guard';
 
 @ApiTags('Users')
 @Controller('users')
@@ -46,14 +45,11 @@ export class UsersController {
     return this.usersService.activateUser(link);
   }
 
-  //Login user
-  @ApiOperation({ summary: 'Login user' })
+  //Login user — OTP yuboradi (token bermaydi)
+  @ApiOperation({ summary: 'Login user (send OTP)' })
   @Post('login')
-  async login(
-    @Body() loginUserDto: LoginUserDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    return this.usersService.loginUser(loginUserDto, res);
+  async login(@Body() loginUserDto: LoginUserDto) {
+    return this.usersService.loginUser(loginUserDto);
   }
 
   //Sign out user
@@ -66,10 +62,10 @@ export class UsersController {
     return this.usersService.signOutUser(signoutDto, res);
   }
 
-  //Get all users
-  @ApiOperation({ summary: 'Get all users' })
+  //Get all users — faqat admin
+  @ApiOperation({ summary: 'Get all users (admin)' })
   @Get('all')
-  @UseGuards(UserGuard)
+  @UseGuards(AdminGuard)
   async getAllUsers(): Promise<User[] | any> {
     return this.usersService.getAllUsers();
   }
