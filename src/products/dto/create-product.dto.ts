@@ -60,9 +60,6 @@ export class CreateProductDto {
   @IsNotEmpty()
   quantity: number;
 
-  @ApiProperty({ example: 'SAP name info', description: 'SAP name of product' })
-  sap_name: string;
-
   @ApiProperty({
     example: 'Hisense',
     description: 'Producer(maker) of product',
