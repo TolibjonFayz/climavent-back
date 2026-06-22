@@ -20,6 +20,8 @@ import { SelectedToCheckoutModule } from './selected_to_checkout/selected_to_che
 import { RishotkalarModule } from './rishotkalar/rishotkalar.module';
 import { CharacteristicsModule } from './characteristics/characteristics.module';
 import { R2Module } from './r2/r2.module';
+import { ProductModelInsideModule } from './product_model_inside/product_model_inside.module';
+import { ProductModelsModule } from './product_models/product_models.module';
 
 @Module({
   imports: [
@@ -58,6 +60,8 @@ import { R2Module } from './r2/r2.module';
     RishotkalarModule,
     CharacteristicsModule,
     R2Module,
+    ProductModelInsideModule,
+    ProductModelsModule,
   ],
   controllers: [],
   providers: [],
