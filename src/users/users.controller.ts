@@ -78,8 +78,9 @@ export class UsersController {
     return this.usersService.getUserById(id);
   }
 
-  //Get user badges by id
-  @ApiOperation({ summary: 'Get user badges by id' })
+  //Get user badges by id — faqat o'sha foydalanuvchining o'zi
+  @ApiOperation({ summary: 'Get user badges by id (self)' })
+  @UseGuards(UserSelfGuard)
   @Get('badges/:id')
   async getUserBadgeById(@Param('id') id: number) {
     return this.usersService.getUserBadgeNumbers(id);

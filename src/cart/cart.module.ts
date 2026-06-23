@@ -2,11 +2,15 @@ import { Module } from '@nestjs/common';
 import { CartService } from './cart.service';
 import { CartController } from './cart.controller';
 import { SequelizeModule } from '@nestjs/sequelize';
+import { JwtModule } from '@nestjs/jwt';
 import { Cart } from './models/cart.model';
 import { CartItem } from 'src/cart_items/model/cart_item.model';
 
 @Module({
-  imports: [SequelizeModule.forFeature([Cart, CartItem])],
+  imports: [
+    SequelizeModule.forFeature([Cart, CartItem]),
+    JwtModule.register({}),
+  ],
   controllers: [CartController],
   providers: [CartService],
   exports: [CartService],
