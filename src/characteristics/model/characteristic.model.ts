@@ -33,7 +33,7 @@ export class Characteristic extends Model<Characteristic, CharasteristicAtr> {
   })
   @Column({
     type: DataType.STRING,
-    allowNull: false,
+    allowNull: true,
   })
   title: string;
 
