@@ -83,9 +83,6 @@ export class UpdateProductDto {
   })
   markirovkaJson: string;
 
-  @ApiProperty({ example: 20000, description: 'Price of product' })
-  price: number;
-
   @ApiProperty({ example: 20, description: 'Mahsulot soni' })
   quantity: number;
 

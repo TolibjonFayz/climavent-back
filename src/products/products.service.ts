@@ -65,7 +65,6 @@ export class ProductsService {
         'name_uz',
         'name_ru',
         'name_en',
-        'price',
         'quantity',
         'description_short_uz',
         'id',
@@ -105,19 +104,48 @@ export class ProductsService {
   }
 
   // Sort qiymatini Sequelize order bandiga aylantiradi
-  // 'Ommabop' -> views, 'kopbuyurtirilgan' -> sold_count, 'ASC'/'DESC' -> price
+  // 'Ommabop' -> views, 'kopbuyurtirilgan' -> sold_count
+  // 'ASC'/'DESC' bu yerda hisoblanmaydi — narx endi product'da emas,
+  // uning characteristics(models)'larida, shuning uchun JS darajasida sort qilinadi
   private buildOrder(price: string): any[] | null {
     if (price === 'Ommabop') return [['views', 'DESC']];
     if (price === 'kopbuyurtirilgan') return [['sold_count', 'DESC']];
-    if (price === 'ASC' || price === 'DESC') return [['price', price]];
     return null;
+  }
+
+  // Product'ning eng arzon modeli (characteristics ichidagi eng kichik narx)
+  private getMinCharacteristicPrice(product: Product): number {
+    const prices = (product.characters || []).map((c) => c.price);
+    return prices.length ? Math.min(...prices) : 0;
+  }
+
+  private sortByCharacteristicPrice(products: Product[], direction: string) {
+    return [...products].sort((a, b) => {
+      const diff =
+        this.getMinCharacteristicPrice(a) - this.getMinCharacteristicPrice(b);
+      return direction === 'ASC' ? diff : -diff;
+    });
   }
 
   //Get products by sort
   async getProductsBySort(searchProductDto: SortProductDto) {
     const offset = (searchProductDto.page - 1) * searchProductDto.limit;
-    const order = this.buildOrder(searchProductDto.price);
 
+    if (
+      searchProductDto.price === 'ASC' ||
+      searchProductDto.price === 'DESC'
+    ) {
+      const all = await this.productRepository.findAll({
+        include: { all: true },
+      });
+      const sorted = this.sortByCharacteristicPrice(
+        all,
+        searchProductDto.price,
+      );
+      return sorted.slice(offset, offset + searchProductDto.limit);
+    }
+
+    const order = this.buildOrder(searchProductDto.price);
     return this.productRepository.findAll({
       include: { all: true },
       ...(order ? { order } : {}),
@@ -130,8 +158,6 @@ export class ProductsService {
   async sortProductsByCategoryId(
     sortbyCategoryIdProduct: SortbyCategoryIdProductDto,
   ) {
-    const order = this.buildOrder(sortbyCategoryIdProduct.price);
-
     // Bola (sub) kategoriyalarni topamiz
     const children = await this.categoryRepository.findAll({
       where: { category_id: sortbyCategoryIdProduct.category_id },
@@ -144,6 +170,22 @@ export class ProductsService {
       ...children.map((c) => c.id),
     ];
 
+    if (
+      sortbyCategoryIdProduct.price === 'ASC' ||
+      sortbyCategoryIdProduct.price === 'DESC'
+    ) {
+      const all = await this.productRepository.findAll({
+        where: { category_id: { [Op.in]: categoryIds } },
+        include: { all: true },
+      });
+      const sorted = this.sortByCharacteristicPrice(
+        all,
+        sortbyCategoryIdProduct.price,
+      );
+      return sorted.slice(0, sortbyCategoryIdProduct.limit);
+    }
+
+    const order = this.buildOrder(sortbyCategoryIdProduct.price);
     return this.productRepository.findAll({
       where: { category_id: { [Op.in]: categoryIds } },
       include: { all: true },

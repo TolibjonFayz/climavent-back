@@ -22,7 +22,6 @@ interface ProductAtr {
   description_short_uz: string;
   description_short_ru: string;
   description_short_en: string;
-  price: number;
   views: number;
   sold_count: number;
   quantity: number;
@@ -85,10 +84,6 @@ export class Product extends Model<Product, ProductAtr> {
   })
   @Column({ type: DataType.TEXT, allowNull: false })
   description_short_en: string;
-
-  @ApiProperty({ example: 20000, description: 'Price of product' })
-  @Column({ type: DataType.INTEGER })
-  price: number;
 
   @ApiProperty({ example: 158, description: 'Views count of product' })
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })

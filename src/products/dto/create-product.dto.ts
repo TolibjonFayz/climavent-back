@@ -50,11 +50,6 @@ export class CreateProductDto {
   @IsNotEmpty()
   description_short_en: string;
 
-  @ApiProperty({ example: 20000, description: 'Price of product' })
-  @IsNumber()
-  @IsNotEmpty()
-  price: number;
-
   @ApiProperty({ example: 20, description: 'Mahsulot soni' })
   @IsNumber()
   @IsNotEmpty()

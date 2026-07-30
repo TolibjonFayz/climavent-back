@@ -65,20 +65,20 @@ export class CategoryService {
         return categoryProducts;
       }
     }
-    //Sorting by ASC or DESC
+    //Sorting by ASC or DESC — narx endi product'da emas, characteristics(models)'da,
+    //shuning uchun DB darajasida emas, JS darajasida sort qilinadi
     else {
       const categoryProducts = await this.productRepository.findAll({
         where: { category_id: sortbyCategoryIdProduct.category_id },
         include: { all: true },
-        order: [['price', sortbyCategoryIdProduct.price]],
       });
 
       //Parent category products finding
       const allProductsForParentCatIds = [];
       const res = await this.categoryRepository.findAll({
         where: { category_id: sortbyCategoryIdProduct.category_id },
-        order: [['price', sortbyCategoryIdProduct.price]],
       });
+      let result: Product[];
       if (res.length) {
         for (let i = 0; i < res.length; i++) {
           const hehe = await this.productRepository.findAll({
@@ -89,11 +89,27 @@ export class CategoryService {
             allProductsForParentCatIds.push(hehe[index]);
           }
         }
-        return allProductsForParentCatIds;
+        result = allProductsForParentCatIds;
       } else {
-        return categoryProducts;
+        result = categoryProducts;
       }
+
+      return this.sortByCharacteristicPrice(result, sortbyCategoryIdProduct.price);
     }
+  }
+
+  // Product'ning eng arzon modeli (characteristics ichidagi eng kichik narx)
+  private getMinCharacteristicPrice(product: Product): number {
+    const prices = (product.characters || []).map((c) => c.price);
+    return prices.length ? Math.min(...prices) : 0;
+  }
+
+  private sortByCharacteristicPrice(products: Product[], direction: string) {
+    return [...products].sort((a, b) => {
+      const diff =
+        this.getMinCharacteristicPrice(a) - this.getMinCharacteristicPrice(b);
+      return direction === 'ASC' ? diff : -diff;
+    });
   }
 
   //Get category by id
