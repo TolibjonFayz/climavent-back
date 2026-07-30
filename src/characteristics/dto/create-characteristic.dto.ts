@@ -1,12 +1,15 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateCharacteristicDto {
   @ApiProperty({
     example: 'BO 45',
     description: 'Title of the characteristic',
+    required: false,
   })
-  title: string;
+  @IsOptional()
+  @IsString()
+  title?: string;
 
   @ApiProperty({
     example: '45 GB',

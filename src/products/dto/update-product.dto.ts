@@ -1,97 +1,77 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { ApiProperty, PartialType } from '@nestjs/swagger';
+import { IsOptional, IsString } from 'class-validator';
+import { CreateProductDto } from './create-product.dto';
 
-export class UpdateProductDto {
+export class UpdateProductDto extends PartialType(CreateProductDto) {
   @ApiProperty({
-    example: 'Centrifugal fan type vs14-46',
-    description: 'Name of product in uzbek',
+    example: 'Size info',
+    description: 'Product sizes',
+    required: false,
   })
-  name_uz: string;
-
-  @ApiProperty({
-    example: 'Centrifugal fan type vs14-46',
-    description: 'Name of product in russian',
-  })
-  name_ru: string;
-
-  @ApiProperty({
-    example: 'Centrifugal fan type vs14-46',
-    description: 'Name of product in english',
-  })
-  name_en: string;
-
-  @ApiProperty({
-    example: 'Its great, good...',
-    description: 'About the product in uzbek',
-  })
-  description_short_uz: string;
-
-  @ApiProperty({
-    example: 'Its great, good...',
-    description: 'About the product in russian',
-  })
-  description_short_ru: string;
-
-  @ApiProperty({
-    example: 'Its great, good...',
-    description: 'About the product in english',
-  })
-  description_short_en: string;
-
-  @ApiProperty({ example: 'Size info', description: 'Product sizes' })
-  sizes: string;
+  @IsOptional()
+  @IsString()
+  sizes?: string;
 
   @ApiProperty({
     example: 'Size info as Json',
     description: 'Product sizes as Json',
+    required: false,
   })
-  sizesJson: string;
+  @IsOptional()
+  @IsString()
+  sizesJson?: string;
 
   @ApiProperty({
     example: 'Description info',
     description: 'Product description',
+    required: false,
   })
-  opisaniya: string;
+  @IsOptional()
+  @IsString()
+  opisaniya?: string;
 
   @ApiProperty({
     example: 'Description info as Json',
     description: 'Product description as Json',
+    required: false,
   })
-  opisaniyaJson: string;
+  @IsOptional()
+  @IsString()
+  opisaniyaJson?: string;
 
   @ApiProperty({
     example: 'Purpose info',
     description: 'Product purpose/usage',
+    required: false,
   })
-  naznacheniya: string;
+  @IsOptional()
+  @IsString()
+  naznacheniya?: string;
 
   @ApiProperty({
     example: 'Purpose info as Json',
     description: 'Product purpose/usage as Json',
+    required: false,
   })
-  naznacheniyaJson: string;
+  @IsOptional()
+  @IsString()
+  naznacheniyaJson?: string;
 
   @ApiProperty({
     example: 'Purpose info',
     description: 'Product marking/labeling',
+    required: false,
   })
-  markirovka: string;
+  @IsOptional()
+  @IsString()
+  markirovka?: string;
 
   @ApiProperty({
     example: 'Product marking/labeling as Json',
     description: 'Product marking/labeling as Json',
+    required: false,
   })
-  markirovkaJson: string;
-
-  @ApiProperty({ example: 20, description: 'Mahsulot soni' })
-  quantity: number;
-
-  @ApiProperty({
-    example: 'Hisense',
-    description: 'Producer(maker) of product',
-  })
-  producer: string;
-
-  @ApiProperty({ example: 1, description: 'Id of category' })
-  category_id: number;
+  @IsOptional()
+  @IsString()
+  markirovkaJson?: string;
 }
