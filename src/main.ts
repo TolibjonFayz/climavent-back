@@ -35,6 +35,11 @@ const start = async () => {
       .setDescription('Backend project for Climavent company')
       .setVersion('1.0.1')
       .addTag('NestJS, Postgres, Sequelize')
+      .addBearerAuth()
+      .addApiKey(
+        { type: 'apiKey', name: 'x-api-key', in: 'header' },
+        'service-key',
+      )
       .build();
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('/api/docs', app, document);

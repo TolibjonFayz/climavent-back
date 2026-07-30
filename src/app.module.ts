@@ -22,10 +22,12 @@ import { CharacteristicsModule } from './characteristics/characteristics.module'
 import { R2Module } from './r2/r2.module';
 import { ProductModelInsideModule } from './product_model_inside/product_model_inside.module';
 import { ProductModelsModule } from './product_models/product_models.module';
+import { GuardsModule } from './guards/guards.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ envFilePath: '.env', isGlobal: true }),
+    GuardsModule,
     SequelizeModule.forRoot({
       dialect: 'postgres',
       host: process.env.POSTGRES_HOST,

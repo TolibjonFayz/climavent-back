@@ -6,12 +6,14 @@ import {
   Patch,
   Param,
   Delete,
+  UseGuards,
 } from '@nestjs/common';
 import { CharacteristicsService } from './characteristics.service';
 import { CreateCharacteristicDto } from './dto/create-characteristic.dto';
 import { UpdateCharacteristicDto } from './dto/update-characteristic.dto';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Characteristic } from './model/characteristic.model';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('Characteristics')
 @Controller('characteristics')
@@ -22,6 +24,9 @@ export class CharacteristicsController {
 
   //Create characteristics
   @ApiOperation({ summary: 'Create characteristics' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Post('create')
   async create(@Body() createCharacteristicDto: CreateCharacteristicDto) {
     return this.characteristicsService.createCharacteristics(
@@ -38,6 +43,9 @@ export class CharacteristicsController {
 
   //Update characteristic by id
   @ApiOperation({ summary: 'Update characteristic by id' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id') id: number,
@@ -51,6 +59,9 @@ export class CharacteristicsController {
 
   //Delete characteristic by id
   @ApiOperation({ summary: 'Delete characteristic by id' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id') id: number) {
     return this.characteristicsService.deleteCharacteristicById(id);

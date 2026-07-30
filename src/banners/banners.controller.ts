@@ -6,12 +6,14 @@ import {
   Patch,
   Param,
   Delete,
+  UseGuards,
 } from '@nestjs/common';
 import { BannersService } from './banners.service';
 import { CreateBannerDto } from './dto/create-banner.dto';
 import { UpdateBannerDto } from './dto/update-banner.dto';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Banner } from './model/banner.model';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('Banners')
 @Controller('banners')
@@ -20,6 +22,9 @@ export class BannersController {
 
   //Create banner
   @ApiOperation({ summary: 'Create banner' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Post('create')
   async create(@Body() createBannerDto: CreateBannerDto) {
     return this.bannersService.createBanner(createBannerDto);
@@ -41,6 +46,9 @@ export class BannersController {
 
   //Update banner by id
   @ApiOperation({ summary: 'Update banner by id' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id') id: number,
@@ -51,6 +59,9 @@ export class BannersController {
 
   //Delete banner by id
   @ApiOperation({ summary: 'Delete banner by id' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id') id: number) {
     return this.bannersService.deleteBannerById(id);

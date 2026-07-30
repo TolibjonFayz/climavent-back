@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { R2Service } from './r2.service';
-import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { CreateR2Dto } from './dto/create-r2.dto';
 import { UpdateR2Dto } from './dto/update-r2.dto';
 import { v4 as uuidv4 } from 'uuid';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('R2')
 @Controller('r2')
@@ -11,6 +12,9 @@ export class R2Controller {
   constructor(private readonly r2Service: R2Service) {}
   //Create R2 text
   @ApiOperation({ summary: 'Create new R2 file' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Post('r2-upload')
   async testUpload(@Body() createR2Dto: CreateR2Dto): Promise<{
     success: boolean;
@@ -34,6 +38,9 @@ export class R2Controller {
 
   //Updaqte existing r2 text
   @ApiOperation({ summary: 'Update existing R2 file by key' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Put('r2-update')
   async updateContent(@Body() updateDto: UpdateR2Dto): Promise<{
     success: boolean;

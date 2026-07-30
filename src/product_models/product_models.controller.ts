@@ -7,12 +7,14 @@ import {
   Param,
   Delete,
   NotFoundException,
+  UseGuards,
 } from '@nestjs/common';
 import { ProductModelsService } from './product_models.service';
 import { CreateProductModelDto } from './dto/create-product_model.dto';
 import { UpdateProductModelDto } from './dto/update-product_model.dto';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ProductModels } from './models/product_model.model';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('Product models')
 @Controller('product-models')
@@ -21,6 +23,9 @@ export class ProductModelsController {
 
   //Create product model
   @ApiOperation({ summary: 'Create product model' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Post('create')
   async create(@Body() createProductModelDto: CreateProductModelDto) {
     return this.productModelsService.createProductModel(createProductModelDto);
@@ -67,6 +72,9 @@ export class ProductModelsController {
 
   //Update product model by id
   @ApiOperation({ summary: 'Update product model by id' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id') id: number,
@@ -80,6 +88,9 @@ export class ProductModelsController {
 
   //Delete product model by id
   @ApiOperation({ summary: 'Delete product model by id' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id') id: number) {
     return this.productModelsService.deleteProductModelById(id);

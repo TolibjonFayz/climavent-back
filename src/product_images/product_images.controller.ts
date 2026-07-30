@@ -6,12 +6,14 @@ import {
   Patch,
   Param,
   Delete,
+  UseGuards,
 } from '@nestjs/common';
 import { ProductImagesService } from './product_images.service';
 import { CreateProductImageDto } from './dto/create-product_image.dto';
 import { UpdateProductImageDto } from './dto/update-product_image.dto';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ProductImages } from './model/product_image.model';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('Product images')
 @Controller('product-images')
@@ -20,6 +22,9 @@ export class ProductImagesController {
 
   //Create product image
   @ApiOperation({ summary: 'Create product image' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Post('create')
   async create(@Body() createProfuctImageDto: CreateProductImageDto) {
     return this.productImagesService.createProductImage(createProfuctImageDto);
@@ -41,6 +46,9 @@ export class ProductImagesController {
 
   //Update product by id
   @ApiOperation({ summary: 'Update product image by id' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id') id: number,
@@ -54,6 +62,9 @@ export class ProductImagesController {
 
   //Delete product by id
   @ApiOperation({ summary: 'Delete product image by id' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id') id: number) {
     return this.productImagesService.deleteProductImageById(id);

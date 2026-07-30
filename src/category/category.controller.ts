@@ -6,14 +6,16 @@ import {
   Patch,
   Param,
   Delete,
+  UseGuards,
 } from '@nestjs/common';
 import { CategoryService } from './category.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Category } from './model/category.model';
 import { Product } from 'src/products/model/product.model';
 import { SortbyCategoryIdProductDto } from './dto/sortbycategoryid-product.dto';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('Category')
 @Controller('category')
@@ -22,6 +24,9 @@ export class CategoryController {
 
   //Create category
   @ApiOperation({ summary: 'Create category' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Post('create')
   async create(@Body() createCategoryDto: CreateCategoryDto) {
     return this.categoryService.createCategory(createCategoryDto);
@@ -54,6 +59,9 @@ export class CategoryController {
 
   //Update category by id
   @ApiOperation({ summary: 'Update category by id' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id') id: number,
@@ -64,6 +72,9 @@ export class CategoryController {
 
   //Delete category by id
   @ApiOperation({ summary: 'Delete category by id' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id') id: number) {
     return this.categoryService.deleteCategoryById(id);

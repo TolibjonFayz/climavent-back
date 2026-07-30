@@ -11,8 +11,8 @@ import {
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { AdminGuard } from 'src/guards/admin.guard';
+import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 import { Product } from './model/product.model';
 import { SortProductDto } from './dto/sort-product.dto';
 import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-product.dto';
@@ -26,8 +26,9 @@ export class ProductsController {
 
   //Create product
   @ApiBearerAuth()
+  @ApiSecurity('service-key')
   @ApiOperation({ summary: 'Create product (admin)' })
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtOrServiceKeyGuard)
   @Post('create')
   async create(@Body() createProductDto: CreateProductDto) {
     return this.productsService.createProduct(createProductDto);
@@ -103,8 +104,9 @@ export class ProductsController {
 
   //Update product by id
   @ApiBearerAuth()
+  @ApiSecurity('service-key')
   @ApiOperation({ summary: 'Update product by id (admin)' })
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtOrServiceKeyGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id') id: number,
@@ -115,8 +117,9 @@ export class ProductsController {
 
   //Delete product by id
   @ApiBearerAuth()
+  @ApiSecurity('service-key')
   @ApiOperation({ summary: 'Delete product by id (admin)' })
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtOrServiceKeyGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id') id: number) {
     return this.productsService.deleteProductById(id);
