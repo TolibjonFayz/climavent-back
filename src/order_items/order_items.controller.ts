@@ -6,23 +6,34 @@ import {
   Patch,
   Param,
   Delete,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
 import { OrderItemsService } from './order_items.service';
 import { CreateOrderItemDto } from './dto/create-order_item.dto';
 import { UpdateOrderItemDto } from './dto/update-order_item.dto';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrderItem } from './model/order_item.model';
+import { UserGuard } from 'src/guards/user.guard';
 
 @ApiTags('Order items')
+@ApiBearerAuth()
 @Controller('order-items')
 export class OrderItemsController {
   constructor(private readonly orderItemsService: OrderItemsService) {}
 
-  //Create order
-  @ApiOperation({ summary: 'Creating order item' })
+  //Create order item — faqat buyurtma egasi yoki admin
+  @ApiOperation({ summary: 'Creating order item (owner or admin)' })
+  @UseGuards(UserGuard)
   @Post('create')
-  async create(@Body() createOrderItemDto: CreateOrderItemDto) {
-    return this.orderItemsService.createOrderItem(createOrderItemDto);
+  async create(
+    @Body() createOrderItemDto: CreateOrderItemDto,
+    @Req() req: any,
+  ) {
+    return this.orderItemsService.createOrderItem(
+      createOrderItemDto,
+      req.user,
+    );
   }
 
   //Get all orders
@@ -46,20 +57,27 @@ export class OrderItemsController {
     return this.orderItemsService.getOrderItemByOrderId(id);
   }
 
-  //Update order by id
-  @ApiOperation({ summary: 'Update order item by id' })
+  //Update order item by id — faqat buyurtma egasi yoki admin
+  @ApiOperation({ summary: 'Update order item by id (owner or admin)' })
+  @UseGuards(UserGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id') id: number,
     @Body() updateOrderItemDto: UpdateOrderItemDto,
+    @Req() req: any,
   ) {
-    return this.orderItemsService.updateOrderItemById(id, updateOrderItemDto);
+    return this.orderItemsService.updateOrderItemById(
+      id,
+      updateOrderItemDto,
+      req.user,
+    );
   }
 
-  //Delete order by id
-  @ApiOperation({ summary: 'Delete order item by id' })
+  //Delete order item by id — faqat buyurtma egasi yoki admin
+  @ApiOperation({ summary: 'Delete order item by id (owner or admin)' })
+  @UseGuards(UserGuard)
   @Delete('delete/:id')
-  async deleteOne(@Param('id') id: number) {
-    return this.orderItemsService.deleteOrderItemById(id);
+  async deleteOne(@Param('id') id: number, @Req() req: any) {
+    return this.orderItemsService.deleteOrderItemById(id, req.user);
   }
 }

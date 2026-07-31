@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
@@ -48,11 +49,17 @@ export class ProductsController {
     return this.productsService.getAllProductsCount();
   }
 
-  //Get all products
+  //Get all products (page/limit ixtiyoriy)
   @ApiOperation({ summary: 'Get all products' })
   @Get('all')
-  async getAll(): Promise<Product[]> {
-    return this.productsService.getAllProducts();
+  async getAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ): Promise<Product[]> {
+    return this.productsService.getAllProducts(
+      page ? Number(page) : undefined,
+      limit ? Number(limit) : undefined,
+    );
   }
 
   //Get all products for admin

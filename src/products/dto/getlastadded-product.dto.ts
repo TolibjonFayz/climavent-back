@@ -1,14 +1,22 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsNumber, IsOptional } from 'class-validator';
 
 export class GetRecentlyAddedProductsDto {
-  @ApiProperty({ example: 2, description: 'Page of products' })
+  @ApiProperty({
+    example: 1,
+    description: 'Page of products',
+    required: false,
+  })
+  @IsOptional()
   @IsNumber()
-  @IsNotEmpty()
-  page: number;
+  page?: number = 1;
 
-  @ApiProperty({ example: 8, description: 'Limit for product section' })
+  @ApiProperty({
+    example: 20,
+    description: 'Limit for product section',
+    required: false,
+  })
+  @IsOptional()
   @IsNumber()
-  @IsNotEmpty()
-  limit: number;
+  limit?: number = 20;
 }

@@ -42,23 +42,38 @@ export class CharacteristicsService {
 
   //Update characteristic by id
   async updateCharacteristicById(id: number, payload: UpdateCharacteristicDto) {
-    const contentR2Link = await this.r2Service.uploadJson(
-      (this.uniqueId = uuidv4()),
-      payload.content,
-    );
-    const contentJsonR2Link = await this.r2Service.uploadJson(
-      (this.uniqueId = uuidv4()),
-      payload.contentJson,
-    );
-    payload.content = contentR2Link;
-    payload.contentJson = contentJsonR2Link;
+    const existing = await this.charecteristicRepository.findByPk(id);
+    if (!existing) {
+      throw new NotFoundException('Characteristic not found or something wrong');
+    }
+
+    // Faqat haqiqatan yuborilgan bo'lsa R2'ga qayta yuklaymiz —
+    // aks holda har bir title/price yangilanishida content/contentJson
+    // "undefined" bilan almashtirilib, mavjud ma'lumot yo'qolib ketardi.
+    if (payload.content !== undefined) {
+      payload.content = await this.r2Service.uploadJson(
+        (this.uniqueId = uuidv4()),
+        payload.content,
+      );
+    }
+    if (payload.contentJson !== undefined) {
+      payload.contentJson = await this.r2Service.uploadJson(
+        (this.uniqueId = uuidv4()),
+        payload.contentJson,
+      );
+    }
+
+    if (Object.keys(payload).length === 0) {
+      return existing.dataValues;
+    }
 
     const updated = await this.charecteristicRepository.update(payload, {
       where: { id: id },
       returning: true,
     });
     if (updated[1][0]?.dataValues) return updated[1][0].dataValues;
-    else return new NotFoundException('Banner not found or something wrong');
+    else
+      throw new NotFoundException('Characteristic not found or something wrong');
   }
 
   //Delete characteristic by id

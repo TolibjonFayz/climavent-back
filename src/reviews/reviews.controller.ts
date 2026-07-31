@@ -6,12 +6,15 @@ import {
   Patch,
   Param,
   Delete,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
 import { ReviewsService } from './reviews.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Review } from './model/review.model';
+import { UserGuard } from 'src/guards/user.guard';
 
 @ApiTags('Reviews')
 @Controller('reviews')
@@ -46,20 +49,29 @@ export class ReviewsController {
     return this.reviewsService.getProductReviewById(id);
   }
 
-  //Update product review by id
-  @ApiOperation({ summary: 'Update product review by id' })
+  //Update product review by id — faqat sharh egasi yoki admin
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update product review by id (owner or admin)' })
+  @UseGuards(UserGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id') id: number,
     @Body() updateReviewDto: UpdateReviewDto,
+    @Req() req: any,
   ) {
-    return this.reviewsService.updateProductReviewById(id, updateReviewDto);
+    return this.reviewsService.updateProductReviewById(
+      id,
+      updateReviewDto,
+      req.user,
+    );
   }
 
-  //Delete product review by id
-  @ApiOperation({ summary: 'Delete product review by id' })
+  //Delete product review by id — faqat sharh egasi yoki admin
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete product review by id (owner or admin)' })
+  @UseGuards(UserGuard)
   @Delete('delete/:id')
-  async deleteOne(@Param('id') id: number) {
-    return this.reviewsService.deleteProductReviewById(id);
+  async deleteOne(@Param('id') id: number, @Req() req: any) {
+    return this.reviewsService.deleteProductReviewById(id, req.user);
   }
 }

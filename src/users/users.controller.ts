@@ -9,7 +9,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { LoginUserDto } from './dto/login-user.dto.';
@@ -63,6 +63,7 @@ export class UsersController {
   }
 
   //Get all users — faqat admin
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get all users (admin)' })
   @Get('all')
   @UseGuards(AdminGuard)
@@ -71,6 +72,7 @@ export class UsersController {
   }
 
   //Get user by id
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get user by id' })
   @UseGuards(UserSelfGuard)
   @Get('one/:id')
@@ -79,6 +81,7 @@ export class UsersController {
   }
 
   //Get user badges by id — faqat o'sha foydalanuvchining o'zi
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get user badges by id (self)' })
   @UseGuards(UserSelfGuard)
   @Get('badges/:id')
@@ -98,6 +101,7 @@ export class UsersController {
   }
 
   //Update user by id
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Update user by id' })
   @UseGuards(UserSelfGuard)
   @Patch('update/:id')
@@ -109,6 +113,7 @@ export class UsersController {
   }
 
   //Delete user by id
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete user by id' })
   @UseGuards(UserSelfGuard)
   @Delete('delete/:id')

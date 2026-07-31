@@ -74,6 +74,17 @@ export class ProductModelsService {
     id: number,
     updateProductModelDto: UpdateProductModelDto,
   ) {
+    const existing = await this.productModelRepository.findByPk(id);
+    if (!existing) {
+      throw new NotFoundException(
+        'Product model not found or something wrong',
+      );
+    }
+
+    if (Object.keys(updateProductModelDto).length === 0) {
+      return existing.dataValues;
+    }
+
     const updated = await this.productModelRepository.update(
       updateProductModelDto,
       {
@@ -83,7 +94,7 @@ export class ProductModelsService {
     );
     if (updated[1][0]?.dataValues) return updated[1][0].dataValues;
     else
-      return new NotFoundException(
+      throw new NotFoundException(
         'Product model not found or something wrong',
       );
   }

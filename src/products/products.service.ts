@@ -13,6 +13,8 @@ import { Product } from './model/product.model';
 import Sequelize, { where } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
 import { R2Service } from 'src/r2/r2.service';
+import { ProductModels } from 'src/product_models/models/product_model.model';
+import { Characteristic } from 'src/characteristics/model/characteristic.model';
 
 const { Op } = Sequelize;
 @Injectable()
@@ -35,26 +37,50 @@ export class ProductsService {
 
   //Search product by query
   async searchProducts(searchProductsByQueryDto: SearchProductsByQueryDto) {
+    const text = searchProductsByQueryDto.text;
     const blogs = await this.productRepository.findAll({
       where: {
         [Op.or]: [
-          { name_uz: { [Op.iLike]: `%${searchProductsByQueryDto.text}%` } },
-          { name_en: { [Op.iLike]: `%${searchProductsByQueryDto.text}%` } },
-          { name_ru: { [Op.iLike]: `%${searchProductsByQueryDto.text}%` } },
+          { name_uz: { [Op.iLike]: `%${text}%` } },
+          { name_en: { [Op.iLike]: `%${text}%` } },
+          { name_ru: { [Op.iLike]: `%${text}%` } },
+          { '$models.name$': { [Op.iLike]: `%${text}%` } },
+          { '$characters.title$': { [Op.iLike]: `%${text}%` } },
         ],
       },
       attributes: ['id', 'name_uz', 'name_en', 'name_ru'],
+      include: [
+        {
+          model: ProductModels,
+          as: 'models',
+          attributes: ['id', 'name', 'price'],
+          required: false,
+        },
+        {
+          model: Characteristic,
+          as: 'characters',
+          attributes: ['id', 'title', 'price'],
+          required: false,
+        },
+      ],
+      subQuery: false,
     });
     // Topilmasa bo'sh massiv qaytaramiz (frontend uni .length === 0 bilan tekshiradi)
     return blogs;
   }
 
-  //Get all products
-  async getAllProducts() {
-    const products = await this.productRepository.findAll({
+  //Get all products (page/limit ixtiyoriy — berilmasa avvalgidek to'liq ro'yxat qaytadi)
+  async getAllProducts(page?: number, limit?: number) {
+    if (!page || !limit) {
+      return this.productRepository.findAll({ include: { all: true } });
+    }
+    const offset = (page - 1) * limit;
+    return this.productRepository.findAll({
       include: { all: true },
+      order: [['id', 'ASC']],
+      limit,
+      offset,
     });
-    return products;
   }
 
   //Get all products FOR ADMIN
@@ -220,6 +246,11 @@ export class ProductsService {
 
   //Update product by id
   async updateProductById(id: number, updateProductDto: UpdateProductDto) {
+    const existing = await this.productRepository.findByPk(id);
+    if (!existing) {
+      throw new NotFoundException('Product not found or something wrong');
+    }
+
     //Updating size
     if (
       Object.keys(updateProductDto).includes('sizes') &&
@@ -293,12 +324,16 @@ export class ProductsService {
       updateProductDto.markirovkaJson = markirovkaJsonR2Link;
     }
 
+    if (Object.keys(updateProductDto).length === 0) {
+      return existing.dataValues;
+    }
+
     const updated = await this.productRepository.update(updateProductDto, {
       where: { id: id },
       returning: true,
     });
     if (updated[1][0]?.dataValues) return updated[1][0].dataValues;
-    else return new NotFoundException('Product not found or something wrong');
+    else throw new NotFoundException('Product not found or something wrong');
   }
 
   //Delete product by id
