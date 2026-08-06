@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  ParseIntPipe,
   Delete,
   UseGuards,
 } from '@nestjs/common';
@@ -40,8 +41,8 @@ export class RishotkalarController {
   //Get rishotkalar by its id
   @ApiOperation({ summary: 'Get rishotka by its id' })
   @Get('one/:id')
-  findOne(@Param('id') id: string) {
-    return this.rishotkalarService.getOneRishotkaById(+id);
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.rishotkalarService.getOneRishotkaById(id);
   }
 
   //Update rishotka by its id
@@ -51,7 +52,7 @@ export class RishotkalarController {
   @UseGuards(JwtOrServiceKeyGuard)
   @Patch('update/:id')
   async updateOne(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateRishotkaDto: UpdateRishotkalarDto,
   ) {
     return this.rishotkalarService.updateRishotkaById(id, updateRishotkaDto);
@@ -63,7 +64,7 @@ export class RishotkalarController {
   @ApiSecurity('service-key')
   @UseGuards(JwtOrServiceKeyGuard)
   @Delete('delete/:id')
-  async deleteOne(@Param('id') id: number) {
+  async deleteOne(@Param('id', ParseIntPipe) id: number) {
     return this.rishotkalarService.deleteRishotkaById(id);
   }
 }

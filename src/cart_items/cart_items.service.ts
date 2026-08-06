@@ -1,17 +1,43 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateCartItemDto } from './dto/create-cart_item.dto';
 import { UpdateCartItemDto } from './dto/update-cart_item.dto';
 import { InjectModel } from '@nestjs/sequelize';
 import { CartItem } from './model/cart_item.model';
+import { Cart } from 'src/cart/models/cart.model';
 
 @Injectable()
 export class CartItemsService {
   constructor(
     @InjectModel(CartItem) private readonly CartItemRepository: typeof CartItem,
+    @InjectModel(Cart) private readonly CartRepository: typeof Cart,
   ) {}
 
-  //Creating a cart item
-  async createCartItem(createCartItemDto: CreateCartItemDto) {
+  // Qatorning tegishli savati egasi (yoki admin ekanini) tekshiradi
+  private async ensureCartOwnerOrAdmin(
+    cartId: number,
+    requester: { id?: number; is_admin?: boolean },
+  ) {
+    const cart = await this.CartRepository.findByPk(cartId);
+    if (!cart) {
+      throw new NotFoundException('Cart not found or something wrong');
+    }
+    if (cart.user_id !== requester?.id && !requester?.is_admin) {
+      throw new ForbiddenException('Bu savat sizga tegishli emas');
+    }
+    return cart;
+  }
+
+  //Creating a cart item — faqat savat egasi yoki admin
+  async createCartItem(
+    createCartItemDto: CreateCartItemDto,
+    requester: { id?: number; is_admin?: boolean },
+  ) {
+    await this.ensureCartOwnerOrAdmin(createCartItemDto.cart_id, requester);
+
     const isThisExists = await this.CartItemRepository.findOne({
       where: {
         cart_id: createCartItemDto.cart_id,
@@ -66,18 +92,41 @@ export class CartItemsService {
       );
   }
 
-  //Update cart item by id
-  async updateCartItemById(id: number, updateCartItemDto: UpdateCartItemDto) {
+  //Update cart item by id — faqat savat egasi yoki admin
+  async updateCartItemById(
+    id: number,
+    updateCartItemDto: UpdateCartItemDto,
+    requester: { id?: number; is_admin?: boolean },
+  ) {
+    const existing = await this.CartItemRepository.findByPk(id);
+    if (!existing) {
+      throw new NotFoundException('Cart item not found or something wrong');
+    }
+    await this.ensureCartOwnerOrAdmin(existing.cart_id, requester);
+
+    if (Object.keys(updateCartItemDto).length === 0) {
+      return existing.dataValues;
+    }
+
     const updated = await this.CartItemRepository.update(updateCartItemDto, {
       where: { id: id },
       returning: true,
     });
     if (updated[1][0]?.dataValues) return updated[1][0].dataValues;
-    else return new NotFoundException('Cart item not found or something wrong');
+    else throw new NotFoundException('Cart item not found or something wrong');
   }
 
-  //Delete cart item by id
-  async deleteCartItemById(id: number) {
+  //Delete cart item by id — faqat savat egasi yoki admin
+  async deleteCartItemById(
+    id: number,
+    requester: { id?: number; is_admin?: boolean },
+  ) {
+    const existing = await this.CartItemRepository.findByPk(id);
+    if (!existing) {
+      throw new NotFoundException('Cart item not found or something wrong');
+    }
+    await this.ensureCartOwnerOrAdmin(existing.cart_id, requester);
+
     const deleting = await this.CartItemRepository.destroy({
       where: { id: id },
     });

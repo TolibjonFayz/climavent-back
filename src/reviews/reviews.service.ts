@@ -7,6 +7,7 @@ import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 import { InjectModel } from '@nestjs/sequelize';
 import { Review } from './model/review.model';
+import { User } from 'src/users/model/user.model';
 
 @Injectable()
 export class ReviewsService {
@@ -43,20 +44,20 @@ export class ReviewsService {
     return productReviews;
   }
 
-  //Get product reviews by product id
+  //Get product reviews by product id — ochiq, shuning uchun user'dan faqat ism
   async getProductReviewsByProductId(id: number) {
     const productReviews = await this.ReviewReviewRepository.findAll({
       where: { product_id: id },
-      include: { all: true },
+      include: [{ model: User, attributes: ['name'] }],
     });
     return productReviews;
   }
 
-  //Get product review by id
+  //Get product review by id — ochiq, shuning uchun user'dan faqat ism
   async getProductReviewById(id: number) {
     const productReview = await this.ReviewReviewRepository.findOne({
       where: { id: id },
-      include: { all: true },
+      include: [{ model: User, attributes: ['name'] }],
     });
     if (productReview) return productReview;
     else

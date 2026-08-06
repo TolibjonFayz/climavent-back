@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  ParseIntPipe,
   Delete,
   UseGuards,
 } from '@nestjs/common';
@@ -34,7 +35,7 @@ export class LikesController {
   @ApiOperation({ summary: 'Get all user likes (self)' })
   @UseGuards(UserSelfGuard)
   @Get('useralllikes/:id')
-  async getAllUserlikes(@Param('id') id: number): Promise<Like[]> {
+  async getAllUserlikes(@Param('id', ParseIntPipe) id: number): Promise<Like[]> {
     return this.likesService.getUserAllLikes(id);
   }
 
@@ -49,7 +50,7 @@ export class LikesController {
   //Get one like by id
   @ApiOperation({ summary: 'Get one like by id' })
   @Get('one/:id')
-  async getOne(@Param('id') id: number): Promise<Like> {
+  async getOne(@Param('id', ParseIntPipe) id: number): Promise<Like> {
     return this.likesService.getOneLikeById(id);
   }
 
@@ -58,7 +59,7 @@ export class LikesController {
   @UseGuards(AdminGuard)
   @Patch('update/:id')
   async updateOne(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateLikeDto: UpdateLikeDto,
   ) {
     return this.likesService.updateOneLikeById(id, updateLikeDto);

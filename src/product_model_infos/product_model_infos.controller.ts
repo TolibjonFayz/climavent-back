@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  ParseIntPipe,
   Delete,
   UseGuards,
 } from '@nestjs/common';
@@ -44,7 +45,7 @@ export class ProductModelInfosController {
   //Get product model info by id
   @ApiOperation({ summary: 'Get product model by id' })
   @Get('one/:id')
-  async getOne(@Param('id') id: number): Promise<ProductModelInfo> {
+  async getOne(@Param('id', ParseIntPipe) id: number): Promise<ProductModelInfo> {
     return this.productModelInfosService.getProductModelInfoById(id);
   }
 
@@ -55,7 +56,7 @@ export class ProductModelInfosController {
   @UseGuards(JwtOrServiceKeyGuard)
   @Patch('update/:id')
   async updateOne(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateProductModelInfoDto: UpdateProductModelInfoDto,
   ) {
     return this.productModelInfosService.updateProductModelInfoById(
@@ -70,7 +71,7 @@ export class ProductModelInfosController {
   @ApiSecurity('service-key')
   @UseGuards(JwtOrServiceKeyGuard)
   @Delete('delete/:id')
-  async deleteOne(@Param('id') id: number) {
+  async deleteOne(@Param('id', ParseIntPipe) id: number) {
     return this.productModelInfosService.deleteProductModelInfoById(id);
   }
 }

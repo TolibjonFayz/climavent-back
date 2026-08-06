@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  ParseIntPipe,
   Delete,
   UseGuards,
 } from '@nestjs/common';
@@ -42,7 +43,7 @@ export class CategoryController {
   //Get category by id
   @ApiOperation({ summary: 'Get category by id' })
   @Get('one/:id')
-  async getOne(@Param('id') id: number): Promise<Category> {
+  async getOne(@Param('id', ParseIntPipe) id: number): Promise<Category> {
     return this.categoryService.getCategoryById(id);
   }
 
@@ -64,7 +65,7 @@ export class CategoryController {
   @UseGuards(JwtOrServiceKeyGuard)
   @Patch('update/:id')
   async updateOne(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateCategoryDto: UpdateCategoryDto,
   ) {
     return this.categoryService.updateCategoryById(id, updateCategoryDto);
@@ -76,7 +77,7 @@ export class CategoryController {
   @ApiSecurity('service-key')
   @UseGuards(JwtOrServiceKeyGuard)
   @Delete('delete/:id')
-  async deleteOne(@Param('id') id: number) {
+  async deleteOne(@Param('id', ParseIntPipe) id: number) {
     return this.categoryService.deleteCategoryById(id);
   }
 }

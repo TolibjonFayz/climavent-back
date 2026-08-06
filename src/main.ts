@@ -1,9 +1,11 @@
-import { NestFactory } from '@nestjs/core';
+import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import * as cookieParser from 'cookie-parser';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
 import * as bodyParser from 'body-parser';
+import helmet from 'helmet';
+import { BadInputFilter } from './common/filters/bad-input.filter';
 
 const start = async () => {
   try {
@@ -11,6 +13,11 @@ const start = async () => {
 
     const app = await NestFactory.create(AppModule);
     app.setGlobalPrefix('api');
+
+    // CSP o'chirilgan — Swagger UI (/api/docs) inline script/style ishlatadi,
+    // qattiq CSP uni buzadi. Qolgan sarlavhalar (HSTS, X-Frame-Options,
+    // X-Content-Type-Options, X-Powered-By yashirish va h.k.) standart holida.
+    app.use(helmet({ contentSecurityPolicy: false }));
 
     app.use(bodyParser.json({ limit: '10mb' }));
     app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
@@ -43,6 +50,9 @@ const start = async () => {
       .build();
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('/api/docs', app, document);
+
+    const httpAdapterHost = app.get(HttpAdapterHost);
+    app.useGlobalFilters(new BadInputFilter(httpAdapterHost.httpAdapter));
 
     app.use(cookieParser());
     app.useGlobalPipes(

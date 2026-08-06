@@ -23,11 +23,17 @@ import { R2Module } from './r2/r2.module';
 import { ProductModelInsideModule } from './product_model_inside/product_model_inside.module';
 import { ProductModelsModule } from './product_models/product_models.module';
 import { GuardsModule } from './guards/guards.module';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ envFilePath: '.env', isGlobal: true }),
     GuardsModule,
+    // Butun API uchun umumiy tezlik cheklovi — daqiqasiga 120 so'rov/IP.
+    // Login kabi qimmat endpointlar o'zining qattiqroq cheklovini
+    // @Throttle() bilan alohida qo'yadi.
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 120 }]),
     SequelizeModule.forRoot({
       dialect: 'postgres',
       host: process.env.POSTGRES_HOST,
@@ -66,6 +72,6 @@ import { GuardsModule } from './guards/guards.module';
     ProductModelsModule,
   ],
   controllers: [],
-  providers: [],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

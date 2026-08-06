@@ -38,16 +38,21 @@ export class ProductsService {
   //Search product by query
   async searchProducts(searchProductsByQueryDto: SearchProductsByQueryDto) {
     const text = searchProductsByQueryDto.text;
+    // Har bir so'z alohida qidiriladi (barchasi mos kelishi kerak, lekin
+    // turli maydonlarda bo'lishi mumkin) — shu orqali "kanal ventilyatori"
+    // kabi ko'p so'zli so'rovlar ham topiladi.
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    const wordConditions = words.map((word) => ({
+      [Op.or]: [
+        { name_uz: { [Op.iLike]: `%${word}%` } },
+        { name_en: { [Op.iLike]: `%${word}%` } },
+        { name_ru: { [Op.iLike]: `%${word}%` } },
+        { '$models.name$': { [Op.iLike]: `%${word}%` } },
+        { '$characters.title$': { [Op.iLike]: `%${word}%` } },
+      ],
+    }));
     const blogs = await this.productRepository.findAll({
-      where: {
-        [Op.or]: [
-          { name_uz: { [Op.iLike]: `%${text}%` } },
-          { name_en: { [Op.iLike]: `%${text}%` } },
-          { name_ru: { [Op.iLike]: `%${text}%` } },
-          { '$models.name$': { [Op.iLike]: `%${text}%` } },
-          { '$characters.title$': { [Op.iLike]: `%${text}%` } },
-        ],
-      },
+      where: { [Op.and]: wordConditions },
       attributes: ['id', 'name_uz', 'name_en', 'name_ru'],
       include: [
         {

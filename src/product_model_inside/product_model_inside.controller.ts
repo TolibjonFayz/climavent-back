@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, ParseIntPipe, Delete, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
 import { ProductModelInsideService } from './product_model_inside.service';
 import { CreateProductModelInsideDto } from './dto/create-product_model_inside.dto';
@@ -24,28 +24,28 @@ export class ProductModelInsideController {
 
   // Bitta model (characteristic) ga tegishli ro'yxat
   @Get('model/:modelId')
-  findByModel(@Param('modelId') modelId: string) {
-    return this.productModelInsideService.findByModel(+modelId);
+  findByModel(@Param('modelId', ParseIntPipe) modelId: number) {
+    return this.productModelInsideService.findByModel(modelId);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.productModelInsideService.findOne(+id);
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.productModelInsideService.findOne(id);
   }
 
   @ApiBearerAuth()
   @ApiSecurity('service-key')
   @UseGuards(JwtOrServiceKeyGuard)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateProductModelInsideDto: UpdateProductModelInsideDto) {
-    return this.productModelInsideService.update(+id, updateProductModelInsideDto);
+  update(@Param('id', ParseIntPipe) id: number, @Body() updateProductModelInsideDto: UpdateProductModelInsideDto) {
+    return this.productModelInsideService.update(id, updateProductModelInsideDto);
   }
 
   @ApiBearerAuth()
   @ApiSecurity('service-key')
   @UseGuards(JwtOrServiceKeyGuard)
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.productModelInsideService.remove(+id);
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.productModelInsideService.remove(id);
   }
 }

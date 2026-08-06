@@ -24,9 +24,18 @@ import * as bcrypt from 'bcrypt';
 import { SignoutDto } from './dto/signout.dto';
 import { Like } from 'src/likes/model/like.model';
 import { Cart } from 'src/cart/models/cart.model';
+import { Op } from 'sequelize';
 
 // Refresh token cookie muddati: 15 kun
 const REFRESH_TOKEN_COOKIE_MAX_AGE = 15 * 24 * 60 * 60 * 1000;
+
+// OTP cheklovlari — SMS pullik, shuning uchun suiiste'moldan himoya kerak
+const OTP_RESEND_COOLDOWN_MS = 5 * 60 * 1000; // bitta raqamga 5 daqiqada 1 marta
+const OTP_DAILY_LIMIT = 5; // bitta raqamga sutkasiga necha marta SMS
+const OTP_MAX_ATTEMPTS = 3; // bitta kodga necha marta noto'g'ri urinish mumkin
+// Tasdiqlanmagan (is_active=false) "yaratib tashlab ketilgan" foydalanuvchilarni
+// shuncha vaqtdan keyin eskirgan deb hisoblab, keyingi login'da tozalaymiz
+const STALE_UNVERIFIED_USER_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class UsersService {
@@ -119,6 +128,17 @@ export class UsersService {
       where: { phone_number: loginuserDto.phone_number },
     });
     if (!user) {
+      // Eskirgan, hech qachon tasdiqlanmagan (login qilib, OTP kiritilmagan)
+      // yozuvlarni tozalab turamiz — aks holda baza soxta raqamlar bilan to'ladi.
+      await this.UsersRepository.destroy({
+        where: {
+          is_active: false,
+          createdAt: {
+            [Op.lt]: new Date(Date.now() - STALE_UNVERIFIED_USER_MS),
+          },
+        },
+      });
+
       user = await this.UsersRepository.create({
         phone_number: loginuserDto.phone_number,
       });
@@ -231,6 +251,37 @@ export class UsersService {
   }
 
   async newOtp(phone_number: number) {
+    const fullPhone = `+${phone_number}`;
+    const now = new Date();
+
+    // Sutkalik SMS limiti (eski qatorlar endi o'chirilmaydi, shuning
+    // uchun shu raqamga oxirgi 24 soatda nechta kod yuborilganini sanay olamiz)
+    const sentToday = await this.otpRepo.count({
+      where: {
+        phone_number: fullPhone,
+        createdAt: { [Op.gte]: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+      },
+    });
+    if (sentToday >= OTP_DAILY_LIMIT) {
+      throw new BadRequestException(
+        "Bu raqamga sutkalik SMS limiti tugadi, ertaga qayta urinib ko'ring",
+      );
+    }
+
+    // Tez-tez qayta so'rashni cheklash
+    const lastOtp = await this.otpRepo.findOne({
+      where: { phone_number: fullPhone },
+      order: [['createdAt', 'DESC']],
+    });
+    if (
+      lastOtp &&
+      now.getTime() - lastOtp.createdAt.getTime() < OTP_RESEND_COOLDOWN_MS
+    ) {
+      throw new BadRequestException(
+        "Kod hozirgina yuborildi, biroz kutib qayta urinib ko'ring"
+      );
+    }
+
     // MUHIM: Number() ishlatilmaydi — aks holda "01234" kabi 0 bilan boshlangan
     // kodlar "1234" ga aylanib, tasdiqlash mumkin bo'lmay qoladi.
     const otp = otpGenerator.generate(5, {
@@ -241,17 +292,15 @@ export class UsersService {
     });
     await this.otpService.sendOtp(phone_number, otp);
 
-    const now = new Date();
     const expiration_time = AddMinutesToDate(now, 2);
-    await this.otpRepo.destroy({
-      where: { phone_number: `+${phone_number}` },
-    });
-
+    // Eski qatorlar ATAYLAB o'chirilmaydi — sutkalik limitni sanash uchun kerak.
+    // Tasdiqlash endi aniq shu urinishning otp_id'si bo'yicha qidiriladi
+    // (verifyOtpClient), shuning uchun eski qatorlar chalkashlik keltirmaydi.
     const newOtp = await this.otpRepo.create({
       unique_id: uuidv4(),
       otp: otp,
       expiration_time,
-      phone_number: `+${phone_number}`,
+      phone_number: fullPhone,
     });
 
     const details = {
@@ -280,8 +329,10 @@ export class UsersService {
       throw new BadRequestException('Tasdiqlash kodi bu raqamga yuborilmagan');
     }
 
+    // Aniq shu urinishning OTP qatori — endi eski qatorlar o'chirilmagani
+    // uchun faqat phone_number bo'yicha qidirish noaniq bo'lardi.
     const otpRow = await this.otpRepo.findOne({
-      where: { phone_number: obj.phone_number },
+      where: { id: obj.otp_id, phone_number: obj.phone_number },
     });
     if (!otpRow) {
       throw new BadRequestException('Bunday OTP mavjud emas');
@@ -295,8 +346,14 @@ export class UsersService {
     if (!dates.compare(otpDB.expiration_time, new Date())) {
       throw new BadRequestException('Tasdiqlash kodi muddati tugagan');
     }
+    if (otpDB.attempts >= OTP_MAX_ATTEMPTS) {
+      throw new BadRequestException(
+        "Noto'g'ri urinishlar soni tugadi, yangi kod so'rang",
+      );
+    }
     // OTP string sifatida saqlanadi — string bilan solishtiramiz (0 bilan boshlangan kodlar uchun)
     if (String(otpDB.otp) !== String(otp)) {
+      await this.otpRepo.increment('attempts', { where: { id: otpDB.id } });
       throw new BadRequestException('Tasdiqlash kodi xato');
     }
 

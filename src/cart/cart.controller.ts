@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  ParseIntPipe,
   Delete,
   UseGuards,
 } from '@nestjs/common';
@@ -41,7 +42,7 @@ export class CartController {
   //Get cart by id
   @ApiOperation({ summary: 'Get cart by id' })
   @Get('one/:id')
-  async getOne(@Param('id') id: number): Promise<Cart> {
+  async getOne(@Param('id', ParseIntPipe) id: number): Promise<Cart> {
     return this.cartService.getCartById(id);
   }
 
@@ -49,7 +50,7 @@ export class CartController {
   @ApiOperation({ summary: 'Get cart by user id (self)' })
   @UseGuards(UserSelfGuard)
   @Get('oneuser/:id')
-  async getOneByUserId(@Param('id') id: number): Promise<any> {
+  async getOneByUserId(@Param('id', ParseIntPipe) id: number): Promise<any> {
     return this.cartService.getCartByUserId(id);
   }
 
@@ -58,7 +59,7 @@ export class CartController {
   @UseGuards(AdminGuard)
   @Patch('update/:id')
   async updateOne(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateCartDto: UpdateCartDto,
   ) {
     return this.cartService.updateCartById(id, updateCartDto);
@@ -68,7 +69,7 @@ export class CartController {
   @ApiOperation({ summary: 'Delete cart by id (admin)' })
   @UseGuards(AdminGuard)
   @Delete('delete/:id')
-  async deleteOne(@Param('id') id: number) {
+  async deleteOne(@Param('id', ParseIntPipe) id: number) {
     return this.cartService.deleteCartById(id);
   }
 }

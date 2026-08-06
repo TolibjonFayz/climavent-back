@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  ParseIntPipe,
   Delete,
   NotFoundException,
   UseGuards,
@@ -41,14 +42,14 @@ export class ProductModelsController {
   //Get product model by id
   @ApiOperation({ summary: 'Get product model by id' })
   @Get('one/:id')
-  async getOne(@Param('id') id: number): Promise<ProductModels> {
+  async getOne(@Param('id', ParseIntPipe) id: number): Promise<ProductModels> {
     return this.productModelsService.getProductModelById(id);
   }
 
   //Get product model by product id
   @ApiOperation({ summary: 'Get product model by id' })
   @Get('oneproductid/:id')
-  async getOneByPdroductid(@Param('id') id: number): Promise<ProductModels> {
+  async getOneByPdroductid(@Param('id', ParseIntPipe) id: number): Promise<ProductModels> {
     return this.productModelsService.getProductModelByProductId(id);
   }
 
@@ -77,7 +78,7 @@ export class ProductModelsController {
   @UseGuards(JwtOrServiceKeyGuard)
   @Patch('update/:id')
   async updateOne(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() UpdateProductModelDto: UpdateProductModelDto,
   ) {
     return this.productModelsService.updateProductModelById(
@@ -92,7 +93,7 @@ export class ProductModelsController {
   @ApiSecurity('service-key')
   @UseGuards(JwtOrServiceKeyGuard)
   @Delete('delete/:id')
-  async deleteOne(@Param('id') id: number) {
+  async deleteOne(@Param('id', ParseIntPipe) id: number) {
     return this.productModelsService.deleteProductModelById(id);
   }
 }

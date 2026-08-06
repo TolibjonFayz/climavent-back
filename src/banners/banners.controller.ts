@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  ParseIntPipe,
   Delete,
   UseGuards,
 } from '@nestjs/common';
@@ -40,7 +41,7 @@ export class BannersController {
   //Get banner by id
   @ApiOperation({ summary: 'Get banner by id' })
   @Get('one/:id')
-  async getOne(@Param('id') id: number): Promise<Banner> {
+  async getOne(@Param('id', ParseIntPipe) id: number): Promise<Banner> {
     return this.bannersService.getBannerById(id);
   }
 
@@ -51,7 +52,7 @@ export class BannersController {
   @UseGuards(JwtOrServiceKeyGuard)
   @Patch('update/:id')
   async updateOne(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateBannerDto: UpdateBannerDto,
   ) {
     return this.bannersService.updateBannerById(id, updateBannerDto);
@@ -63,7 +64,7 @@ export class BannersController {
   @ApiSecurity('service-key')
   @UseGuards(JwtOrServiceKeyGuard)
   @Delete('delete/:id')
-  async deleteOne(@Param('id') id: number) {
+  async deleteOne(@Param('id', ParseIntPipe) id: number) {
     return this.bannersService.deleteBannerById(id);
   }
 }

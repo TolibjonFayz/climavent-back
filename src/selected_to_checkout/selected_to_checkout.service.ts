@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateSelectedToCheckoutDto } from './dto/create-selected_to_checkout.dto';
 import { InjectModel } from '@nestjs/sequelize';
 import { SelectedToCheckoutModels } from './model/selected_to_checkout.model';
@@ -76,8 +76,13 @@ export class SelectedToCheckoutService {
 
   //Delete selected to checkout by user id
   async deleteSelectedToCh(user_id: number) {
-    //Delete selected to checkouts
-    await this.selecteddToChRepository.destroy({ where: { user_id: user_id } });
+    const deleted = await this.selecteddToChRepository.destroy({
+      where: { user_id: user_id },
+    });
+
+    if (!deleted) {
+      throw new NotFoundException('Selected to checkout not found');
+    }
 
     return {
       message: 'Selected to checkout successfully deleted',
@@ -99,7 +104,7 @@ export class SelectedToCheckoutService {
     });
 
     //Need to remove selected products from cart after payment
-    if (products && products.length > 0) {
+    if (products && products.length > 0 && userCart) {
       for (const product of products) {
         await this.CartItemRepository.destroy({
           where: {

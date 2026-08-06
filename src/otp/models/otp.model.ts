@@ -7,6 +7,7 @@ interface OtpAttr {
   expiration_time: Date;
   verified: boolean;
   unique_id: string;
+  attempts: number;
 }
 
 @Table({ tableName: 'otp' })
@@ -32,4 +33,7 @@ export class Otp extends Model<Otp, OtpAttr> {
 
   @Column({ type: DataType.STRING })
   phone_number: string;
+
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  attempts: number;
 }

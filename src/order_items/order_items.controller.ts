@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  ParseIntPipe,
   Delete,
   UseGuards,
   Req,
@@ -15,6 +16,7 @@ import { UpdateOrderItemDto } from './dto/update-order_item.dto';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrderItem } from './model/order_item.model';
 import { UserGuard } from 'src/guards/user.guard';
+import { AdminGuard } from 'src/guards/admin.guard';
 
 @ApiTags('Order items')
 @ApiBearerAuth()
@@ -36,8 +38,9 @@ export class OrderItemsController {
     );
   }
 
-  //Get all orders
-  @ApiOperation({ summary: 'Get all order items' })
+  //Get all orders — faqat admin
+  @ApiOperation({ summary: 'Get all order items (admin)' })
+  @UseGuards(AdminGuard)
   @Get('all')
   async getAll(): Promise<OrderItem[]> {
     return this.orderItemsService.getAllOrderItems();
@@ -46,14 +49,14 @@ export class OrderItemsController {
   //Get order by id
   @ApiOperation({ summary: 'Get order item by id' })
   @Get('one/:id')
-  async getOne(@Param('id') id: number): Promise<OrderItem> {
+  async getOne(@Param('id', ParseIntPipe) id: number): Promise<OrderItem> {
     return this.orderItemsService.getOrderItemById(id);
   }
 
   //Get order by user id
   @ApiOperation({ summary: 'Get order item by user id' })
   @Get('oneuser/:id')
-  async getOneByUserId(@Param('id') id: number): Promise<OrderItem> {
+  async getOneByUserId(@Param('id', ParseIntPipe) id: number): Promise<OrderItem> {
     return this.orderItemsService.getOrderItemByOrderId(id);
   }
 
@@ -62,7 +65,7 @@ export class OrderItemsController {
   @UseGuards(UserGuard)
   @Patch('update/:id')
   async updateOne(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateOrderItemDto: UpdateOrderItemDto,
     @Req() req: any,
   ) {
@@ -77,7 +80,7 @@ export class OrderItemsController {
   @ApiOperation({ summary: 'Delete order item by id (owner or admin)' })
   @UseGuards(UserGuard)
   @Delete('delete/:id')
-  async deleteOne(@Param('id') id: number, @Req() req: any) {
+  async deleteOne(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     return this.orderItemsService.deleteOrderItemById(id, req.user);
   }
 }

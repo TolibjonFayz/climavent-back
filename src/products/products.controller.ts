@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  ParseIntPipe,
   Delete,
   Query,
   UseGuards,
@@ -105,7 +106,7 @@ export class ProductsController {
   //Get product by id
   @ApiOperation({ summary: 'Get product by id' })
   @Get('one/:id')
-  async getOne(@Param('id') id: number): Promise<Product> {
+  async getOne(@Param('id', ParseIntPipe) id: number): Promise<Product> {
     return this.productsService.getProductById(id);
   }
 
@@ -116,7 +117,7 @@ export class ProductsController {
   @UseGuards(JwtOrServiceKeyGuard)
   @Patch('update/:id')
   async updateOne(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateProductDto: UpdateProductDto,
   ) {
     return this.productsService.updateProductById(id, updateProductDto);
@@ -128,7 +129,7 @@ export class ProductsController {
   @ApiOperation({ summary: 'Delete product by id (admin)' })
   @UseGuards(JwtOrServiceKeyGuard)
   @Delete('delete/:id')
-  async deleteOne(@Param('id') id: number) {
+  async deleteOne(@Param('id', ParseIntPipe) id: number) {
     return this.productsService.deleteProductById(id);
   }
 }

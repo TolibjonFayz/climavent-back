@@ -3,6 +3,7 @@ import {
   Delete,
   Patch,
   Param,
+  ParseIntPipe,
   Post,
   Body,
   Get,
@@ -20,6 +21,7 @@ import { Response } from 'express';
 import { SignoutDto } from './dto/signout.dto';
 import { UserSelfGuard } from 'src/guards/user_self.guard';
 import { AdminGuard } from 'src/guards/admin.guard';
+import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('Users')
 @Controller('users')
@@ -45,8 +47,10 @@ export class UsersController {
     return this.usersService.activateUser(link);
   }
 
-  //Login user — OTP yuboradi (token bermaydi)
+  //Login user — OTP yuboradi (token bermaydi). SMS pullik, shuning uchun
+  //IP boshiga qattiqroq cheklov: soatiga 10 ta so'rov.
   @ApiOperation({ summary: 'Login user (send OTP)' })
+  @Throttle({ default: { limit: 10, ttl: 60 * 60 * 1000 } })
   @Post('login')
   async login(@Body() loginUserDto: LoginUserDto) {
     return this.usersService.loginUser(loginUserDto);
@@ -76,7 +80,7 @@ export class UsersController {
   @ApiOperation({ summary: 'Get user by id' })
   @UseGuards(UserSelfGuard)
   @Get('one/:id')
-  async getUserById(@Param('id') id: number): Promise<User> {
+  async getUserById(@Param('id', ParseIntPipe) id: number): Promise<User> {
     return this.usersService.getUserById(id);
   }
 
@@ -85,7 +89,7 @@ export class UsersController {
   @ApiOperation({ summary: 'Get user badges by id (self)' })
   @UseGuards(UserSelfGuard)
   @Get('badges/:id')
-  async getUserBadgeById(@Param('id') id: number) {
+  async getUserBadgeById(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.getUserBadgeNumbers(id);
   }
 
@@ -106,7 +110,7 @@ export class UsersController {
   @UseGuards(UserSelfGuard)
   @Patch('update/:id')
   async updateUser(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateUserdto: UpdateUserDto,
   ): Promise<User> {
     return this.usersService.updateUser(+id, updateUserdto);
@@ -117,7 +121,7 @@ export class UsersController {
   @ApiOperation({ summary: 'Delete user by id' })
   @UseGuards(UserSelfGuard)
   @Delete('delete/:id')
-  async deleteUser(@Param('id') id: number): Promise<string> {
+  async deleteUser(@Param('id', ParseIntPipe) id: number): Promise<string> {
     return this.usersService.deleteUser(id);
   }
 }

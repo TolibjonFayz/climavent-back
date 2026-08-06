@@ -5,6 +5,7 @@ import {
   Body,
   Patch,
   Param,
+  ParseIntPipe,
   Delete,
   UseGuards,
   Req,
@@ -44,7 +45,7 @@ export class OrdersController {
   @ApiOperation({ summary: 'Get order by id' })
   @UseGuards(UserGuard)
   @Get('one/:id')
-  async getOne(@Param('id') id: number): Promise<Order> {
+  async getOne(@Param('id', ParseIntPipe) id: number): Promise<Order> {
     return this.ordersService.getOrderById(id);
   }
 
@@ -52,7 +53,7 @@ export class OrdersController {
   @ApiOperation({ summary: 'Get order by user id' })
   @UseGuards(UserSelfGuard)
   @Get('oneuser/:id')
-  async getOneByUserId(@Param('id') id: number): Promise<Order[]> {
+  async getOneByUserId(@Param('id', ParseIntPipe) id: number): Promise<Order[]> {
     return this.ordersService.getOrderByUserId(id);
   }
 
@@ -61,7 +62,7 @@ export class OrdersController {
   @UseGuards(UserGuard)
   @Patch('update/:id')
   async updateOne(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateOrderDto: UpdateOrderDto,
     @Req() req: any,
   ) {
@@ -72,7 +73,7 @@ export class OrdersController {
   @ApiOperation({ summary: 'Delete order by id (owner or admin)' })
   @UseGuards(UserGuard)
   @Delete('delete/:id')
-  async deleteOne(@Param('id') id: number, @Req() req: any) {
+  async deleteOne(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     return this.ordersService.deleteOrderById(id, req.user);
   }
 }
