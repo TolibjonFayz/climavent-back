@@ -13,7 +13,12 @@ import { Product } from 'src/products/model/product.model';
 
 interface ProductModelsAtr {
   name: String;
-  price: String;
+  price: Number;
+  currency: String;
+  price_updated_at: Date;
+  price_valid_until: Date;
+  sap_name: String;
+  quantity: Number;
   product_id: Number;
 }
 
@@ -30,9 +35,41 @@ export class ProductModels extends Model<ProductModels, ProductModelsAtr> {
   @Column({ type: DataType.STRING, allowNull: false })
   name: string;
 
-  @ApiProperty({ example: 1200000, description: 'Price of product' })
-  @Column({ type: DataType.STRING, allowNull: false })
-  price: string;
+  @ApiProperty({
+    example: 1200000,
+    description: "Price of product (kiritilmagan bo'lsa NULL)",
+    required: false,
+  })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  price: number;
+
+  @ApiProperty({ example: 'UZS', description: "Narx valyutasi", required: false })
+  @Column({ type: DataType.STRING, allowNull: true, defaultValue: 'UZS' })
+  currency: string;
+
+  @ApiProperty({ description: "Narx oxirgi marta qachon yangilangan", required: false })
+  @Column({ type: DataType.DATE, allowNull: true })
+  price_updated_at: Date;
+
+  @ApiProperty({ description: "Narx qachongacha amal qiladi", required: false })
+  @Column({ type: DataType.DATE, allowNull: true })
+  price_valid_until: Date;
+
+  @ApiProperty({
+    example: 'ВЦ 4-75-2,5-О-1-0,12/1500',
+    description: "Rasmiy SAP kodi (bo'lmasligi mumkin)",
+    required: false,
+  })
+  @Column({ type: DataType.STRING, allowNull: true })
+  sap_name: string;
+
+  @ApiProperty({
+    example: 12,
+    description: "Ombordagi qoldiq (kiritilmagan bo'lsa NULL)",
+    required: false,
+  })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  quantity: number;
 
   @ForeignKey(() => Product)
   @ApiProperty({ example: 1, description: 'Product id' })

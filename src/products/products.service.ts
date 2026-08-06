@@ -41,7 +41,19 @@ export class ProductsService {
     // Har bir so'z alohida qidiriladi (barchasi mos kelishi kerak, lekin
     // turli maydonlarda bo'lishi mumkin) — shu orqali "kanal ventilyatori"
     // kabi ko'p so'zli so'rovlar ham topiladi.
-    const words = text.trim().split(/\s+/).filter(Boolean);
+    // O'zbekcha qo'shimchalarga (-i, -lar va h.k.) chidamli bo'lishi uchun
+    // uzun so'zlarning oxiridagi 1-2 harfi kesiladi: "ventilyatori" ->
+    // "ventilyato", bu esa "ventilyator" so'ziga ham mos keladi.
+    const stem = (word: string) => {
+      if (word.length > 5) return word.slice(0, -2);
+      if (word.length > 3) return word.slice(0, -1);
+      return word;
+    };
+    const words = text
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(stem);
     const wordConditions = words.map((word) => ({
       [Op.or]: [
         { name_uz: { [Op.iLike]: `%${word}%` } },
@@ -74,16 +86,16 @@ export class ProductsService {
     return blogs;
   }
 
-  //Get all products (page/limit ixtiyoriy — berilmasa avvalgidek to'liq ro'yxat qaytadi)
+  //Get all products — page/limit ixtiyoriy, lekin standart chegara bor
+  //(parametrsiz chaqiruv ham cheksiz javob qaytarmaydi)
   async getAllProducts(page?: number, limit?: number) {
-    if (!page || !limit) {
-      return this.productRepository.findAll({ include: { all: true } });
-    }
-    const offset = (page - 1) * limit;
+    const effectiveLimit = limit || 20;
+    const effectivePage = page || 1;
+    const offset = (effectivePage - 1) * effectiveLimit;
     return this.productRepository.findAll({
       include: { all: true },
       order: [['id', 'ASC']],
-      limit,
+      limit: effectiveLimit,
       offset,
     });
   }

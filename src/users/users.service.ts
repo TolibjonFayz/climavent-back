@@ -26,8 +26,10 @@ import { Like } from 'src/likes/model/like.model';
 import { Cart } from 'src/cart/models/cart.model';
 import { Op } from 'sequelize';
 
-// Refresh token cookie muddati: 15 kun
-const REFRESH_TOKEN_COOKIE_MAX_AGE = 15 * 24 * 60 * 60 * 1000;
+// Refresh token cookie muddati: 75 kun — REFRESH_TOKEN_TIME_USER (.env) bilan
+// mos kelishi kerak, aks holda cookie JWT haqiqiy amal qilish muddatidan
+// oldin o'chib, mijoz muddatidan oldin qayta SMS oladi.
+const REFRESH_TOKEN_COOKIE_MAX_AGE = 75 * 24 * 60 * 60 * 1000;
 
 // OTP cheklovlari — SMS pullik, shuning uchun suiiste'moldan himoya kerak
 const OTP_RESEND_COOLDOWN_MS = 5 * 60 * 1000; // bitta raqamga 5 daqiqada 1 marta
@@ -292,7 +294,7 @@ export class UsersService {
     });
     await this.otpService.sendOtp(phone_number, otp);
 
-    const expiration_time = AddMinutesToDate(now, 2);
+    const expiration_time = AddMinutesToDate(now, 5);
     // Eski qatorlar ATAYLAB o'chirilmaydi — sutkalik limitni sanash uchun kerak.
     // Tasdiqlash endi aniq shu urinishning otp_id'si bo'yicha qidiriladi
     // (verifyOtpClient), shuning uchun eski qatorlar chalkashlik keltirmaydi.
@@ -430,7 +432,7 @@ export class UsersService {
       { where: { id: worker.id }, returning: true },
     );
     res.cookie('refresh_token', token.refreshToken, {
-      maxAge: 15 * 24 * 60 * 60 * 1000,
+      maxAge: REFRESH_TOKEN_COOKIE_MAX_AGE,
       httpOnly: true,
     });
     const response = {

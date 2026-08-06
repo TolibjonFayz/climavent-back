@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, ParseIntPipe, Delete, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, ParseIntPipe, Query, Delete, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
 import { ProductModelInsideService } from './product_model_inside.service';
 import { CreateProductModelInsideDto } from './dto/create-product_model_inside.dto';
@@ -18,8 +18,11 @@ export class ProductModelInsideController {
   }
 
   @Get()
-  findAll() {
-    return this.productModelInsideService.findAll();
+  findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
+    return this.productModelInsideService.findAll(
+      page ? Number(page) : undefined,
+      limit ? Number(limit) : undefined,
+    );
   }
 
   // Bitta model (characteristic) ga tegishli ro'yxat

@@ -6,13 +6,16 @@ import {
   Patch,
   Param,
   ParseIntPipe,
+  Query,
   Delete,
   NotFoundException,
   UseGuards,
+  ParseArrayPipe,
 } from '@nestjs/common';
 import { ProductModelsService } from './product_models.service';
 import { CreateProductModelDto } from './dto/create-product_model.dto';
 import { UpdateProductModelDto } from './dto/update-product_model.dto';
+import { BulkPriceItemDto } from './dto/bulk-price.dto';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ProductModels } from './models/product_model.model';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
@@ -32,11 +35,26 @@ export class ProductModelsController {
     return this.productModelsService.createProductModel(createProductModelDto);
   }
 
-  //Get all product models
+  //Get all product models (updatedAfter ixtiyoriy — inkremental sinxronizatsiya)
   @ApiOperation({ summary: 'Get all product models' })
   @Get('all')
-  async getAll(): Promise<ProductModels[]> {
-    return this.productModelsService.getAllProductModels();
+  async getAll(
+    @Query('updatedAfter') updatedAfter?: string,
+  ): Promise<ProductModels[]> {
+    return this.productModelsService.getAllProductModels(updatedAfter);
+  }
+
+  //Narxlarni ommaviy yuklash — faqat bot/admin
+  @ApiOperation({ summary: 'Bulk update model prices (admin/bot)' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
+  @Post('bulk-price')
+  async bulkPrice(
+    @Body(new ParseArrayPipe({ items: BulkPriceItemDto }))
+    items: BulkPriceItemDto[],
+  ) {
+    return this.productModelsService.bulkUpdatePrices(items);
   }
 
   //Get product model by id

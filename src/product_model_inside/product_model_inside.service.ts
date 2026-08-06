@@ -16,10 +16,18 @@ export class ProductModelInsideService {
     return this.productModelInsideRepository.create(createProductModelInsideDto);
   }
 
-  // Hammasi
-  async findAll() {
+  // Hammasi (page/limit ixtiyoriy — berilmasa to'liq ro'yxat qaytadi)
+  async findAll(page?: number, limit?: number) {
+    if (!page || !limit) {
+      return this.productModelInsideRepository.findAll({
+        order: [['id', 'ASC']],
+      });
+    }
+    const offset = (page - 1) * limit;
     return this.productModelInsideRepository.findAll({
       order: [['id', 'ASC']],
+      limit,
+      offset,
     });
   }
 
