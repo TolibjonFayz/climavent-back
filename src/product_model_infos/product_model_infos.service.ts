@@ -25,10 +25,16 @@ export class ProductModelInfosService {
     return response;
   }
 
-  //Get all product model infos
-  async getAllProductModelInfos() {
-    const productModelInfos = await this.productModelInfoRepository.findAll();
-    return productModelInfos;
+  //Get all product model infos (page/limit ixtiyoriy, standart 50 talik)
+  async getAllProductModelInfos(page?: number, limit?: number) {
+    const effectiveLimit = limit || 50;
+    const effectivePage = page || 1;
+    const offset = (effectivePage - 1) * effectiveLimit;
+    return this.productModelInfoRepository.findAll({
+      order: [['id', 'ASC']],
+      limit: effectiveLimit,
+      offset,
+    });
   }
 
   //Get product model info by id
@@ -49,6 +55,14 @@ export class ProductModelInfosService {
     id: number,
     updateProductModelInfoDto: UpdateProductModelInfoDto,
   ) {
+    const existing = await this.productModelInfoRepository.findByPk(id);
+    if (!existing) {
+      throw new NotFoundException('Product model info not found or something wrong');
+    }
+    if (Object.keys(updateProductModelInfoDto).length === 0) {
+      return existing.dataValues;
+    }
+
     const updated = await this.productModelInfoRepository.update(
       updateProductModelInfoDto,
       {
@@ -58,7 +72,7 @@ export class ProductModelInfosService {
     );
     if (updated[1][0]?.dataValues) return updated[1][0].dataValues;
     else
-      return new NotFoundException(
+      throw new NotFoundException(
         'Product model info not found or something wrong',
       );
   }

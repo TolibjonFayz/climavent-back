@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   ParseIntPipe,
+  Query,
   Delete,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { UpdateProductModelInfoDto } from './dto/update-product_model_info.dto';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ProductModelInfo } from './models/product_model_info.model';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+import { parsePositiveIntParam } from 'src/common/helpers/pagination';
 
 @ApiTags('Product model infos')
 @Controller('product-model-infos')
@@ -35,11 +37,17 @@ export class ProductModelInfosController {
     );
   }
 
-  //Get all product model infos
+  //Get all product model infos (page/limit ixtiyoriy)
   @ApiOperation({ summary: 'Get all product model infos' })
   @Get('all')
-  async getAll(): Promise<ProductModelInfo[]> {
-    return this.productModelInfosService.getAllProductModelInfos();
+  async getAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ): Promise<ProductModelInfo[]> {
+    return this.productModelInfosService.getAllProductModelInfos(
+      parsePositiveIntParam(page, 'page'),
+      parsePositiveIntParam(limit, 'limit'),
+    );
   }
 
   //Get product model info by id

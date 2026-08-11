@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   ParseIntPipe,
+  Query,
   Delete,
   UseGuards,
 } from '@nestjs/common';
@@ -15,7 +16,12 @@ import { UpdateCharacteristicDto } from './dto/update-characteristic.dto';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Characteristic } from './model/characteristic.model';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+import { parsePositiveIntParam } from 'src/common/helpers/pagination';
 
+// MUHIM: nomiga qaramay, bu "model kartochkasi" — texnik xususiyat emas.
+// `content` = rasm havolasi, `contentJson` = R2 dagi ProseMirror texnik
+// hujjat (jadval). Product'ning HasMany "characters" bog'lanishi shu
+// modelga ishora qiladi.
 @ApiTags('Characteristics')
 @Controller('characteristics')
 export class CharacteristicsController {
@@ -32,6 +38,19 @@ export class CharacteristicsController {
   async create(@Body() createCharacteristicDto: CreateCharacteristicDto) {
     return this.characteristicsService.createCharacteristics(
       createCharacteristicDto,
+    );
+  }
+
+  //Get all characteristics (page/limit ixtiyoriy)
+  @ApiOperation({ summary: 'Get all characteristics' })
+  @Get('all')
+  async getAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ): Promise<Characteristic[]> {
+    return this.characteristicsService.getAllCharacteristics(
+      parsePositiveIntParam(page, 'page'),
+      parsePositiveIntParam(limit, 'limit'),
     );
   }
 

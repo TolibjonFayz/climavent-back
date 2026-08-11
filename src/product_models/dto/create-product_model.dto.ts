@@ -37,6 +37,24 @@ export class CreateProductModelDto {
   @IsNumber()
   quantity?: number;
 
+  @ApiProperty({
+    example: 8000,
+    description: "Havo sarfi, m3/soat",
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber()
+  airflow_m3h?: number;
+
+  @ApiProperty({
+    example: 500,
+    description: "To'liq bosim, Pa",
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber()
+  pressure_pa?: number;
+
   @ApiProperty({ example: 1, description: 'Product id' })
   @IsNumber()
   @IsNotEmpty()

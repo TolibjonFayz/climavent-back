@@ -32,15 +32,48 @@ export class ProductModelsService {
     }
   }
 
-  //Get all product models (updatedAfter ixtiyoriy — inkremental sinxronizatsiya uchun)
-  async getAllProductModels(updatedAfter?: string) {
-    const where = updatedAfter
-      ? { updatedAt: { [Op.gt]: new Date(updatedAfter) } }
-      : {};
-    const productModels = await this.productModelRepository.findAll({
+  // Get all product models
+  // - updatedAfter: inkremental sinxronizatsiya — shu vaqtdan keyin
+  //   o'zgarganlar.
+  // - airflowMin/airflowMax: havo sarfi bo'yicha filtr (masalan mos
+  //   ventilyatorni tanlash uchun).
+  // - page/limit: berilsa shu bo'yicha sahifalanadi.
+  // - filtr (updatedAfter yoki airflow) berilib, page/limit berilmasa:
+  //   standart limit qo'llanmaydi (natija ro'yxati odatda o'zi ham kichik
+  //   bo'ladi). Hech qanday filtr/sahifalash berilmasa: standart 50 talik
+  //   (1482 tani bir yo'la yubormaslik uchun).
+  async getAllProductModels(
+    updatedAfter?: string,
+    page?: number,
+    limit?: number,
+    airflowMin?: number,
+    airflowMax?: number,
+  ) {
+    const where: Record<string, unknown> = {};
+    if (updatedAfter) {
+      where.updatedAt = { [Op.gt]: new Date(updatedAfter) };
+    }
+    if (airflowMin !== undefined || airflowMax !== undefined) {
+      where.airflow_m3h = {
+        ...(airflowMin !== undefined ? { [Op.gte]: airflowMin } : {}),
+        ...(airflowMax !== undefined ? { [Op.lte]: airflowMax } : {}),
+      };
+    }
+
+    const hasFilter = Boolean(updatedAfter || airflowMin !== undefined || airflowMax !== undefined);
+    if (hasFilter && !page && !limit) {
+      return this.productModelRepository.findAll({ where, order: [['id', 'ASC']] });
+    }
+
+    const effectiveLimit = limit || 50;
+    const effectivePage = page || 1;
+    const offset = (effectivePage - 1) * effectiveLimit;
+    return this.productModelRepository.findAll({
       where,
+      order: [['id', 'ASC']],
+      limit: effectiveLimit,
+      offset,
     });
-    return productModels;
   }
 
   //Get product model by id
@@ -119,45 +152,71 @@ export class ProductModelsService {
       throw new NotFoundException('Product model not found or something wrong');
   }
 
-  // Narxlarni ommaviy yuklash — model nomi normallashtirilib topiladi
-  // (bo'sh joy, "-", "/", "_", "." e'tiborga olinmaydi).
+  // Narxlarni ommaviy yuklash — avval sap_name, topilmasa name bo'yicha,
+  // ikkalasi ham normallashtirilib solishtiriladi (bo'sh joy, "-", "/",
+  // "_", "." e'tiborga olinmaydi).
   async bulkUpdatePrices(items: BulkPriceItemDto[]) {
     const allModels = await this.productModelRepository.findAll({
-      attributes: ['id', 'name'],
+      attributes: ['id', 'name', 'sap_name'],
     });
     const byNormalizedName = new Map<string, number[]>();
+    const byNormalizedSapName = new Map<string, number[]>();
     for (const m of allModels) {
-      const key = normalizeModelName(m.name);
-      if (!byNormalizedName.has(key)) byNormalizedName.set(key, []);
-      byNormalizedName.get(key).push(m.id);
+      const nameKey = normalizeModelName(m.name);
+      if (!byNormalizedName.has(nameKey)) byNormalizedName.set(nameKey, []);
+      byNormalizedName.get(nameKey).push(m.id);
+
+      if (m.sap_name) {
+        const sapKey = normalizeModelName(m.sap_name);
+        if (!byNormalizedSapName.has(sapKey)) byNormalizedSapName.set(sapKey, []);
+        byNormalizedSapName.get(sapKey).push(m.id);
+      }
     }
 
     let updated = 0;
     const notFound: string[] = [];
-    const ambiguous: { name: string; matchedIds: number[] }[] = [];
+    const ambiguous: { identifier: string; matchedIds: number[] }[] = [];
+    const invalid: { item: BulkPriceItemDto; reason: string }[] = [];
     const now = new Date();
 
     for (const item of items) {
-      const ids = byNormalizedName.get(normalizeModelName(item.name));
+      const identifier = item.sap_name || item.name;
+      if (!identifier) {
+        invalid.push({ item, reason: "name yoki sap_name berilishi shart" });
+        continue;
+      }
+
+      let ids: number[] | undefined;
+      if (item.sap_name) {
+        ids = byNormalizedSapName.get(normalizeModelName(item.sap_name));
+      }
+      if ((!ids || ids.length === 0) && item.name) {
+        ids = byNormalizedName.get(normalizeModelName(item.name));
+      }
+
       if (!ids || ids.length === 0) {
-        notFound.push(item.name);
+        notFound.push(identifier);
         continue;
       }
       if (ids.length > 1) {
-        ambiguous.push({ name: item.name, matchedIds: ids });
+        ambiguous.push({ identifier, matchedIds: ids });
         continue;
       }
+
       await this.productModelRepository.update(
         {
           price: item.price,
           currency: item.currency || 'UZS',
           price_updated_at: now,
+          ...(item.price_valid_until
+            ? { price_valid_until: new Date(item.price_valid_until) }
+            : {}),
         },
         { where: { id: ids[0] } },
       );
       updated++;
     }
 
-    return { total: items.length, updated, notFound, ambiguous };
+    return { total: items.length, updated, notFound, ambiguous, invalid };
   }
 }

@@ -20,6 +20,7 @@ import { SortProductDto } from './dto/sort-product.dto';
 import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-product.dto';
 import { GetRecentlyAddedProductsDto } from './dto/getlastadded-product.dto';
 import { SearchProductsByQueryDto } from './dto/search-product.dto';
+import { parsePositiveIntParam } from 'src/common/helpers/pagination';
 
 @ApiTags('Products')
 @Controller('products')
@@ -58,8 +59,8 @@ export class ProductsController {
     @Query('limit') limit?: string,
   ): Promise<Product[]> {
     return this.productsService.getAllProducts(
-      page ? Number(page) : undefined,
-      limit ? Number(limit) : undefined,
+      parsePositiveIntParam(page, 'page'),
+      parsePositiveIntParam(limit, 'limit'),
     );
   }
 

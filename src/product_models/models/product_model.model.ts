@@ -19,6 +19,8 @@ interface ProductModelsAtr {
   price_valid_until: Date;
   sap_name: String;
   quantity: Number;
+  airflow_m3h: Number;
+  pressure_pa: Number;
   product_id: Number;
 }
 
@@ -70,6 +72,22 @@ export class ProductModels extends Model<ProductModels, ProductModelsAtr> {
   })
   @Column({ type: DataType.INTEGER, allowNull: true })
   quantity: number;
+
+  @ApiProperty({
+    example: 8000,
+    description: "Havo sarfi, m3/soat (kiritilmagan bo'lsa NULL)",
+    required: false,
+  })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  airflow_m3h: number;
+
+  @ApiProperty({
+    example: 500,
+    description: "To'liq bosim, Pa (kiritilmagan bo'lsa NULL)",
+    required: false,
+  })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  pressure_pa: number;
 
   @ForeignKey(() => Product)
   @ApiProperty({ example: 1, description: 'Product id' })

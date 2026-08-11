@@ -16,9 +16,10 @@ import { ProductModelsService } from './product_models.service';
 import { CreateProductModelDto } from './dto/create-product_model.dto';
 import { UpdateProductModelDto } from './dto/update-product_model.dto';
 import { BulkPriceItemDto } from './dto/bulk-price.dto';
-import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ProductModels } from './models/product_model.model';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+import { parsePositiveIntParam } from 'src/common/helpers/pagination';
 
 @ApiTags('Product models')
 @Controller('product-models')
@@ -35,17 +36,28 @@ export class ProductModelsController {
     return this.productModelsService.createProductModel(createProductModelDto);
   }
 
-  //Get all product models (updatedAfter ixtiyoriy — inkremental sinxronizatsiya)
+  //Get all product models (updatedAfter/airflow_min/airflow_max/page/limit ixtiyoriy)
   @ApiOperation({ summary: 'Get all product models' })
   @Get('all')
   async getAll(
     @Query('updatedAfter') updatedAfter?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('airflow_min') airflowMin?: string,
+    @Query('airflow_max') airflowMax?: string,
   ): Promise<ProductModels[]> {
-    return this.productModelsService.getAllProductModels(updatedAfter);
+    return this.productModelsService.getAllProductModels(
+      updatedAfter,
+      parsePositiveIntParam(page, 'page'),
+      parsePositiveIntParam(limit, 'limit'),
+      airflowMin !== undefined ? parsePositiveIntParam(airflowMin, 'airflow_min') : undefined,
+      airflowMax !== undefined ? parsePositiveIntParam(airflowMax, 'airflow_max') : undefined,
+    );
   }
 
   //Narxlarni ommaviy yuklash — faqat bot/admin
   @ApiOperation({ summary: 'Bulk update model prices (admin/bot)' })
+  @ApiBody({ type: [BulkPriceItemDto] })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
   @UseGuards(JwtOrServiceKeyGuard)

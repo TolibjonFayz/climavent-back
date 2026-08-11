@@ -4,6 +4,7 @@ import { ProductModelInsideService } from './product_model_inside.service';
 import { CreateProductModelInsideDto } from './dto/create-product_model_inside.dto';
 import { UpdateProductModelInsideDto } from './dto/update-product_model_inside.dto';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+import { parsePositiveIntParam } from 'src/common/helpers/pagination';
 
 @Controller('product-model-inside')
 export class ProductModelInsideController {
@@ -20,8 +21,8 @@ export class ProductModelInsideController {
   @Get()
   findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.productModelInsideService.findAll(
-      page ? Number(page) : undefined,
-      limit ? Number(limit) : undefined,
+      parsePositiveIntParam(page, 'page'),
+      parsePositiveIntParam(limit, 'limit'),
     );
   }
 

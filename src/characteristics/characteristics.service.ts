@@ -31,6 +31,18 @@ export class CharacteristicsService {
     return response;
   }
 
+  //Get all characteristics (page/limit ixtiyoriy, standart 50 talik)
+  async getAllCharacteristics(page?: number, limit?: number) {
+    const effectiveLimit = limit || 50;
+    const effectivePage = page || 1;
+    const offset = (effectivePage - 1) * effectiveLimit;
+    return this.charecteristicRepository.findAll({
+      order: [['id', 'ASC']],
+      limit: effectiveLimit,
+      offset,
+    });
+  }
+
   //Get one characteristic by id
   async getCharacteristicById(id: number) {
     const characteristic = await this.charecteristicRepository.findOne({
