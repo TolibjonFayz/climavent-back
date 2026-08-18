@@ -23,6 +23,7 @@ import { R2Module } from './r2/r2.module';
 import { ProductModelInsideModule } from './product_model_inside/product_model_inside.module';
 import { ProductModelsModule } from './product_models/product_models.module';
 import { GuardsModule } from './guards/guards.module';
+import { SettingsModule } from './settings/settings.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 
@@ -70,6 +71,7 @@ import { APP_GUARD } from '@nestjs/core';
     R2Module,
     ProductModelInsideModule,
     ProductModelsModule,
+    SettingsModule,
   ],
   controllers: [],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
