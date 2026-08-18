@@ -37,15 +37,32 @@ export class ProductModels extends Model<ProductModels, ProductModelsAtr> {
   @Column({ type: DataType.STRING, allowNull: false })
   name: string;
 
+  /**
+   * @deprecated ISHLATILMAYDI. Haqiqiy narx product_model_inside.price da
+   * (DOLLARDA). Bu maydon eski (so'm) va faqat 25 ta yozuvda bor — yangi
+   * narx bu yerga YOZILMASIN.
+   */
   @ApiProperty({
     example: 1200000,
-    description: "Price of product (kiritilmagan bo'lsa NULL)",
+    description:
+      "@deprecated ISHLATILMAYDI — narx product_model_inside.price da (USD). " +
+      "Bu maydon eskirgan (so'm).",
     required: false,
+    deprecated: true,
   })
   @Column({ type: DataType.INTEGER, allowNull: true })
   price: number;
 
-  @ApiProperty({ example: 'UZS', description: "Narx valyutasi", required: false })
+  /**
+   * @deprecated price maydoni bilan birga eskirgan. Hamma yozuvda "UZS" —
+   * haqiqiy tanlov emas, standart qiymat.
+   */
+  @ApiProperty({
+    example: 'UZS',
+    description: '@deprecated ISHLATILMAYDI — price bilan birga eskirgan.',
+    required: false,
+    deprecated: true,
+  })
   @Column({ type: DataType.STRING, allowNull: true, defaultValue: 'UZS' })
   currency: string;
 
