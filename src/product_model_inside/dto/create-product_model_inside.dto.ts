@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateProductModelInsideDto {
   @ApiProperty({
@@ -19,4 +19,15 @@ export class CreateProductModelInsideDto {
   @IsNumber()
   @IsNotEmpty()
   product_model_id: number;
+
+  @ApiProperty({
+    example: 120.5,
+    description:
+      "Narx, DOLLARDA (USD). Ixtiyoriy — yubormasangiz NULL bo'lib qoladi.",
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  price?: number;
 }
