@@ -94,7 +94,8 @@ export class ProductsService {
     const effectivePage = page || 1;
     const offset = (effectivePage - 1) * effectiveLimit;
     return this.productRepository.findAll({
-      include: { all: true },
+      // Katalog kartochkalari narxni insides[].price dan oladi
+      include: this.catalogInclude(),
       order: [['id', 'ASC']],
       limit: effectiveLimit,
       offset,
@@ -137,7 +138,7 @@ export class ProductsService {
       order: [['createdAt', 'DESC']],
       limit: getRecentlyAddedProductsDto.limit,
       offset: offset,
-      include: { all: true },
+      include: this.catalogInclude(),
     });
 
     const result = {
@@ -157,16 +158,34 @@ export class ProductsService {
     return null;
   }
 
-  // Product'ning eng arzon modeli (characteristics ichidagi eng kichik narx)
-  private getMinCharacteristicPrice(product: Product): number {
-    const prices = (product.characters || []).map((c) => c.price);
-    return prices.length ? Math.min(...prices) : 0;
+  // Katalog kartochkalari uchun include — characters va ularning
+  // SAP variantlari (insides). Narx insides[].price da (USD), shuning
+  // uchun ro'yxatda narx ko'rsatish uchun bu nested bog'lanish kerak.
+  // { all: true } faqat 1-darajani oladi, shuning uchun alohida yoziladi.
+  private catalogInclude(): any[] {
+    return [
+      { model: Characteristic, include: [{ model: ProductModelInside }] },
+      { all: true },
+    ];
   }
 
-  private sortByCharacteristicPrice(products: Product[], direction: string) {
+  // Product'ning eng arzon SAP variant narxi (USD). Narx yo'q variantlar
+  // (null) e'tiborga olinmaydi; hech qaysisida narx bo'lmasa Infinity
+  // qaytadi — bunday mahsulotlar saralashda oxiriga tushadi.
+  private getMinInsidePrice(product: Product): number {
+    const prices: number[] = [];
+    for (const c of product.characters || []) {
+      for (const inside of (c as any).insides || []) {
+        const p = Number(inside?.price);
+        if (Number.isFinite(p) && p > 0) prices.push(p);
+      }
+    }
+    return prices.length ? Math.min(...prices) : Infinity;
+  }
+
+  private sortByInsidePrice(products: Product[], direction: string) {
     return [...products].sort((a, b) => {
-      const diff =
-        this.getMinCharacteristicPrice(a) - this.getMinCharacteristicPrice(b);
+      const diff = this.getMinInsidePrice(a) - this.getMinInsidePrice(b);
       return direction === 'ASC' ? diff : -diff;
     });
   }
@@ -180,18 +199,15 @@ export class ProductsService {
       searchProductDto.price === 'DESC'
     ) {
       const all = await this.productRepository.findAll({
-        include: { all: true },
+        include: this.catalogInclude(),
       });
-      const sorted = this.sortByCharacteristicPrice(
-        all,
-        searchProductDto.price,
-      );
+      const sorted = this.sortByInsidePrice(all, searchProductDto.price);
       return sorted.slice(offset, offset + searchProductDto.limit);
     }
 
     const order = this.buildOrder(searchProductDto.price);
     return this.productRepository.findAll({
-      include: { all: true },
+      include: this.catalogInclude(),
       ...(order ? { order } : {}),
       limit: searchProductDto.limit,
       offset,
@@ -220,19 +236,16 @@ export class ProductsService {
     ) {
       const all = await this.productRepository.findAll({
         where: { category_id: { [Op.in]: categoryIds } },
-        include: { all: true },
+        include: this.catalogInclude(),
       });
-      const sorted = this.sortByCharacteristicPrice(
-        all,
-        sortbyCategoryIdProduct.price,
-      );
+      const sorted = this.sortByInsidePrice(all, sortbyCategoryIdProduct.price);
       return sorted.slice(0, sortbyCategoryIdProduct.limit);
     }
 
     const order = this.buildOrder(sortbyCategoryIdProduct.price);
     return this.productRepository.findAll({
       where: { category_id: { [Op.in]: categoryIds } },
-      include: { all: true },
+      include: this.catalogInclude(),
       ...(order ? { order } : {}),
       limit: sortbyCategoryIdProduct.limit,
     });
