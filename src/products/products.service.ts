@@ -15,6 +15,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { R2Service } from 'src/r2/r2.service';
 import { ProductModels } from 'src/product_models/models/product_model.model';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
+import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
 
 const { Op } = Sequelize;
 @Injectable()
@@ -245,6 +246,13 @@ export class ProductsService {
         {
           model: Review,
           include: [{ model: User, attributes: ['name'] }],
+        },
+        // Narx (USD) characteristics'ning SAP variantlarida turadi.
+        // { all: true } faqat 1-darajani oladi, shuning uchun bu
+        // ichma-ich bog'lanish alohida ko'rsatilgan.
+        {
+          model: Characteristic,
+          include: [{ model: ProductModelInside }],
         },
         { all: true },
       ],

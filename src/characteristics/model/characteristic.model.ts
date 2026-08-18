@@ -4,10 +4,12 @@ import {
   Column,
   DataType,
   ForeignKey,
+  HasMany,
   Model,
   Table,
 } from 'sequelize-typescript';
 import { Product } from 'src/products/model/product.model';
+import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
 
 interface CharasteristicAtr {
   title: String;
@@ -73,4 +75,9 @@ export class Characteristic extends Model<Characteristic, CharasteristicAtr> {
   product_id: number;
   @BelongsTo(() => Product)
   product: Product;
+
+  // Bu modelning SAP variantlari. Narx (USD) aynan shu yerda turadi,
+  // shuning uchun mahsulot sahifasiga narx shu bog'lanish orqali keladi.
+  @HasMany(() => ProductModelInside)
+  insides: ProductModelInside[];
 }
