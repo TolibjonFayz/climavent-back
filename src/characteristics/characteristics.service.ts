@@ -16,6 +16,20 @@ export class CharacteristicsService {
 
   uniqueId = uuidv4();
 
+  // HTML mazmunli (matn) bormi tekshiradi. "<p></p>", "<p>.</p>",
+  // faqat bo'shliq/nuqta — mazmunsiz deb hisoblanadi. Bunday kontent
+  // R2'ga yuklanmaydi (aks holda 0 baytli / bo'sh fayl hosil bo'ladi va
+  // saytda bo'sh blok chiqadi).
+  private hasMeaningfulHtml(html: unknown): boolean {
+    if (typeof html !== 'string') return false;
+    const text = html
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/[.\s]/g, '')
+      .trim();
+    return text.length > 0;
+  }
+
   //Create characteristic
   async createCharacteristics(
     createCharacteristicsDto: CreateCharacteristicDto,
@@ -62,11 +76,21 @@ export class CharacteristicsService {
     // Faqat haqiqatan yuborilgan bo'lsa R2'ga qayta yuklaymiz —
     // aks holda har bir title/price yangilanishida content/contentJson
     // "undefined" bilan almashtirilib, mavjud ma'lumot yo'qolib ketardi.
+    //
+    // Mazmunsiz (bo'sh) content yuborilsa — R2'ga yuklamaymiz va
+    // payload'dan olib tashlaymiz, shunda mavjud content saqlanadi va
+    // yangi 0 baytli fayl yaratilmaydi. contentJson uning jufti, shuning
+    // uchun content bo'sh bo'lsa uni ham yubormaymiz.
     if (payload.content !== undefined) {
-      payload.content = await this.r2Service.uploadJson(
-        (this.uniqueId = uuidv4()),
-        payload.content,
-      );
+      if (this.hasMeaningfulHtml(payload.content)) {
+        payload.content = await this.r2Service.uploadJson(
+          (this.uniqueId = uuidv4()),
+          payload.content,
+        );
+      } else {
+        delete payload.content;
+        delete payload.contentJson;
+      }
     }
     if (payload.contentJson !== undefined) {
       payload.contentJson = await this.r2Service.uploadJson(
