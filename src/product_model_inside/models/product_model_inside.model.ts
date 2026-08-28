@@ -39,8 +39,8 @@ export class ProductModelInside extends Model<
   @ApiProperty({
     example: 120.5,
     description:
-      "Narx, DOLLARDA (USD). Diqqat: product_models.price va " +
-      "characteristics.price — SO'MDA. NULL = narx kiritilmagan.",
+      "Narx, DOLLARDA (USD). Diqqat: characteristics.price — SO'MDA. " +
+      'NULL = narx kiritilmagan.',
     required: false,
     nullable: true,
   })
