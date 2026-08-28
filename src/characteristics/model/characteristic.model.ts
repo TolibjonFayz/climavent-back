@@ -17,6 +17,8 @@ interface CharasteristicAtr {
   content: String;
   contentJson: String;
   product_id: Number;
+  airflow_m3h: Number;
+  pressure_pa: Number;
 }
 
 @Table({ tableName: 'characteristics' })
@@ -75,6 +77,16 @@ export class Characteristic extends Model<Characteristic, CharasteristicAtr> {
   product_id: number;
   @BelongsTo(() => Product)
   product: Product;
+
+  // Havo sarfi va bosim — avval product_models'da edi, endi shu yerda
+  // (product_models o'chirildi). Agent/KP ventilyator tanlashda ishlatadi.
+  @ApiProperty({ example: 8000, description: 'Havo sarfi, m3/soat', required: false })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  airflow_m3h: number;
+
+  @ApiProperty({ example: 500, description: "To'liq bosim, Pa", required: false })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  pressure_pa: number;
 
   // Bu modelning SAP variantlari. Narx (USD) aynan shu yerda turadi,
   // shuning uchun mahsulot sahifasiga narx shu bog'lanish orqali keladi.

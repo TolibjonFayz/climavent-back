@@ -11,7 +11,6 @@ import { Module } from '@nestjs/common';
 import { LikesModule } from './likes/likes.module';
 import { BannersModule } from './banners/banners.module';
 import { CategoryModule } from './category/category.module';
-import { ProductModelInfosModule } from './product_model_infos/product_model_infos.module';
 import { CartModule } from './cart/cart.module';
 import { CartItemsModule } from './cart_items/cart_items.module';
 import { OrdersModule } from './orders/orders.module';
@@ -21,7 +20,6 @@ import { RishotkalarModule } from './rishotkalar/rishotkalar.module';
 import { CharacteristicsModule } from './characteristics/characteristics.module';
 import { R2Module } from './r2/r2.module';
 import { ProductModelInsideModule } from './product_model_inside/product_model_inside.module';
-import { ProductModelsModule } from './product_models/product_models.module';
 import { GuardsModule } from './guards/guards.module';
 import { SettingsModule } from './settings/settings.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
@@ -60,7 +58,6 @@ import { APP_GUARD } from '@nestjs/core';
     OtpModule,
     LikesModule,
     BannersModule,
-    ProductModelInfosModule,
     CartModule,
     CartItemsModule,
     OrdersModule,
@@ -70,7 +67,6 @@ import { APP_GUARD } from '@nestjs/core';
     CharacteristicsModule,
     R2Module,
     ProductModelInsideModule,
-    ProductModelsModule,
     SettingsModule,
   ],
   controllers: [],

@@ -13,7 +13,6 @@ import { Product } from './model/product.model';
 import Sequelize, { where } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
 import { R2Service } from 'src/r2/r2.service';
-import { ProductModels } from 'src/product_models/models/product_model.model';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
 import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
 
@@ -60,7 +59,6 @@ export class ProductsService {
         { name_uz: { [Op.iLike]: `%${word}%` } },
         { name_en: { [Op.iLike]: `%${word}%` } },
         { name_ru: { [Op.iLike]: `%${word}%` } },
-        { '$models.name$': { [Op.iLike]: `%${word}%` } },
         { '$characters.title$': { [Op.iLike]: `%${word}%` } },
       ],
     }));
@@ -68,12 +66,6 @@ export class ProductsService {
       where: { [Op.and]: wordConditions },
       attributes: ['id', 'name_uz', 'name_en', 'name_ru'],
       include: [
-        {
-          model: ProductModels,
-          as: 'models',
-          attributes: ['id', 'name', 'price'],
-          required: false,
-        },
         {
           model: Characteristic,
           as: 'characters',
