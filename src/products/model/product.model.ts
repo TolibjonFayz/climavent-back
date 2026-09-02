@@ -13,6 +13,7 @@ import { Review } from 'src/reviews/model/review.model';
 import { Category } from 'src/category/model/category.model';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
 import { Store } from 'src/stores/model/store.model';
+import { emptyToNull } from 'src/common/helpers/empty-content';
 
 interface ProductAtr {
   category_id: number;
@@ -110,56 +111,128 @@ export class Product extends Model<Product, ProductAtr> {
   isRishotka: boolean;
 
   @ApiProperty({ example: 'Size info', description: 'Product sizes' })
-  @Column({ type: DataType.TEXT, allowNull: true })
+  @Column({
+    type: DataType.TEXT,
+    allowNull: true,
+    // Bo'sh bo'lsa `null`. TEXT juftlari bo'shligida allaqachon
+    // `null` qaytarardi, JSONB esa `{}` — mijozda `Boolean({})`
+    // `true` bo'lgani uchun bo'sh bo'lim "to'ldirilgan" ko'rinardi.
+    get(this: Product) {
+      return emptyToNull(this.getDataValue('sizes'));
+    },
+  })
   sizes: string;
 
   @ApiProperty({
     example: 'Size info as Json',
     description: 'Product sizes as Json',
   })
-  @Column({ type: DataType.JSONB, allowNull: true })
+  @Column({
+    type: DataType.JSONB,
+    allowNull: true,
+    // Bo'sh bo'lsa `null`. TEXT juftlari bo'shligida allaqachon
+    // `null` qaytarardi, JSONB esa `{}` — mijozda `Boolean({})`
+    // `true` bo'lgani uchun bo'sh bo'lim "to'ldirilgan" ko'rinardi.
+    get(this: Product) {
+      return emptyToNull(this.getDataValue('sizesJson'));
+    },
+  })
   sizesJson: string;
 
   @ApiProperty({
     example: 'Description info',
     description: 'Product description',
   })
-  @Column({ type: DataType.TEXT, allowNull: true })
+  @Column({
+    type: DataType.TEXT,
+    allowNull: true,
+    // Bo'sh bo'lsa `null`. TEXT juftlari bo'shligida allaqachon
+    // `null` qaytarardi, JSONB esa `{}` — mijozda `Boolean({})`
+    // `true` bo'lgani uchun bo'sh bo'lim "to'ldirilgan" ko'rinardi.
+    get(this: Product) {
+      return emptyToNull(this.getDataValue('opisaniya'));
+    },
+  })
   opisaniya: string;
 
   @ApiProperty({
     example: 'Description info as Json',
     description: 'Product description as Json',
   })
-  @Column({ type: DataType.JSONB, allowNull: true })
+  @Column({
+    type: DataType.JSONB,
+    allowNull: true,
+    // Bo'sh bo'lsa `null`. TEXT juftlari bo'shligida allaqachon
+    // `null` qaytarardi, JSONB esa `{}` — mijozda `Boolean({})`
+    // `true` bo'lgani uchun bo'sh bo'lim "to'ldirilgan" ko'rinardi.
+    get(this: Product) {
+      return emptyToNull(this.getDataValue('opisaniyaJson'));
+    },
+  })
   opisaniyaJson: string;
 
   @ApiProperty({
     example: 'Purpose info',
     description: 'Product purpose/usage',
   })
-  @Column({ type: DataType.TEXT, allowNull: true })
+  @Column({
+    type: DataType.TEXT,
+    allowNull: true,
+    // Bo'sh bo'lsa `null`. TEXT juftlari bo'shligida allaqachon
+    // `null` qaytarardi, JSONB esa `{}` — mijozda `Boolean({})`
+    // `true` bo'lgani uchun bo'sh bo'lim "to'ldirilgan" ko'rinardi.
+    get(this: Product) {
+      return emptyToNull(this.getDataValue('naznacheniya'));
+    },
+  })
   naznacheniya: string;
 
   @ApiProperty({
     example: 'Purpose info as Json',
     description: 'Product purpose/usage as Json',
   })
-  @Column({ type: DataType.JSONB, allowNull: true })
+  @Column({
+    type: DataType.JSONB,
+    allowNull: true,
+    // Bo'sh bo'lsa `null`. TEXT juftlari bo'shligida allaqachon
+    // `null` qaytarardi, JSONB esa `{}` — mijozda `Boolean({})`
+    // `true` bo'lgani uchun bo'sh bo'lim "to'ldirilgan" ko'rinardi.
+    get(this: Product) {
+      return emptyToNull(this.getDataValue('naznacheniyaJson'));
+    },
+  })
   naznacheniyaJson: string;
 
   @ApiProperty({
     example: 'Purpose info',
     description: 'Product marking/labeling',
   })
-  @Column({ type: DataType.TEXT, allowNull: true })
+  @Column({
+    type: DataType.TEXT,
+    allowNull: true,
+    // Bo'sh bo'lsa `null`. TEXT juftlari bo'shligida allaqachon
+    // `null` qaytarardi, JSONB esa `{}` — mijozda `Boolean({})`
+    // `true` bo'lgani uchun bo'sh bo'lim "to'ldirilgan" ko'rinardi.
+    get(this: Product) {
+      return emptyToNull(this.getDataValue('markirovka'));
+    },
+  })
   markirovka: string;
 
   @ApiProperty({
     example: 'Product marking/labeling as Json',
     description: 'Product marking/labeling as Json',
   })
-  @Column({ type: DataType.JSONB, allowNull: true })
+  @Column({
+    type: DataType.JSONB,
+    allowNull: true,
+    // Bo'sh bo'lsa `null`. TEXT juftlari bo'shligida allaqachon
+    // `null` qaytarardi, JSONB esa `{}` — mijozda `Boolean({})`
+    // `true` bo'lgani uchun bo'sh bo'lim "to'ldirilgan" ko'rinardi.
+    get(this: Product) {
+      return emptyToNull(this.getDataValue('markirovkaJson'));
+    },
+  })
   markirovkaJson: string;
 
   @ForeignKey(() => Category)
