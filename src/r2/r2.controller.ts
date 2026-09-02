@@ -122,6 +122,23 @@ export class R2Controller {
   @ApiOperation({ summary: 'Create new R2 file' })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
+  @ApiResponse({
+    status: 201,
+    description:
+      "Fayl yaratildi. `data` nima berilgan bo'lsa, o'sha yoziladi",
+    schema: {
+      example: {
+        success: true,
+        key: 'climavent/12345-abcd.json',
+        url: 'https://pub-xxx.r2.dev/climavent/12345-abcd.json',
+        message: 'File successfully created',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: "`data` majburiy va bo'sh bo'lmasligi kerak",
+  })
   @UseGuards(JwtOrServiceKeyGuard)
   @Post('r2-upload')
   async testUpload(@Body() createR2Dto: CreateR2Dto): Promise<{
@@ -149,6 +166,18 @@ export class R2Controller {
   @ApiOperation({ summary: 'Update existing R2 file by key' })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
+  @ApiResponse({
+    status: 200,
+    description: "Yangilandi (o'ramasiz — berilgan mazmun aynan yoziladi)",
+    schema: {
+      example: {
+        success: true,
+        key: 'climavent/12345-abcd.json',
+        url: 'https://pub-xxx.r2.dev/climavent/12345-abcd.json?v=1756800000000',
+        message: 'Content successfully updated',
+      },
+    },
+  })
   @UseGuards(JwtOrServiceKeyGuard)
   @Put('r2-update')
   async updateContent(@Body() updateDto: UpdateR2Dto): Promise<{
