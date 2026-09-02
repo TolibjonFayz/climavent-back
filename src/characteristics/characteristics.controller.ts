@@ -13,7 +13,13 @@ import {
 import { CharacteristicsService } from './characteristics.service';
 import { CreateCharacteristicDto } from './dto/create-characteristic.dto';
 import { UpdateCharacteristicDto } from './dto/update-characteristic.dto';
-import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Characteristic } from './model/characteristic.model';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 import { parsePositiveIntParam } from 'src/common/helpers/pagination';
@@ -34,6 +40,21 @@ export class CharacteristicsController {
   @ApiOperation({ summary: 'Create characteristics' })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
+  // DIQQAT: `id` `newBaner` ichida (nomi tarixiy sabab shunday).
+  @ApiResponse({
+    status: 201,
+    description: 'Characteristic yaratildi',
+    schema: {
+      example: {
+        message: 'Characteristic successfully created',
+        newBaner: { id: 305, title: 'VKPP 60-35', product_id: 50 },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: "content/contentJson majburiy — ular R2 havolalari",
+  })
   @UseGuards(JwtOrServiceKeyGuard)
   @Post('create')
   async create(@Body() createCharacteristicDto: CreateCharacteristicDto) {

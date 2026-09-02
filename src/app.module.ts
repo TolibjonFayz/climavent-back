@@ -4,6 +4,7 @@ import { ReviewsModule } from './reviews/reviews.module';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { UsersModule } from './users/users.module';
 import { User } from './users/model/user.model';
+import { Store } from './stores/model/store.model';
 import { ConfigModule } from '@nestjs/config';
 import { OtpModule } from './otp/otp.module';
 import { Otp } from './otp/models/otp.model';
@@ -22,6 +23,7 @@ import { R2Module } from './r2/r2.module';
 import { ProductModelInsideModule } from './product_model_inside/product_model_inside.module';
 import { GuardsModule } from './guards/guards.module';
 import { SettingsModule } from './settings/settings.module';
+import { StoresModule } from './stores/stores.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 
@@ -48,7 +50,9 @@ import { APP_GUARD } from '@nestjs/core';
           rejectUnauthorized: false,
         },
       },
-      models: [User, Otp],
+      // User -> Store havolasi bor, shuning uchun Store ham shu yerda
+      // ro'yxatdan o'tishi shart (aks holda assotsiatsiya topilmaydi).
+      models: [User, Otp, Store],
     }),
     UsersModule,
     ProductsModule,
@@ -68,6 +72,7 @@ import { APP_GUARD } from '@nestjs/core';
     R2Module,
     ProductModelInsideModule,
     SettingsModule,
+    StoresModule,
   ],
   controllers: [],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

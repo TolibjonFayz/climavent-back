@@ -1,6 +1,6 @@
 // src/r2/dto/update-r2.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsDefined, IsNotEmpty, IsString } from 'class-validator';
 
 export class UpdateR2Dto {
   @ApiProperty({
@@ -17,6 +17,9 @@ export class UpdateR2Dto {
     example: 'Updated message content',
     required: true,
   })
-  @IsNotEmpty({ message: 'data majburiy' })
+  // `whitelist: true` validatorsiz maydonni o'chirib tashlaydi — shuning
+  // uchun bu dekoratorlar shart (CreateR2Dto dagi xato aynan shundan edi).
+  @IsDefined({ message: 'data majburiy' })
+  @IsNotEmpty({ message: "data bo'sh bo'lmasligi kerak" })
   data: any;
 }

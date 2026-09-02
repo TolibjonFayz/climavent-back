@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { v4 as uuidv4 } from 'uuid';
 import {
   S3Client,
   PutObjectCommand,
@@ -30,23 +31,55 @@ export class R2Service {
   }
 
   /**
-   * JSON yuklash (CREATE)
+   * Yangi kontent uchun standart kalit.
+   * YAGONA format: `climavent/<uuid>.json`. Eski yozuvlarda kalit prefikssiz
+   * va kengaytmasiz (`<uuid>`) — ular o'qishda ishlashda davom etadi,
+   * chunki o'qish kalitni shundayligicha uzatadi.
+   */
+  buildJsonKey(): string {
+    return `climavent/${uuidv4()}.json`;
+  }
+
+  /**
+   * Yozilgan obyektni QAYTA O'QIB tekshiradi.
+   * Sabab: ilgari R2 ga jimgina bo'sh `{}` yozilib ketardi va buni hech kim
+   * sezmasdi — natijada 40 dan ortiq bo'sh fayl to'plandi. Endi mos
+   * kelmasa, yozish XATO bilan tugaydi.
+   */
+  private async verifyWritten(key: string, expected: string): Promise<void> {
+    const response = await this.s3Client.send(
+      new GetObjectCommand({ Bucket: this.bucketName, Key: key }),
+    );
+    const actual = await response.Body.transformToString();
+    if (actual !== expected) {
+      throw new Error(
+        `R2 verification failed for ${key}: ` +
+          `yozildi ${expected.length} bayt, o'qildi ${actual.length} bayt`,
+      );
+    }
+  }
+
+  /**
+   * JSON yuklash (CREATE).
+   * Nima berilsa — O'SHA yoziladi, hech qanday o'ramasiz.
    */
   async uploadJson(key: string, data: any): Promise<string> {
+    const body = JSON.stringify(data);
     try {
       await this.s3Client.send(
         new PutObjectCommand({
           Bucket: this.bucketName,
           Key: key,
-          Body: JSON.stringify(data),
+          Body: body,
           ContentType: 'application/json',
           CacheControl: 'public, max-age=31536000',
         }),
       );
-      return `${this.publicUrl}/${key}`;
     } catch (error) {
       throw new Error(`R2 upload error: ${error.message}`);
     }
+    await this.verifyWritten(key, body);
+    return `${this.publicUrl}/${key}`;
   }
 
   /**
@@ -91,16 +124,14 @@ export class R2Service {
           CacheControl: 'public, max-age=0, must-revalidate', // Cache yangilanadi
         }),
       );
-
-      // Cache bypass uchun timestamp
-      const timestamp = Date.now();
-      const urlWithCache = `${this.publicUrl}/${key}?v=${timestamp}`;
-
-      console.log(`Updated: ${urlWithCache}`);
-      return urlWithCache;
     } catch (error) {
       throw new Error(`R2 update error: ${error.message}`);
     }
+
+    await this.verifyWritten(key, JSON.stringify(newData));
+
+    // Cache bypass uchun timestamp
+    return `${this.publicUrl}/${key}?v=${Date.now()}`;
   }
 
   /**

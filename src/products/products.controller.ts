@@ -8,12 +8,21 @@ import {
   ParseIntPipe,
   Delete,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
+import type { Request } from 'express';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 import { Product } from './model/product.model';
 import { SortProductDto } from './dto/sort-product.dto';
@@ -31,6 +40,19 @@ export class ProductsController {
   @ApiBearerAuth()
   @ApiSecurity('service-key')
   @ApiOperation({ summary: 'Create product (admin)' })
+  // DIQQAT: `id` javobning ILDIZIDA emas, `newProduct` ichida.
+  @ApiResponse({
+    status: 201,
+    description: 'Mahsulot yaratildi',
+    schema: {
+      example: {
+        message: 'Product successfully created',
+        newProduct: { id: 220, name_uz: 'Kanalli ventilyator', quantity: 10 },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: "Noto'g'ri tana" })
+  @ApiResponse({ status: 401, description: 'Guvohnoma yaroqsiz' })
   @UseGuards(JwtOrServiceKeyGuard)
   @Post('create')
   async create(@Body() createProductDto: CreateProductDto) {
@@ -51,16 +73,27 @@ export class ProductsController {
     return this.productsService.getAllProductsCount();
   }
 
-  //Get all products (page/limit ixtiyoriy)
+  //Get all products (page/limit/store_id ixtiyoriy)
   @ApiOperation({ summary: 'Get all products' })
+  @ApiQuery({ name: 'page', required: false, example: '1' })
+  @ApiQuery({ name: 'limit', required: false, example: '20' })
+  @ApiQuery({
+    name: 'store_id',
+    required: false,
+    description: "Berilsa faqat shu do'kon mahsulotlari qaytadi",
+    example: '2',
+  })
+  @ApiResponse({ status: 200, description: 'Mahsulotlar', type: [Product] })
   @Get('all')
   async getAll(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('store_id') storeId?: string,
   ): Promise<Product[]> {
     return this.productsService.getAllProducts(
       parsePositiveIntParam(page, 'page'),
       parsePositiveIntParam(limit, 'limit'),
+      parsePositiveIntParam(storeId, 'store_id'),
     );
   }
 
@@ -68,9 +101,24 @@ export class ProductsController {
   // Eslatma: bu endpoint sitemap (nuxt.config) tomonidan tokensiz ishlatiladi
   // va faqat katalog darajasidagi maydonlarni qaytaradi, shuning uchun ochiq.
   @ApiOperation({ summary: 'Get all products for admin' })
+  @ApiQuery({
+    name: 'store_id',
+    required: false,
+    description: "Berilsa faqat shu do'kon mahsulotlari qaytadi",
+    example: '2',
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Qisqartirilgan ro'yxat (producer va views bilan)",
+    type: [Product],
+  })
   @Get('alladmin')
-  async getAllProductsForAdmin(): Promise<Product[]> {
-    return this.productsService.getAllProductsForAdmin();
+  async getAllProductsForAdmin(
+    @Query('store_id') storeId?: string,
+  ): Promise<Product[]> {
+    return this.productsService.getAllProductsForAdmin(
+      parsePositiveIntParam(storeId, 'store_id'),
+    );
   }
 
   //Get last added products
@@ -104,11 +152,30 @@ export class ProductsController {
     );
   }
 
-  //Get product by id
+  //Get product by id.
+  //Ko'rish hisoblagichi FAQAT haqiqiy mijoz tashrifida oshadi:
+  //  - `X-API-Key` bilan kelgan so'rov (bot/adminka) sanalmaydi;
+  //  - `?count=false` bilan ham o'chirib qo'yish mumkin.
   @ApiOperation({ summary: 'Get product by id' })
+  @ApiQuery({
+    name: 'count',
+    required: false,
+    description:
+      "`false` bo'lsa ko'rish hisoblagichi oshmaydi. Servis kaliti " +
+      "(X-API-Key) bilan kelgan so'rovlar baribir sanalmaydi.",
+    example: 'false',
+  })
+  @ApiResponse({ status: 200, description: 'Mahsulot topildi', type: Product })
+  @ApiResponse({ status: 404, description: 'Mahsulot topilmadi' })
   @Get('one/:id')
-  async getOne(@Param('id', ParseIntPipe) id: number): Promise<Product> {
-    return this.productsService.getProductById(id);
+  async getOne(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: Request,
+    @Query('count') count?: string,
+  ): Promise<Product> {
+    const isService = Boolean(req.headers['x-api-key']);
+    const countView = !isService && count !== 'false';
+    return this.productsService.getProductById(id, countView);
   }
 
   //Update product by id

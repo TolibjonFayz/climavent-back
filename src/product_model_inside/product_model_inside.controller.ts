@@ -1,5 +1,9 @@
 import { Controller, Get, Post, Body, Patch, Param, ParseIntPipe, Query, Delete, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiResponse,
+  ApiSecurity,
+} from '@nestjs/swagger';
 import { ProductModelInsideService } from './product_model_inside.service';
 import { CreateProductModelInsideDto } from './dto/create-product_model_inside.dto';
 import { UpdateProductModelInsideDto } from './dto/update-product_model_inside.dto';
@@ -12,6 +16,19 @@ export class ProductModelInsideController {
 
   @ApiBearerAuth()
   @ApiSecurity('service-key')
+  @ApiResponse({
+    status: 201,
+    description: 'SAP varianti yaratildi',
+    schema: {
+      example: {
+        id: 981,
+        sap_name: 'VKPP 60-35-4D',
+        in_model_name: 'VKPP 60-35',
+        product_model_id: 305,
+        price: 120.5,
+      },
+    },
+  })
   @UseGuards(JwtOrServiceKeyGuard)
   @Post()
   create(@Body() createProductModelInsideDto: CreateProductModelInsideDto) {

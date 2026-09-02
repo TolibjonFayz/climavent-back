@@ -11,7 +11,6 @@ import { User } from 'src/users/model/user.model';
 import { InjectModel } from '@nestjs/sequelize';
 import { Product } from './model/product.model';
 import Sequelize, { where } from 'sequelize';
-import { v4 as uuidv4 } from 'uuid';
 import { R2Service } from 'src/r2/r2.service';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
 import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
@@ -81,11 +80,14 @@ export class ProductsService {
 
   //Get all products — page/limit ixtiyoriy, lekin standart chegara bor
   //(parametrsiz chaqiruv ham cheksiz javob qaytarmaydi)
-  async getAllProducts(page?: number, limit?: number) {
+  //`storeId` berilsa faqat o'sha do'kon mahsulotlari qaytadi — marketplace
+  //adminkasi hamma mahsulotni tortib, mijoz tomonda filtrlamasin.
+  async getAllProducts(page?: number, limit?: number, storeId?: number) {
     const effectiveLimit = limit || 20;
     const effectivePage = page || 1;
     const offset = (effectivePage - 1) * effectiveLimit;
     return this.productRepository.findAll({
+      ...(storeId ? { where: { store_id: storeId } } : {}),
       // Katalog kartochkalari narxni insides[].price dan oladi
       include: this.catalogInclude(),
       order: [['id', 'ASC']],
@@ -95,16 +97,22 @@ export class ProductsService {
   }
 
   //Get all products FOR ADMIN
-  async getAllProductsForAdmin() {
+  async getAllProductsForAdmin(storeId?: number) {
     const products = await this.productRepository.findAll({
+      ...(storeId ? { where: { store_id: storeId } } : {}),
       order: [['createdAt', 'DESC']],
+      // `producer` (do'kon kaliti sifatida ishlatilyapti) va `views`
+      // adminka ro'yxati uchun kerak — ularsiz adminka to'liq
+      // `products/all?limit=300` ni tortishga majbur bo'lardi.
       attributes: [
+        'id',
         'name_uz',
         'name_ru',
         'name_en',
         'quantity',
         'description_short_uz',
-        'id',
+        'producer',
+        'views',
       ],
       include: ['category'],
     });
@@ -243,8 +251,10 @@ export class ProductsService {
     });
   }
 
-  //Get product by id
-  async getProductById(id: number) {
+  //Get product by id.
+  //`countView=false` bo'lsa ko'rish hisoblagichi oshmaydi — admin/servis
+  //o'qishlari mijoz tashrifi emas.
+  async getProductById(id: number, countView = true) {
     const product = await this.productRepository.findOne({
       where: { id: id },
       include: [
@@ -266,11 +276,20 @@ export class ProductsService {
     if (!product) {
       throw new NotFoundException('Product not found or product id is invalid');
     }
-    //Increase views of product
-    await this.productRepository.update(
-      { views: product.views + 1 },
-      { where: { id: id } },
-    );
+    // Ko'rish hisoblagichi.
+    // `increment` — atomik (o'qib-yozish emas), shuning uchun bir vaqtda
+    // kelgan so'rovlar bir-birini bosib ketmaydi.
+    // `silent: true` — `updatedAt` ga TEGMAYDI. Ilgari oddiy `update()`
+    // ishlatilgani uchun har bir TASHRIF `updatedAt` ni ko'tarib,
+    // "oxirgi tahrir" vaqtini yaroqsiz qilardi.
+    if (countView) {
+      await this.productRepository.increment('views', {
+        where: { id },
+        silent: true,
+      });
+      // Javobda ham yangi qiymat ko'rinsin (increment obyektni yangilamaydi)
+      product.views = product.views + 1;
+    }
     return product;
   }
 
@@ -288,11 +307,11 @@ export class ProductsService {
       Object.keys(updateProductDto).length == 2
     ) {
       const sizesR2Link = await this.r2Service.uploadJson(
-        uuidv4(),
+        this.r2Service.buildJsonKey(),
         updateProductDto.sizes,
       );
       const sizesJsonR2Link = await this.r2Service.uploadJson(
-        uuidv4(),
+        this.r2Service.buildJsonKey(),
         updateProductDto.sizesJson,
       );
       updateProductDto.sizes = sizesR2Link;
@@ -306,11 +325,11 @@ export class ProductsService {
       Object.keys(updateProductDto).length == 2
     ) {
       const opisaniyaR2Link = await this.r2Service.uploadJson(
-        uuidv4(),
+        this.r2Service.buildJsonKey(),
         updateProductDto.opisaniya,
       );
       const opisaniyaJsonR2Link = await this.r2Service.uploadJson(
-        uuidv4(),
+        this.r2Service.buildJsonKey(),
         updateProductDto.opisaniyaJson,
       );
       updateProductDto.opisaniya = opisaniyaR2Link;
@@ -324,11 +343,11 @@ export class ProductsService {
       Object.keys(updateProductDto).length == 2
     ) {
       const naznacheniyaR2Link = await this.r2Service.uploadJson(
-        uuidv4(),
+        this.r2Service.buildJsonKey(),
         updateProductDto.naznacheniya,
       );
       const naznacheniyaJsonR2Link = await this.r2Service.uploadJson(
-        uuidv4(),
+        this.r2Service.buildJsonKey(),
         updateProductDto.naznacheniyaJson,
       );
       updateProductDto.naznacheniya = naznacheniyaR2Link;
@@ -343,11 +362,11 @@ export class ProductsService {
     ) {
       console.log(updateProductDto);
       const markirovkaR2Link = await this.r2Service.uploadJson(
-        uuidv4(),
+        this.r2Service.buildJsonKey(),
         updateProductDto.markirovka,
       );
       const markirovkaJsonR2Link = await this.r2Service.uploadJson(
-        uuidv4(),
+        this.r2Service.buildJsonKey(),
         updateProductDto.markirovkaJson,
       );
       updateProductDto.markirovka = markirovkaR2Link;

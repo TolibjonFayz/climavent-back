@@ -13,9 +13,15 @@ import {
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Order } from './model/order.model';
 import { AdminGuard } from 'src/guards/admin.guard';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 import { UserGuard } from 'src/guards/user.guard';
 import { UserSelfGuard } from 'src/guards/user_self.guard';
 
@@ -33,9 +39,13 @@ export class OrdersController {
     return this.ordersService.createOrder(createOrderDto);
   }
 
-  //Get all orders — faqat admin (barcha mijozlarning ma'lumotini qaytaradi)
-  @ApiOperation({ summary: 'Get all orders (admin)' })
-  @UseGuards(AdminGuard)
+  //Get all orders — admin JWT yoki servis kaliti (X-API-Key).
+  //Servis kalitiga FAQAT o'qish berilgan: yozish endpointlari admin/user
+  //guvohnomasida qoladi. Bu adminka daromad analitikasi uchun kerak.
+  @ApiOperation({ summary: 'Get all orders (admin yoki servis kaliti)' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Get('all')
   async getAll(): Promise<Order[]> {
     return this.ordersService.getAllOrders();

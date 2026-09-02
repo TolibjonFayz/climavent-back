@@ -1,4 +1,12 @@
-import { Model, Column, DataType, Table } from 'sequelize-typescript';
+import {
+  Model,
+  Column,
+  DataType,
+  Table,
+  ForeignKey,
+  BelongsTo,
+} from 'sequelize-typescript';
+import { Store } from 'src/stores/model/store.model';
 import { ApiProperty } from '@nestjs/swagger';
 
 interface UserAtr {
@@ -125,6 +133,20 @@ export class User extends Model<User, UserAtr> {
     defaultValue: false,
   })
   is_admin: boolean;
+
+  // Do'kon xodimi qaysi do'konga tegishli (marketplace uchun).
+  @ForeignKey(() => Store)
+  @ApiProperty({ example: 2, description: "Do'kon id", required: false })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  store_id: number;
+  @BelongsTo(() => Store)
+  store: Store;
+
+  // 'customer' | 'store_admin' | 'admin'. Mavjud `is_admin` bekor
+  // qilinmadi — u holicha ishlaydi, `role` esa kengroq imkon beradi.
+  @ApiProperty({ example: 'store_admin', description: 'Foydalanuvchi roli' })
+  @Column({ type: DataType.STRING, allowNull: false, defaultValue: 'customer' })
+  role: string;
 
   @ApiProperty({
     example: 'sdlak',

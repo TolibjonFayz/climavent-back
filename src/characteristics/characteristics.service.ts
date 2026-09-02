@@ -4,7 +4,6 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Characteristic } from './model/characteristic.model';
 import { InjectModel } from '@nestjs/sequelize';
 import { R2Service } from 'src/r2/r2.service';
-import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class CharacteristicsService {
@@ -13,8 +12,6 @@ export class CharacteristicsService {
     private readonly charecteristicRepository: typeof Characteristic,
     private r2Service: R2Service,
   ) {}
-
-  uniqueId = uuidv4();
 
   // HTML mazmunli (matn) bormi tekshiradi. "<p></p>", "<p>.</p>",
   // faqat bo'shliq/nuqta — mazmunsiz deb hisoblanadi. Bunday kontent
@@ -84,7 +81,7 @@ export class CharacteristicsService {
     if (payload.content !== undefined) {
       if (this.hasMeaningfulHtml(payload.content)) {
         payload.content = await this.r2Service.uploadJson(
-          (this.uniqueId = uuidv4()),
+          this.r2Service.buildJsonKey(),
           payload.content,
         );
       } else {
@@ -94,7 +91,7 @@ export class CharacteristicsService {
     }
     if (payload.contentJson !== undefined) {
       payload.contentJson = await this.r2Service.uploadJson(
-        (this.uniqueId = uuidv4()),
+        this.r2Service.buildJsonKey(),
         payload.contentJson,
       );
     }

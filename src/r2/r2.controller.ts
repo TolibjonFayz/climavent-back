@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Post,
   Put,
@@ -18,6 +19,7 @@ import {
   ApiConsumes,
   ApiOperation,
   ApiQuery,
+  ApiResponse,
   ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
@@ -128,16 +130,17 @@ export class R2Controller {
     url: string;
     message: string;
   }> {
-    const testData = { message: createR2Dto.data };
-    const uniqueId = uuidv4();
-    const key = `climavent/${uniqueId}.json`;
-
-    const url = await this.r2Service.uploadJson(key, testData);
+    // Nima berilgan bo'lsa — O'SHA yoziladi. Ilgari bu yerda mazmun
+    // `{ message: ... }` ichiga o'ralardi, ustiga `data` esa
+    // ValidationPipe(whitelist) tomonidan o'chirilib, faylga bo'sh `{}`
+    // tushardi. Ikkalasi ham tuzatildi.
+    const key = this.r2Service.buildJsonKey();
+    const url = await this.r2Service.uploadJson(key, createR2Dto.data);
 
     return {
       success: true,
-      key: key,
-      url: url,
+      key,
+      url,
       message: 'File successfully created',
     };
   }
@@ -154,10 +157,8 @@ export class R2Controller {
     url: string;
     message: string;
   }> {
-    const testData = { message: updateDto.data };
-
-    // Bir xil key bilan yangilash
-    const url = await this.r2Service.updateJson(updateDto.key, testData);
+    // O'ramasiz: berilgan mazmun aynan shu holida yoziladi.
+    const url = await this.r2Service.updateJson(updateDto.key, updateDto.data);
 
     return {
       success: true,
@@ -165,6 +166,35 @@ export class R2Controller {
       url: url,
       message: 'Content successfully updated',
     };
+  }
+
+  //R2 obyektini o'chirish.
+  //DIQQAT: kalitda "/" bo'lgani uchun (`climavent/<uuid>.json`) yo'l
+  //parametri (`:key`) mos kelmaydi — shuning uchun `?key=` so'rov
+  //parametri ishlatiladi, xuddi `r2-content` dagidek.
+  @ApiOperation({ summary: "R2 faylini kalit bo'yicha o'chirish" })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @ApiQuery({ name: 'key', example: 'climavent/12345-abcd.json', required: true })
+  @ApiResponse({
+    status: 200,
+    description: "O'chirildi",
+    schema: {
+      example: { success: true, key: 'climavent/12345-abcd.json', message: "Fayl o'chirildi" },
+    },
+  })
+  @UseGuards(JwtOrServiceKeyGuard)
+  @Delete('r2-object')
+  async deleteObject(@Query('key') key: string): Promise<{
+    success: boolean;
+    key: string;
+    message: string;
+  }> {
+    if (!key) {
+      throw new BadRequestException('key parametri majburiy');
+    }
+    await this.r2Service.deleteFile(key);
+    return { success: true, key, message: "Fayl o'chirildi" };
   }
 
   //Get r2 text

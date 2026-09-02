@@ -12,6 +12,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Review } from 'src/reviews/model/review.model';
 import { Category } from 'src/category/model/category.model';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
+import { Store } from 'src/stores/model/store.model';
 
 interface ProductAtr {
   category_id: number;
@@ -34,6 +35,7 @@ interface ProductAtr {
   markirovka: string;
   markirovkaJson: string;
   isRishotka: boolean;
+  store_id: number;
 }
 
 @Table({ tableName: 'products' })
@@ -166,6 +168,15 @@ export class Product extends Model<Product, ProductAtr> {
   category_id: number;
   @BelongsTo(() => Category)
   category: Category;
+
+  // Qaysi do'konga tegishli. `producer` matni hali joyida (eski kod undan
+  // foydalanadi), lekin haqiqiy bog'lanish shu FK orqali.
+  @ForeignKey(() => Store)
+  @ApiProperty({ example: 2, description: "Do'kon id", required: false })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  store_id: number;
+  @BelongsTo(() => Store)
+  store: Store;
 
   @HasMany(() => ProductImages)
   images: ProductImages[];

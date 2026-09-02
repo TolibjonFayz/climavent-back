@@ -12,7 +12,13 @@ import {
 import { CategoryService } from './category.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
-import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Category } from './model/category.model';
 import { Product } from 'src/products/model/product.model';
 import { SortbyCategoryIdProductDto } from './dto/sortbycategoryid-product.dto';
@@ -27,6 +33,17 @@ export class CategoryController {
   @ApiOperation({ summary: 'Create category' })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
+  // `id` — `newCategory` ichida.
+  @ApiResponse({
+    status: 201,
+    description: 'Kategoriya yaratildi',
+    schema: {
+      example: {
+        message: 'Category successfully created',
+        newCategory: { id: 12, name_uz: 'Kanal ventilyatorlari' },
+      },
+    },
+  })
   @UseGuards(JwtOrServiceKeyGuard)
   @Post('create')
   async create(@Body() createCategoryDto: CreateCategoryDto) {

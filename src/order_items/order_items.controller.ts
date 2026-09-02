@@ -13,10 +13,16 @@ import {
 import { OrderItemsService } from './order_items.service';
 import { CreateOrderItemDto } from './dto/create-order_item.dto';
 import { UpdateOrderItemDto } from './dto/update-order_item.dto';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
 import { OrderItem } from './model/order_item.model';
 import { UserGuard } from 'src/guards/user.guard';
 import { AdminGuard } from 'src/guards/admin.guard';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('Order items')
 @ApiBearerAuth()
@@ -38,9 +44,12 @@ export class OrderItemsController {
     );
   }
 
-  //Get all orders — faqat admin
-  @ApiOperation({ summary: 'Get all order items (admin)' })
-  @UseGuards(AdminGuard)
+  //Get all order items — admin JWT yoki servis kaliti (X-API-Key).
+  //Servis kalitiga FAQAT o'qish berilgan (analitika uchun).
+  @ApiOperation({ summary: 'Get all order items (admin yoki servis kaliti)' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Get('all')
   async getAll(): Promise<OrderItem[]> {
     return this.orderItemsService.getAllOrderItems();
