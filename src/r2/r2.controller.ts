@@ -84,6 +84,25 @@ export class R2Controller {
       properties: { file: { type: 'string', format: 'binary' } },
     },
   })
+  @ApiResponse({
+    status: 201,
+    description: 'Rasm yuklandi',
+    schema: {
+      example: {
+        success: true,
+        key: 'climavent/images/12345-abcd.jpg',
+        url: 'https://pub-xxx.r2.dev/climavent/images/12345-abcd.jpg',
+        message: 'Rasm muvaffaqiyatli yuklandi',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      "Fayl yuborilmadi yoki rasm emas (JPG, PNG, WEBP, GIF, AVIF). " +
+      "Tur mijoz aytgan mimetype bo'yicha emas, faylning magic-bytes'i " +
+      "bo'yicha aniqlanadi.",
+  })
   @UseGuards(JwtOrServiceKeyGuard)
   @UseInterceptors(
     FileInterceptor('file', {
@@ -233,6 +252,18 @@ export class R2Controller {
     description: "R2 key (fayl yo'li)",
     example: 'climavent/12345-abcd-6789.json',
     required: true,
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Fayl mazmuni (`data` — nima yozilgan bo'lsa, o'sha)",
+    schema: {
+      example: {
+        success: true,
+        key: 'climavent/12345-abcd.json',
+        data: { type: 'doc', content: [] },
+        message: 'Content successfully retrieved',
+      },
+    },
   })
   @Get('r2-content')
   async getContent(@Query('key') key: string): Promise<{
