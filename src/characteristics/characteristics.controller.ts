@@ -17,6 +17,7 @@ import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagg
 import { Characteristic } from './model/characteristic.model';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 import { parsePositiveIntParam } from 'src/common/helpers/pagination';
+import { Throttle } from '@nestjs/throttler';
 
 // MUHIM: nomiga qaramay, bu "model kartochkasi" — texnik xususiyat emas.
 // `content` = rasm havolasi, `contentJson` = R2 dagi ProseMirror texnik
@@ -59,6 +60,17 @@ export class CharacteristicsController {
   @Get('one/:id')
   async getOne(@Param('id', ParseIntPipe) id: number): Promise<Characteristic> {
     return this.characteristicsService.getCharacteristicById(id);
+  }
+
+  // Model tanlanganini qayd qilish — OCHIQ endpoint (mehmonlar ham
+  // mahsulot ko'radi). Analitika uchun: qaysi modellar ko'proq qiziqish
+  // uyg'otyapti. IP boshiga daqiqasiga 40 ta — oddiy foydalanuvchi bir
+  // sahifada bir necha model bosishi mumkin, lekin spam to'xtatiladi.
+  @ApiOperation({ summary: 'Model tanlanganini sanash (views +1)' })
+  @Throttle({ default: { limit: 40, ttl: 60 * 1000 } })
+  @Post(':id/view')
+  async countView(@Param('id', ParseIntPipe) id: number) {
+    return this.characteristicsService.incrementViews(id);
   }
 
   //Update characteristic by id

@@ -19,6 +19,7 @@ interface CharasteristicAtr {
   product_id: Number;
   airflow_m3h: Number;
   pressure_pa: Number;
+  views: Number;
 }
 
 @Table({ tableName: 'characteristics' })
@@ -87,6 +88,13 @@ export class Characteristic extends Model<Characteristic, CharasteristicAtr> {
   @ApiProperty({ example: 500, description: "To'liq bosim, Pa", required: false })
   @Column({ type: DataType.INTEGER, allowNull: true })
   pressure_pa: number;
+
+  // Foydalanuvchi mahsulot sahifasida shu modelni necha marta TANLAGANI.
+  // Sahifa ochilishidagi avto-tanlov sanalmaydi — faqat haqiqiy bosish.
+  // Qaysi modellar ko'proq qiziqish uyg'otayotganini o'rganish uchun.
+  @ApiProperty({ example: 42, description: 'Model necha marta tanlangani' })
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  views: number;
 
   // Bu modelning SAP variantlari. Narx (USD) aynan shu yerda turadi,
   // shuning uchun mahsulot sahifasiga narx shu bog'lanish orqali keladi.

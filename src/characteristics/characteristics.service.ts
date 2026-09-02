@@ -112,6 +112,20 @@ export class CharacteristicsService {
       throw new NotFoundException('Characteristic not found or something wrong');
   }
 
+  // Modelni tanlash sonini +1 qiladi.
+  // Atomik SQL increment (o'qib-yozish emas) — bir vaqtda kelgan so'rovlar
+  // bir-birini bosib ketmaydi. Mavjud bo'lmagan id'da 404.
+  async incrementViews(id: number) {
+    const existing = await this.charecteristicRepository.findByPk(id, {
+      attributes: ['id'],
+    });
+    if (!existing) {
+      throw new NotFoundException('Characteristic not found');
+    }
+    await this.charecteristicRepository.increment('views', { where: { id } });
+    return { message: 'ok' };
+  }
+
   //Delete characteristic by id
   async deleteCharacteristicById(id: number) {
     const characteristic = await this.getCharacteristicById(id);
