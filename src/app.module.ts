@@ -24,6 +24,7 @@ import { ProductModelInsideModule } from './product_model_inside/product_model_i
 import { GuardsModule } from './guards/guards.module';
 import { SettingsModule } from './settings/settings.module';
 import { StoresModule } from './stores/stores.module';
+import { HealthModule } from './health/health.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 
@@ -73,6 +74,7 @@ import { APP_GUARD } from '@nestjs/core';
     ProductModelInsideModule,
     SettingsModule,
     StoresModule,
+    HealthModule,
   ],
   controllers: [],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
