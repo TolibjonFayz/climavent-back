@@ -43,10 +43,18 @@ export class Characteristic extends Model<Characteristic, CharasteristicAtr> {
   })
   title: string;
 
-  @ApiProperty({ example: '25000', description: 'Price of the character' })
+  // Narx (USD). NUMERIC(10,2) — `product-model-inside.price` bilan bir xil,
+  // o'nlik son qabul qilinadi. Sequelize DECIMAL'ni SATR qaytaradi
+  // ("120.50"), shuning uchun bu yerda number'ga o'giramiz — mijoz
+  // tomonda kursga ko'paytirishda chalkashlik bo'lmasin.
+  @ApiProperty({ example: 25000.5, description: 'Price of the character' })
   @Column({
-    type: DataType.INTEGER,
+    type: DataType.DECIMAL(10, 2),
     allowNull: false,
+    get(this: Characteristic): number | null {
+      const raw = this.getDataValue('price');
+      return raw === null || raw === undefined ? null : Number(raw);
+    },
   })
   price: number;
 

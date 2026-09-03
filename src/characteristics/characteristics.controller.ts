@@ -40,13 +40,17 @@ export class CharacteristicsController {
   @ApiOperation({ summary: 'Create characteristics' })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
-  // DIQQAT: `id` `newBaner` ichida (nomi tarixiy sabab shunday).
+  // `newCharacteristic` — asosiy kalit. `newBaner` eski nom (banner
+  // modulidan qolgan), mijoz kodlari buzilmasligi uchun bir muddat
+  // parallel qaytariladi; yangi integratsiyalar `newCharacteristic`
+  // dan foydalansin.
   @ApiResponse({
     status: 201,
     description: 'Characteristic yaratildi',
     schema: {
       example: {
         message: 'Characteristic successfully created',
+        newCharacteristic: { id: 305, title: 'VKPP 60-35', product_id: 50 },
         newBaner: { id: 305, title: 'VKPP 60-35', product_id: 50 },
       },
     },

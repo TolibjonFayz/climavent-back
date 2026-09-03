@@ -27,19 +27,56 @@ export class CharacteristicsService {
     return text.length > 0;
   }
 
+  private isR2Url(value: unknown): boolean {
+    return typeof value === 'string' && /^https?:\/\//i.test(value.trim());
+  }
+
+  // Bo'sh mazmunmi? Satr uchun HTML tekshiruvi, obyekt uchun kalitlar soni.
+  private isEmptyContent(value: unknown): boolean {
+    if (value === null || value === undefined) return true;
+    if (typeof value === 'string') return !this.hasMeaningfulHtml(value);
+    if (Array.isArray(value)) return value.length === 0;
+    if (typeof value === 'object') return Object.keys(value).length === 0;
+    return false;
+  }
+
+  // `content` / `contentJson` uchun YAGONA qoida — create ham, update ham
+  // shuni ishlatadi (ilgari ikkalasi ikki xil ishlardi):
+  //
+  //   1) Tayyor R2 havolasi kelsa  -> shundayligicha saqlanadi.
+  //      Ilgari update havolani YANGI faylga yozib, ichiga havolaning
+  //      o'zini solib qo'yardi — saytda jadval o'rniga URL matni chiqardi.
+  //   2) Satr yoki OBYEKT kelsa    -> R2'ga yuklanadi, havolasi saqlanadi.
+  //      Obyekt endi JSON sifatida yoziladi (uploadJson JSON.stringify
+  //      qiladi). Ilgari DTO uni String() bilan "[object Object]" ga
+  //      aylantirib yuborardi va mazmun jimgina yo'qolardi.
+  //   3) Bo'sh mazmun              -> `undefined`, ya'ni maydon tegilmaydi
+  //      (mavjud havola saqlanib qoladi, 0 baytli fayl yaratilmaydi).
+  private async resolveContentField(value: unknown): Promise<string | undefined> {
+    if (value === undefined) return undefined;
+    if (this.isR2Url(value)) return (value as string).trim();
+    if (this.isEmptyContent(value)) return undefined;
+    return this.r2Service.uploadJson(this.r2Service.buildJsonKey(), value);
+  }
+
   //Create characteristic
   async createCharacteristics(
     createCharacteristicsDto: CreateCharacteristicDto,
   ) {
-    const newBaner = await this.charecteristicRepository.create(
-      createCharacteristicsDto,
-    );
+    // update bilan AYNAN bir xil qoida (topshiriq №9, 2-band).
+    const payload: any = { ...createCharacteristicsDto };
+    payload.content = await this.resolveContentField(payload.content);
+    payload.contentJson = await this.resolveContentField(payload.contentJson);
 
-    const response = {
+    const created = await this.charecteristicRepository.create(payload);
+
+    return {
       message: 'Characteristic successfully created',
-      newBaner,
+      newCharacteristic: created,
+      // Eski nom — mijoz kodlari buzilmasligi uchun bir muddat parallel
+      // qoldirildi (topshiriq №9, 4-band).
+      newBaner: created,
     };
-    return response;
   }
 
   //Get all characteristics (page/limit ixtiyoriy, standart 50 talik)
@@ -79,21 +116,20 @@ export class CharacteristicsService {
     // yangi 0 baytli fayl yaratilmaydi. contentJson uning jufti, shuning
     // uchun content bo'sh bo'lsa uni ham yubormaymiz.
     if (payload.content !== undefined) {
-      if (this.hasMeaningfulHtml(payload.content)) {
-        payload.content = await this.r2Service.uploadJson(
-          this.r2Service.buildJsonKey(),
-          payload.content,
-        );
-      } else {
+      const resolved = await this.resolveContentField(payload.content);
+      if (resolved === undefined) {
+        // Mazmunsiz kontent — maydonlarni tegmasdan qoldiramiz.
+        // contentJson uning jufti, shuning uchun u ham chiqariladi.
         delete payload.content;
         delete payload.contentJson;
+      } else {
+        payload.content = resolved;
       }
     }
     if (payload.contentJson !== undefined) {
-      payload.contentJson = await this.r2Service.uploadJson(
-        this.r2Service.buildJsonKey(),
-        payload.contentJson,
-      );
+      const resolved = await this.resolveContentField(payload.contentJson);
+      if (resolved === undefined) delete payload.contentJson;
+      else payload.contentJson = resolved;
     }
 
     if (Object.keys(payload).length === 0) {

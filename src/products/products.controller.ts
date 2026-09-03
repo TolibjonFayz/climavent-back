@@ -75,8 +75,22 @@ export class ProductsController {
 
   //Get all products (page/limit/store_id ixtiyoriy)
   @ApiOperation({ summary: 'Get all products' })
-  @ApiQuery({ name: 'page', required: false, example: '1' })
-  @ApiQuery({ name: 'limit', required: false, example: '20' })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: "Sahifa raqami. Standart: 1",
+    example: '1',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description:
+      "Nechta qaytarilsin. BERILMASA STANDART 20 — ya'ni parametrsiz " +
+      "so'rov butun katalogni EMAS, faqat 20 tasini qaytaradi. " +
+      "To'liq ro'yxat uchun limit'ni aniq bering (masalan limit=300) " +
+      'yoki /products/alladmin dan foydalaning.',
+    example: '20',
+  })
   @ApiQuery({
     name: 'store_id',
     required: false,

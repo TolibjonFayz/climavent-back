@@ -1,37 +1,51 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
 import { CreateCharacteristicDto } from './create-characteristic.dto';
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsNumber, IsOptional, IsString } from 'class-validator';
 
+// PATCH — hamma maydon IXTIYORIY. Ilgari bu yerda maydonlar
+// `@IsOptional()` siz qayta e'lon qilingan edi, ya'ni PartialType bergan
+// "ixtiyoriy" xossasi bekor bo'lardi.
+//
+// `content` / `contentJson` turi ATAYLAB `any`: `string` deb e'lon
+// qilinsa, `enableImplicitConversion` obyektni String() bilan
+// "[object Object]" ga aylantirib yuboradi (mazmun jimgina yo'qoladi).
 export class UpdateCharacteristicDto extends PartialType(
   CreateCharacteristicDto,
 ) {
-  @ApiProperty({
-    example: 'BO 45',
-    description: 'Title of the characteristic',
-  })
-  title: string;
-
-  @ApiProperty({ example: '25000', description: 'Price of the character' })
-  @IsNumber()
-  price: number;
-
-  @ApiProperty({
-    example: '45 GB',
-    description: 'Value of the characteristic',
-  })
+  @ApiProperty({ example: 'BO 45', required: false })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  content: string;
+  title?: string;
 
   @ApiProperty({
-    example: '45 GB as JSON',
-    description: 'Value of the characteristic as JSON',
+    example: 25000.5,
+    description: "Narx (USD). O'nlik son qabul qilinadi.",
+    required: false,
   })
-  @IsNotEmpty()
-  contentJson: string;
-
-  @ApiProperty({ example: 1, description: 'Product id' })
+  @IsOptional()
   @IsNumber()
-  @IsNotEmpty()
-  product_id: number;
+  price?: number;
+
+  @ApiProperty({
+    description:
+      "Kontent: tayyor R2 havolasi bo'lsa shundayligicha saqlanadi, " +
+      "aks holda (HTML satri yoki obyekt) R2'ga yuklanib havolasi saqlanadi.",
+    example: '<p>Texnik jadval</p>',
+    required: false,
+  })
+  @IsOptional()
+  content?: any;
+
+  @ApiProperty({
+    description: "Kontentning JSON ko'rinishi. `content` bilan bir xil qoida.",
+    example: { type: 'doc', content: [] },
+    required: false,
+  })
+  @IsOptional()
+  contentJson?: any;
+
+  @ApiProperty({ example: 1, required: false })
+  @IsOptional()
+  @IsNumber()
+  product_id?: number;
 }

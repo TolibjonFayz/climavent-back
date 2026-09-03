@@ -11,20 +11,29 @@ export class CreateCharacteristicDto {
   @IsString()
   title?: string;
 
+  // DIQQAT: tur `any` — ATAYLAB. `string` deb e'lon qilinsa, global
+  // ValidationPipe'dagi `enableImplicitConversion` obyektni String() bilan
+  // aylantirib "[object Object]" qilib yuboradi va mazmun jimgina
+  // yo'qoladi. Obyekt ham, satr ham, tayyor R2 havolasi ham qabul
+  // qilinadi — qaysi biri ekanini servis o'zi aniqlaydi.
   @ApiProperty({
-    example: '45 GB',
-    description: 'Value of the characteristic',
+    description:
+      "Kontent. Uch xil bo'lishi mumkin: (1) tayyor R2 havolasi — " +
+      "shundayligicha saqlanadi; (2) HTML satri; (3) obyekt — " +
+      "ikkalasi ham R2'ga yuklanib, havolasi saqlanadi.",
+    example: '<p>Texnik jadval</p>',
   })
-  @IsString()
   @IsNotEmpty()
-  content: string;
+  content: any;
 
   @ApiProperty({
-    example: '45 GB as JSON',
-    description: 'Value of the characteristic as JSON',
+    description:
+      "Kontentning JSON (ProseMirror) ko'rinishi. `content` bilan bir xil " +
+      "qoida: havola bo'lsa shundayligicha, aks holda R2'ga yuklanadi.",
+    example: { type: 'doc', content: [] },
   })
   @IsNotEmpty()
-  contentJson: string;
+  contentJson: any;
 
   @ApiProperty({ example: '25000', description: 'Price of the character' })
   @IsNumber()
