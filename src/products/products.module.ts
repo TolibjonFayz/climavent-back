@@ -4,11 +4,12 @@ import { ProductsController } from './products.controller';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { Product } from './model/product.model';
 import { Category } from 'src/category/model/category.model';
+import { OrderItem } from 'src/order_items/model/order_item.model';
 import { R2Service } from 'src/r2/r2.service';
 import { JwtModule } from '@nestjs/jwt';
 
 @Module({
-  imports: [SequelizeModule.forFeature([Product, Category]), JwtModule.register({})],
+  imports: [SequelizeModule.forFeature([Product, Category, OrderItem]), JwtModule.register({})],
   controllers: [ProductsController],
   providers: [ProductsService, R2Service],
   exports: [ProductsService],

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
 
@@ -33,9 +33,19 @@ export class CloudinaryService {
         },
         (error, result?: UploadApiResponse) => {
           if (error || !result) {
-            return reject(
-              new Error(`Cloudinary upload error: ${error?.message}`),
-            );
+            const message = error?.message || "noma'lum xato";
+            // Cloudinary faylni rad etsa — bu mijoz xatosi (400), server
+            // xatosi (500) emas. Admin panelda tushunarli xabar chiqsin.
+            if (/invalid image file|unsupported|not an image/i.test(message)) {
+              return reject(
+                new BadRequestException(
+                  "Faylni rasm sifatida o'qib bo'lmadi. U buzuq bo'lishi " +
+                    "yoki rasm emas (masalan video) bo'lishi mumkin. " +
+                    "JPG, PNG yoki WEBP formatda yuklab ko'ring.",
+                ),
+              );
+            }
+            return reject(new Error(`Cloudinary upload error: ${message}`));
           }
           resolve({ url: result.secure_url, publicId: result.public_id });
         },

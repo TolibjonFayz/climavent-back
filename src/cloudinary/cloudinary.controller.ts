@@ -55,8 +55,25 @@ export class CloudinaryController {
       test: (b) => b.subarray(0, 3).toString('ascii') === 'GIF',
     },
     {
+      // AVIF/HEIC — ISO-BMFF konteyner. DIQQAT: `ftyp` imzosining O'ZI
+      // yetarli EMAS — MP4/MOV/3GP videolar ham aynan shu imzoga ega.
+      // Shuning uchun "brand" (8-12 baytlar) ham tekshiriladi, aks holda
+      // video yuklanib, Cloudinary uni "Invalid image file" deb rad etadi.
       mime: 'image/avif',
-      test: (b) => b.subarray(4, 8).toString('ascii') === 'ftyp',
+      test: (b) => {
+        if (b.subarray(4, 8).toString('ascii') !== 'ftyp') return false;
+        const brand = b.subarray(8, 12).toString('ascii');
+        return [
+          'avif',
+          'avis',
+          'heic',
+          'heix',
+          'hevc',
+          'hevx',
+          'mif1',
+          'msf1',
+        ].includes(brand);
+      },
     },
   ];
 

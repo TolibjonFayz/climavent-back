@@ -1,7 +1,11 @@
 import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-product.dto';
 import { GetRecentlyAddedProductsDto } from './dto/getlastadded-product.dto';
 import { SearchProductsByQueryDto } from './dto/search-product.dto';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Category } from 'src/category/model/category.model';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -14,6 +18,7 @@ import Sequelize, { where } from 'sequelize';
 import { R2Service } from 'src/r2/r2.service';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
 import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
+import { OrderItem } from 'src/order_items/model/order_item.model';
 
 const { Op } = Sequelize;
 @Injectable()
@@ -21,6 +26,8 @@ export class ProductsService {
   constructor(
     @InjectModel(Product) private readonly productRepository: typeof Product,
     @InjectModel(Category) private readonly categoryRepository: typeof Category,
+    @InjectModel(OrderItem)
+    private readonly orderItemRepository: typeof OrderItem,
     private r2Service: R2Service,
   ) {}
 
@@ -385,12 +392,30 @@ export class ProductsService {
     else throw new NotFoundException('Product not found or something wrong');
   }
 
-  //Delete product by id
+  //Delete product by id.
+  //Rasm/like/savat kabi bog'liq yozuvlar FK CASCADE bilan o'zi o'chadi
+  //(migratsiya 20260903120000). Buyurtmalar esa SAVDO TARIXI — ular
+  //bilan bog'langan mahsulotni o'chirishga YO'L QO'YILMAYDI, aks holda
+  //daromad hisoboti buziladi. Bunday holatda aniq 409 qaytaramiz.
   async deleteProductById(id: number) {
-    const deleting = await this.productRepository.destroy({
-      where: { id: id },
+    const existing = await this.productRepository.findByPk(id, {
+      attributes: ['id'],
     });
-    if (deleting) return deleting;
-    else throw new NotFoundException('Product not found or something wrong');
+    if (!existing) {
+      throw new NotFoundException('Product not found or something wrong');
+    }
+
+    const orderedCount = await this.orderItemRepository.count({
+      where: { product_id: id },
+    });
+    if (orderedCount > 0) {
+      throw new ConflictException(
+        `Bu mahsulot ${orderedCount} ta buyurtmada qatnashgan — o'chirib ` +
+          "bo'lmaydi, aks holda savdo tarixi yo'qoladi. Sotuvdan olib " +
+          "qo'yish uchun miqdorini 0 qiling.",
+      );
+    }
+
+    return this.productRepository.destroy({ where: { id } });
   }
 }
