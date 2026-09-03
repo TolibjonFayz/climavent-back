@@ -11,6 +11,22 @@ export class ProductModelInsideService {
     private readonly productModelInsideRepository: typeof ProductModelInside,
   ) {}
 
+  // SAP varianti tanlanganini sanaydi (characteristics.views bilan bir xil
+  // qoida): atomik increment, `silent: true` — updatedAt ga tegmaydi.
+  async incrementViews(id: number) {
+    const existing = await this.productModelInsideRepository.findByPk(id, {
+      attributes: ['id'],
+    });
+    if (!existing) {
+      throw new NotFoundException('Product model inside not found');
+    }
+    await this.productModelInsideRepository.increment('views', {
+      where: { id },
+      silent: true,
+    });
+    return { message: 'ok' };
+  }
+
   // Yangi product-model-inside qo'shish
   async create(createProductModelInsideDto: CreateProductModelInsideDto) {
     return this.productModelInsideRepository.create(createProductModelInsideDto);

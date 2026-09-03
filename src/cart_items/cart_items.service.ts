@@ -8,13 +8,42 @@ import { UpdateCartItemDto } from './dto/update-cart_item.dto';
 import { InjectModel } from '@nestjs/sequelize';
 import { CartItem } from './model/cart_item.model';
 import { Cart } from 'src/cart/models/cart.model';
+import { Characteristic } from 'src/characteristics/model/characteristic.model';
+import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
 
 @Injectable()
 export class CartItemsService {
   constructor(
     @InjectModel(CartItem) private readonly CartItemRepository: typeof CartItem,
     @InjectModel(Cart) private readonly CartRepository: typeof Cart,
+    @InjectModel(Characteristic)
+    private readonly characteristicRepository: typeof Characteristic,
+    @InjectModel(ProductModelInside)
+    private readonly insideRepository: typeof ProductModelInside,
   ) {}
+
+  // Savatga solish statistikasi. Atomik increment, `silent: true` —
+  // updatedAt ga tegmaydi (u tahrir vaqti bo'lib qolsin).
+  // Statistika asosiy oqimni to'xtatmasligi kerak: xato bo'lsa jimgina
+  // o'tkazib yuboramiz, mijoz savatga qo'sha olgan bo'lishi muhimroq.
+  private async bumpCartCounters(dto: CreateCartItemDto) {
+    try {
+      if (dto.characteristic_id) {
+        await this.characteristicRepository.increment('cart_count', {
+          where: { id: dto.characteristic_id },
+          silent: true,
+        });
+      }
+      if (dto.product_model_inside_id) {
+        await this.insideRepository.increment('cart_count', {
+          where: { id: dto.product_model_inside_id },
+          silent: true,
+        });
+      }
+    } catch (error) {
+      console.error('cart_count increment error:', error.message);
+    }
+  }
 
   // Qatorning tegishli savati egasi (yoki admin ekanini) tekshiradi
   private async ensureCartOwnerOrAdmin(
@@ -38,16 +67,23 @@ export class CartItemsService {
   ) {
     await this.ensureCartOwnerOrAdmin(createCartItemDto.cart_id, requester);
 
+    // Dublikat izlashda SAP varianti ham hisobga olinadi: bir xil
+    // modelning turli variantlari (masalan РВН da 64 ta, narxi $12—$97)
+    // savatda ALOHIDA qator bo'lishi kerak, aks holda mijoz boshqa
+    // variantni qo'shsa mavjudining soni oshib ketardi.
+    const duplicateWhere = {
+      cart_id: createCartItemDto.cart_id,
+      product_id: createCartItemDto.product_id,
+      product_model: createCartItemDto.product_model,
+      product_model_inside_id: createCartItemDto.product_model_inside_id ?? null,
+    };
     const isThisExists = await this.CartItemRepository.findOne({
-      where: {
-        cart_id: createCartItemDto.cart_id,
-        product_id: createCartItemDto.product_id,
-        product_model: createCartItemDto.product_model,
-      },
+      where: duplicateWhere,
     });
     if (isThisExists == null) {
       const newCartItem =
         await this.CartItemRepository.create(createCartItemDto);
+      await this.bumpCartCounters(createCartItemDto);
       const response = {
         message: 'Cart item successfully created',
         newCartItem,
@@ -56,14 +92,9 @@ export class CartItemsService {
     } else {
       const response = await this.CartItemRepository.update(
         { quantity: isThisExists.quantity + createCartItemDto.quantity },
-        {
-          where: {
-            cart_id: createCartItemDto.cart_id,
-            product_id: createCartItemDto.product_id,
-            product_model: createCartItemDto.product_model,
-          },
-        },
+        { where: duplicateWhere },
       );
+      await this.bumpCartCounters(createCartItemDto);
       return {
         message: 'Cart item successfully created',
         response,

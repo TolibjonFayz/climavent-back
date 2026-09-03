@@ -9,6 +9,7 @@ import { UpdateCartDto } from './dto/update-cart.dto';
 import { CreateCartDto } from './dto/create-cart.dto';
 import { Product } from 'src/products/model/product.model';
 import { CartItem } from 'src/cart_items/model/cart_item.model';
+import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
 import { ProductImages } from 'src/product_images/model/product_image.model';
 
 @Injectable()
@@ -58,6 +59,10 @@ export class CartService {
                 },
               ],
             },
+            // Tanlangan SAP varianti — savat sahifasida mijoz aynan
+            // qaysi variantni olayotganini ko'rishi uchun. Ko'p modelda
+            // bir nechta variant bor va narxi sezilarli farq qiladi.
+            { model: ProductModelInside },
           ],
         },
       ],

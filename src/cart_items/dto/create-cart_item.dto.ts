@@ -1,5 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class CreateCartItemDto {
   @ApiProperty({ example: 1, description: 'Cart id' })
@@ -29,4 +34,22 @@ export class CreateCartItemDto {
   @IsNumber()
   @IsNotEmpty()
   quantity: number;
+
+  @ApiProperty({
+    example: 305,
+    description: 'Model (characteristic) id — statistika uchun',
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber()
+  characteristic_id?: number;
+
+  @ApiProperty({
+    example: 981,
+    description: "Tanlangan SAP varianti id (inside bo'lmasa yuborilmaydi)",
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber()
+  product_model_inside_id?: number;
 }

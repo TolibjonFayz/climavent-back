@@ -14,6 +14,8 @@ interface ProductModelInsideAtr {
   in_model_name: string;
   product_model_id: number;
   price: number;
+  views: number;
+  cart_count: number;
 }
 
 @Table({ tableName: 'product-model-inside' })
@@ -56,6 +58,16 @@ export class ProductModelInside extends Model<
     },
   })
   price: number;
+
+  // SAP varianti bo'yicha statistika — qaysi aniq variant qiziqish
+  // uyg'otyapti va qaysisi savatga tushyapti.
+  @ApiProperty({ example: 12, description: 'Necha marta tanlangani' })
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  views: number;
+
+  @ApiProperty({ example: 3, description: 'Necha marta savatga solingani' })
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  cart_count: number;
 
   @ForeignKey(() => Characteristic)
   @ApiProperty({ example: 1, description: 'Characteristic (model) id' })

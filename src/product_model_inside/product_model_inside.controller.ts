@@ -1,9 +1,22 @@
-import { Controller, Get, Post, Body, Patch, Param, ParseIntPipe, Query, Delete, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiOperation,
   ApiResponse,
   ApiSecurity,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { ProductModelInsideService } from './product_model_inside.service';
 import { CreateProductModelInsideDto } from './dto/create-product_model_inside.dto';
 import { UpdateProductModelInsideDto } from './dto/update-product_model_inside.dto';
@@ -33,6 +46,17 @@ export class ProductModelInsideController {
   @Post()
   create(@Body() createProductModelInsideDto: CreateProductModelInsideDto) {
     return this.productModelInsideService.create(createProductModelInsideDto);
+  }
+
+  // SAP varianti tanlanganini qayd qilish — OCHIQ endpoint (mehmonlar
+  // ham mahsulot ko'radi). Model uchun qanday bo'lsa, xuddi shunday.
+  @ApiOperation({ summary: 'SAP varianti tanlanganini sanash (views +1)' })
+  @ApiResponse({ status: 201, description: 'Sanaldi', schema: { example: { message: 'ok' } } })
+  @ApiResponse({ status: 404, description: 'Topilmadi' })
+  @Throttle({ default: { limit: 40, ttl: 60 * 1000 } })
+  @Post(':id/view')
+  countView(@Param('id', ParseIntPipe) id: number) {
+    return this.productModelInsideService.incrementViews(id);
   }
 
   @Get()

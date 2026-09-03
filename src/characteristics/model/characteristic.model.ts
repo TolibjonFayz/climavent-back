@@ -20,6 +20,7 @@ interface CharasteristicAtr {
   airflow_m3h: Number;
   pressure_pa: Number;
   views: Number;
+  cart_count: Number;
 }
 
 @Table({ tableName: 'characteristics' })
@@ -95,6 +96,13 @@ export class Characteristic extends Model<Characteristic, CharasteristicAtr> {
   @ApiProperty({ example: 42, description: 'Model necha marta tanlangani' })
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
   views: number;
+
+  // Necha marta savatga solingani. views'dan farqi: bu HARID NIYATI —
+  // dashboardda qaysi model haqiqiy talab borligini ko'rsatadi.
+  // Savat tozalansa ham qiymat qolaveradi (tarixiy ko'rsatkich).
+  @ApiProperty({ example: 7, description: 'Necha marta savatga solingani' })
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  cart_count: number;
 
   // Bu modelning SAP variantlari. Narx (USD) aynan shu yerda turadi,
   // shuning uchun mahsulot sahifasiga narx shu bog'lanish orqali keladi.
