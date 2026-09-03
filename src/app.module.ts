@@ -25,6 +25,7 @@ import { GuardsModule } from './guards/guards.module';
 import { SettingsModule } from './settings/settings.module';
 import { StoresModule } from './stores/stores.module';
 import { HealthModule } from './health/health.module';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 
@@ -75,6 +76,7 @@ import { APP_GUARD } from '@nestjs/core';
     SettingsModule,
     StoresModule,
     HealthModule,
+    CloudinaryModule,
   ],
   controllers: [],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

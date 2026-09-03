@@ -83,33 +83,6 @@ export class R2Service {
   }
 
   /**
-   * Binary fayl (rasm) yuklash.
-   * JSON'dan farqi: Body xom Buffer, ContentType esa faylning o'zi.
-   * Rasmlar hech qachon o'zgarmaydi (har safar yangi uuid key) — shuning
-   * uchun cache bir yillik.
-   */
-  async uploadFile(
-    key: string,
-    body: Buffer,
-    contentType: string,
-  ): Promise<string> {
-    try {
-      await this.s3Client.send(
-        new PutObjectCommand({
-          Bucket: this.bucketName,
-          Key: key,
-          Body: body,
-          ContentType: contentType,
-          CacheControl: 'public, max-age=31536000, immutable',
-        }),
-      );
-      return `${this.publicUrl}/${key}`;
-    } catch (error) {
-      throw new Error(`R2 file upload error: ${error.message}`);
-    }
-  }
-
-  /**
    * JSON yangilash (UPDATE)
    * Bir xil key bilan - overwrite qiladi
    */

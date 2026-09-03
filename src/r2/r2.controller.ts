@@ -7,16 +7,11 @@ import {
   Post,
   Put,
   Query,
-  UploadedFile,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { R2Service } from './r2.service';
 import {
   ApiBearerAuth,
-  ApiBody,
-  ApiConsumes,
   ApiOperation,
   ApiQuery,
   ApiResponse,
@@ -25,7 +20,6 @@ import {
 } from '@nestjs/swagger';
 import { CreateR2Dto } from './dto/create-r2.dto';
 import { UpdateR2Dto } from './dto/update-r2.dto';
-import { v4 as uuidv4 } from 'uuid';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('R2')
@@ -33,110 +27,6 @@ import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 export class R2Controller {
   constructor(private readonly r2Service: R2Service) {}
 
-  // Ruxsat etilgan rasm turlari va ularning "magic bytes" imzosi.
-  // Mijoz yuborgan mimetype'ga ISHONIB BO'LMAYDI (uni oson soxtalashtirish
-  // mumkin), fayl esa ommaga ochiq havolada turadi — shuning uchun
-  // faylning o'z boshidagi baytlarni tekshiramiz.
-  private static readonly IMAGE_TYPES: Array<{
-    mime: string;
-    ext: string;
-    test: (b: Buffer) => boolean;
-  }> = [
-    {
-      mime: 'image/jpeg',
-      ext: 'jpg',
-      test: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
-    },
-    {
-      mime: 'image/png',
-      ext: 'png',
-      test: (b) =>
-        b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
-    },
-    {
-      mime: 'image/webp',
-      ext: 'webp',
-      test: (b) =>
-        b.subarray(0, 4).toString('ascii') === 'RIFF' &&
-        b.subarray(8, 12).toString('ascii') === 'WEBP',
-    },
-    {
-      mime: 'image/gif',
-      ext: 'gif',
-      test: (b) => b.subarray(0, 3).toString('ascii') === 'GIF',
-    },
-    {
-      mime: 'image/avif',
-      ext: 'avif',
-      test: (b) => b.subarray(4, 8).toString('ascii') === 'ftyp',
-    },
-  ];
-
-  //Rasm yuklash — admin panel faylni to'g'ridan-to'g'ri yuboradi,
-  //biz uni R2'ga qo'yib, ommaviy havolani qaytaramiz.
-  @ApiOperation({ summary: 'Rasm yuklash (R2) va havolasini olish' })
-  @ApiBearerAuth()
-  @ApiSecurity('service-key')
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: { file: { type: 'string', format: 'binary' } },
-    },
-  })
-  @ApiResponse({
-    status: 201,
-    description: 'Rasm yuklandi',
-    schema: {
-      example: {
-        success: true,
-        key: 'climavent/images/12345-abcd.jpg',
-        url: 'https://pub-xxx.r2.dev/climavent/images/12345-abcd.jpg',
-        message: 'Rasm muvaffaqiyatli yuklandi',
-      },
-    },
-  })
-  @ApiResponse({
-    status: 400,
-    description:
-      "Fayl yuborilmadi yoki rasm emas (JPG, PNG, WEBP, GIF, AVIF). " +
-      "Tur mijoz aytgan mimetype bo'yicha emas, faylning magic-bytes'i " +
-      "bo'yicha aniqlanadi.",
-  })
-  @UseGuards(JwtOrServiceKeyGuard)
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: 8 * 1024 * 1024, files: 1 },
-    }),
-  )
-  @Post('upload-image')
-  async uploadImage(@UploadedFile() file: Express.Multer.File): Promise<{
-    success: boolean;
-    key: string;
-    url: string;
-    message: string;
-  }> {
-    if (!file || !file.buffer?.length) {
-      throw new BadRequestException('Fayl yuborilmadi');
-    }
-
-    const detected = R2Controller.IMAGE_TYPES.find((t) => t.test(file.buffer));
-    if (!detected) {
-      throw new BadRequestException(
-        'Faqat rasm yuklash mumkin (JPG, PNG, WEBP, GIF, AVIF)',
-      );
-    }
-
-    const key = `climavent/images/${uuidv4()}.${detected.ext}`;
-    const url = await this.r2Service.uploadFile(key, file.buffer, detected.mime);
-
-    return {
-      success: true,
-      key,
-      url,
-      message: 'Rasm muvaffaqiyatli yuklandi',
-    };
-  }
   //Create R2 text
   @ApiOperation({ summary: 'Create new R2 file' })
   @ApiBearerAuth()
