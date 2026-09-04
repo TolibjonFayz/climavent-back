@@ -92,11 +92,16 @@ export class CharacteristicsService {
   }
 
   //Get one characteristic by id
+  // Topilmasa 404 — mahsulot va ichki variant ham shunday qiladi.
+  // Ilgari bo'sh tanali 200 qaytarardi (topshiriq №10, 0-band).
   async getCharacteristicById(id: number) {
     const characteristic = await this.charecteristicRepository.findOne({
       where: { id: id },
       include: { all: true },
     });
+    if (!characteristic) {
+      throw new NotFoundException('Characteristic not found');
+    }
     return characteristic;
   }
 

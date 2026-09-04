@@ -2,6 +2,7 @@ import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-pr
 import { GetRecentlyAddedProductsDto } from './dto/getlastadded-product.dto';
 import { SearchProductsByQueryDto } from './dto/search-product.dto';
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -17,6 +18,7 @@ import { Product } from './model/product.model';
 import Sequelize, { where } from 'sequelize';
 import { R2Service } from 'src/r2/r2.service';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
+import { Store } from 'src/stores/model/store.model';
 import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
 import { OrderItem } from 'src/order_items/model/order_item.model';
 
@@ -28,17 +30,31 @@ export class ProductsService {
     @InjectModel(Category) private readonly categoryRepository: typeof Category,
     @InjectModel(OrderItem)
     private readonly orderItemRepository: typeof OrderItem,
+    @InjectModel(Store) private readonly storeRepository: typeof Store,
     private r2Service: R2Service,
   ) {}
 
   //Create product
   async createProduct(createProductDto: CreateProductDto) {
-    const newProduct = await this.productRepository.create(createProductDto);
-    const response = {
+    // Do'kon endi `store_id` orqali belgilanadi. `producer` matni hali
+    // o'chirilmagan (eski mijozlar o'qiydi), shuning uchun berilmasa
+    // `store.name` dan to'ldiramiz — ikki manba bir-biriga mos qoladi.
+    const store = await this.storeRepository.findByPk(
+      createProductDto.store_id,
+    );
+    if (!store) {
+      throw new BadRequestException("Bunday do'kon yo'q (store_id)");
+    }
+
+    const newProduct = await this.productRepository.create({
+      ...createProductDto,
+      producer: createProductDto.producer?.trim() || store.name,
+    } as any);
+
+    return {
       message: 'Product successfully created',
       newProduct,
     };
-    return response;
   }
 
   //Search product by query
@@ -120,8 +136,14 @@ export class ProductsService {
         'description_short_uz',
         'producer',
         'views',
+        // Ro'yxatda do'konni ko'rsatish uchun — ilgari faqat `producer`
+        // matni bor edi va adminka do'konni undan taxmin qilardi.
+        'store_id',
       ],
-      include: ['category'],
+      include: [
+        'category',
+        { model: Store, attributes: ['id', 'name', 'slug'] },
+      ],
     });
     return products;
   }

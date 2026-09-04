@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateProductDto {
   @ApiProperty({
@@ -59,9 +59,17 @@ export class CreateProductDto {
     example: 'Hisense',
     description: 'Producer(maker) of product',
   })
-  @IsNotEmpty()
+  // `producer` endi IXTIYORIY — berilmasa `store.name` dan to'ldiriladi.
+  // Do'kon endi `store_id` orqali belgilanadi (topshiriq №10, 5-band).
+  // Ustun hozircha o'chirilmaydi: eski mijozlar uni o'qishda davom etadi.
+  @IsOptional()
   @IsString()
-  producer: string;
+  producer?: string;
+
+  @ApiProperty({ example: 2, description: "Do'kon id (MAJBURIY)" })
+  @IsNumber()
+  @IsNotEmpty({ message: "store_id majburiy — mahsulot do'konga bog'lanishi kerak" })
+  store_id: number;
 
   @ApiProperty({ example: 1, description: 'Id of category' })
   @IsNumber()

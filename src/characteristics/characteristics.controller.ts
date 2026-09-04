@@ -22,6 +22,8 @@ import {
 } from '@nestjs/swagger';
 import { Characteristic } from './model/characteristic.model';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
+import { StoreScopeGuard } from 'src/store_auth/store_scope.guard';
 import { parsePositiveIntParam } from 'src/common/helpers/pagination';
 import { Throttle } from '@nestjs/throttler';
 
@@ -59,7 +61,7 @@ export class CharacteristicsController {
     status: 400,
     description: "content/contentJson majburiy — ular R2 havolalari",
   })
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(StoreAuthGuard, StoreScopeGuard)
   @Post('create')
   async create(@Body() createCharacteristicDto: CreateCharacteristicDto) {
     return this.characteristicsService.createCharacteristics(
@@ -102,7 +104,7 @@ export class CharacteristicsController {
   @ApiOperation({ summary: 'Update characteristic by id' })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(StoreAuthGuard, StoreScopeGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id', ParseIntPipe) id: number,
@@ -118,7 +120,7 @@ export class CharacteristicsController {
   @ApiOperation({ summary: 'Delete characteristic by id' })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(StoreAuthGuard, StoreScopeGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id', ParseIntPipe) id: number) {
     return this.characteristicsService.deleteCharacteristicById(id);

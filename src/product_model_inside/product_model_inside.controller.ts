@@ -21,6 +21,8 @@ import { ProductModelInsideService } from './product_model_inside.service';
 import { CreateProductModelInsideDto } from './dto/create-product_model_inside.dto';
 import { UpdateProductModelInsideDto } from './dto/update-product_model_inside.dto';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
+import { StoreScopeGuard } from 'src/store_auth/store_scope.guard';
 import { parsePositiveIntParam } from 'src/common/helpers/pagination';
 
 @Controller('product-model-inside')
@@ -42,7 +44,7 @@ export class ProductModelInsideController {
       },
     },
   })
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(StoreAuthGuard, StoreScopeGuard)
   @Post()
   create(@Body() createProductModelInsideDto: CreateProductModelInsideDto) {
     return this.productModelInsideService.create(createProductModelInsideDto);
@@ -80,7 +82,7 @@ export class ProductModelInsideController {
 
   @ApiBearerAuth()
   @ApiSecurity('service-key')
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(StoreAuthGuard, StoreScopeGuard)
   @Patch(':id')
   update(@Param('id', ParseIntPipe) id: number, @Body() updateProductModelInsideDto: UpdateProductModelInsideDto) {
     return this.productModelInsideService.update(id, updateProductModelInsideDto);
@@ -88,7 +90,7 @@ export class ProductModelInsideController {
 
   @ApiBearerAuth()
   @ApiSecurity('service-key')
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(StoreAuthGuard, StoreScopeGuard)
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.productModelInsideService.remove(id);

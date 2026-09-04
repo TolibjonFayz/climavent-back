@@ -24,6 +24,8 @@ import {
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
+import { StoreScopeGuard } from 'src/store_auth/store_scope.guard';
 import { Product } from './model/product.model';
 import { SortProductDto } from './dto/sort-product.dto';
 import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-product.dto';
@@ -53,7 +55,7 @@ export class ProductsController {
   })
   @ApiResponse({ status: 400, description: "Noto'g'ri tana" })
   @ApiResponse({ status: 401, description: 'Guvohnoma yaroqsiz' })
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(StoreAuthGuard, StoreScopeGuard)
   @Post('create')
   async create(@Body() createProductDto: CreateProductDto) {
     return this.productsService.createProduct(createProductDto);
@@ -196,7 +198,7 @@ export class ProductsController {
   @ApiBearerAuth()
   @ApiSecurity('service-key')
   @ApiOperation({ summary: 'Update product by id (admin)' })
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(StoreAuthGuard, StoreScopeGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id', ParseIntPipe) id: number,
@@ -209,7 +211,7 @@ export class ProductsController {
   @ApiBearerAuth()
   @ApiSecurity('service-key')
   @ApiOperation({ summary: 'Delete product by id (admin)' })
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(StoreAuthGuard, StoreScopeGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id', ParseIntPipe) id: number) {
     return this.productsService.deleteProductById(id);
