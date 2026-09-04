@@ -52,6 +52,14 @@ export class StoresController {
     return this.storesService.getOne(id);
   }
 
+  @ApiOperation({ summary: "Do'kon slug bo'yicha (sayt sahifasi uchun)" })
+  @ApiResponse({ status: 200, type: Store })
+  @ApiResponse({ status: 404, description: "Do'kon topilmadi" })
+  @Get('slug/:slug')
+  async getBySlug(@Param('slug') slug: string): Promise<Store> {
+    return this.storesService.getBySlug(slug);
+  }
+
   @ApiOperation({ summary: "Do'kon yaratish (superadmin)" })
   @ApiBearerAuth()
   @ApiSecurity('service-key')

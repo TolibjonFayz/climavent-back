@@ -35,6 +35,13 @@ export class StoresService {
     return store;
   }
 
+  // Sayt do'kon sahifasi uchun — URL'da id emas, slug turadi.
+  async getBySlug(slug: string): Promise<Store> {
+    const store = await this.storeRepository.findOne({ where: { slug } });
+    if (!store) throw new NotFoundException("Do'kon topilmadi");
+    return store;
+  }
+
   async create(dto: CreateStoreDto) {
     await this.ensureSlugFree(dto.slug);
     const created = await this.storeRepository.create(dto as any);
