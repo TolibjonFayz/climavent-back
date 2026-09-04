@@ -19,6 +19,7 @@ import Sequelize, { where } from 'sequelize';
 import { R2Service } from 'src/r2/r2.service';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
 import { Store } from 'src/stores/model/store.model';
+import { ProductImages } from 'src/product_images/model/product_image.model';
 import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
 import { OrderItem } from 'src/order_items/model/order_item.model';
 
@@ -93,7 +94,14 @@ export class ProductsService {
           as: 'characters',
           attributes: ['id', 'title', 'price'],
           required: false,
+          // Narx SAP variantlarida — qidiruv ro'yxatida ham "dan"
+          // narxini ko'rsatish uchun kerak.
+          include: [{ model: ProductModelInside, attributes: ['price'] }],
         },
+        // Qidiruv ro'yxatida rasm va do'kon nomi ko'rsatiladi — faqat
+        // matnli ro'yxat foydalanuvchiga kam narsa aytadi.
+        { model: ProductImages, as: 'images', attributes: ['image_link'] },
+        { model: Store, attributes: ['id', 'name', 'slug'] },
       ],
       subQuery: false,
     });
