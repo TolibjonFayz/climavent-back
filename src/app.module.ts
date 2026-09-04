@@ -49,12 +49,28 @@ import { APP_GUARD } from '@nestjs/core';
       database: process.env.POSTGRES_DB,
       autoLoadModels: true,
       logging: false,
-      dialectOptions: {
-        ssl: {
-          require: true,
-          rejectUnauthorized: false,
-        },
-      },
+      // SSL faqat TASHQI ulanishda kerak. Railway'ning ICHKI tarmog'i
+      // (`*.railway.internal`) SSL ishlatmaydi — u yerda `ssl: require`
+      // qoldirilsa ulanish umuman qurilmaydi.
+      //
+      // NEGA MUHIM: ilova o'z bazasiga ommaviy proksi
+      // (`junction.proxy.rlwy.net`) orqali ulansa, trafik internetga
+      // chiqib qaytadi. Railway tarmog'ida nosozlik bo'lsa — baza
+      // sog'lom bo'lsa ham ilova unga ulana olmaydi (2026-09-04 da
+      // aynan shu bo'ldi: ETIMEDOUT, ilova ko'tarilmadi).
+      // Ichki tarmoqqa o'tish uchun Railway'da:
+      //   POSTGRES_HOST=<postgres servisining .railway.internal domeni>
+      //   POSTGRES_PORT=5432
+      dialectOptions: /\.railway\.internal$/i.test(
+        process.env.POSTGRES_HOST || '',
+      )
+        ? {}
+        : {
+            ssl: {
+              require: true,
+              rejectUnauthorized: false,
+            },
+          },
       // User -> Store havolasi bor, shuning uchun Store ham shu yerda
       // ro'yxatdan o'tishi shart (aks holda assotsiatsiya topilmaydi).
       models: [User, Otp, Store],
