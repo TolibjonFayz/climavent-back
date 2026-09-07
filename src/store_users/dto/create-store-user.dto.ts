@@ -36,7 +36,13 @@ export class CreateStoreUserDto {
   @IsString()
   full_name?: string;
 
-  @ApiProperty({ example: 'store_admin', enum: ['superadmin', 'store_admin'] })
+  // `required: false` — `@IsOptional()` bilan mos bo'lsin, aks holda
+  // hujjat maydonni majburiy ko'rsatadi (topshiriq №12, 5-band).
+  @ApiProperty({
+    example: 'store_admin',
+    enum: ['superadmin', 'store_admin'],
+    required: false,
+  })
   @IsOptional()
   @IsIn(['superadmin', 'store_admin'], {
     message: "role faqat 'superadmin' yoki 'store_admin' bo'lishi mumkin",

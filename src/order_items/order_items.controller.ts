@@ -71,6 +71,7 @@ export class OrderItemsController {
 
   //Update order item by id — faqat buyurtma egasi yoki admin
   @ApiOperation({ summary: 'Update order item by id (owner or admin)' })
+  @ApiBearerAuth()
   @UseGuards(UserGuard)
   @Patch('update/:id')
   async updateOne(
@@ -87,6 +88,7 @@ export class OrderItemsController {
 
   //Delete order item by id — faqat buyurtma egasi yoki admin
   @ApiOperation({ summary: 'Delete order item by id (owner or admin)' })
+  @ApiBearerAuth()
   @UseGuards(UserGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id', ParseIntPipe) id: number, @Req() req: any) {

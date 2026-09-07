@@ -16,6 +16,7 @@ import { UpdateReviewDto } from './dto/update-review.dto';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Review } from './model/review.model';
 import { UserGuard } from 'src/guards/user.guard';
+import { UserSelfBodyGuard } from 'src/guards/user_self_body.guard';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('Reviews')
@@ -23,8 +24,18 @@ import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 export class ReviewsController {
   constructor(private readonly reviewsService: ReviewsService) {}
 
-  //Create product reviews
-  @ApiOperation({ summary: 'Creating product review' })
+  // Create product review — faqat o'z nomidan (body.user_id == token egasi).
+  //
+  // Ilgari bu yerda guard UMUMAN yo'q edi (topshiriq №12, 1-band):
+  // tokensiz, istalgan `user_id` nomidan sharh yozish mumkin edi. Bu
+  // faqat saytdagi reytingni emas, №11 da qo'shilgan
+  // `products.reviews_count` analitikasini ham buzardi.
+  //
+  // Moduldagi qolgan endpointlar (update/delete/all) allaqachon
+  // himoyalangan edi — faqat shu bittasi tushib qolgan.
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Creating product review (self)' })
+  @UseGuards(UserSelfBodyGuard)
   @Post('create')
   async create(@Body() createReviewDto: CreateReviewDto) {
     return this.reviewsService.createProductReview(createReviewDto);

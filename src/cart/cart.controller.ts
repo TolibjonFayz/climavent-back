@@ -26,6 +26,7 @@ export class CartController {
 
   //Create cart — faqat o'z nomidan (body.user_id == token egasi)
   @ApiOperation({ summary: 'Creating cart (self)' })
+  @ApiBearerAuth()
   @UseGuards(UserSelfBodyGuard)
   @Post('create')
   async create(@Body() createCartDto: CreateCartDto) {
@@ -54,6 +55,7 @@ export class CartController {
 
   //Get cart by user id — faqat o'sha foydalanuvchining o'zi
   @ApiOperation({ summary: 'Get cart by user id (self)' })
+  @ApiBearerAuth()
   @UseGuards(UserSelfGuard)
   @Get('oneuser/:id')
   async getOneByUserId(@Param('id', ParseIntPipe) id: number): Promise<any> {
@@ -62,6 +64,7 @@ export class CartController {
 
   //Update cart by id — frontend ishlatmaydi, faqat admin
   @ApiOperation({ summary: 'Update cart by id (admin)' })
+  @ApiBearerAuth()
   @UseGuards(AdminGuard)
   @Patch('update/:id')
   async updateOne(
@@ -73,6 +76,7 @@ export class CartController {
 
   //Delete cart by id — frontend ishlatmaydi, faqat admin
   @ApiOperation({ summary: 'Delete cart by id (admin)' })
+  @ApiBearerAuth()
   @UseGuards(AdminGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id', ParseIntPipe) id: number) {

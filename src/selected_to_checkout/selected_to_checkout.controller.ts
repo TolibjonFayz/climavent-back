@@ -13,6 +13,7 @@ import { SelectedToCheckoutService } from './selected_to_checkout.service';
 import { CreateSelectedToCheckoutDto } from './dto/create-selected_to_checkout.dto';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { UserSelfGuard } from 'src/guards/user_self.guard';
+import { UserSelfBodyGuard } from 'src/guards/user_self_body.guard';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('Selected to checkout')
@@ -22,8 +23,13 @@ export class SelectedToCheckoutController {
     private readonly selectedToCheckoutService: SelectedToCheckoutService,
   ) {}
 
-  //Create selected to checkout
-  @ApiOperation({ summary: 'Create selected to checkout' })
+  // Create selected to checkout — faqat o'z nomidan (topshiriq №12,
+  // 2-band). Bu yerda ham guard yo'q edi: begona odam boshqa
+  // foydalanuvchining "to'lovga tanlangan" ro'yxatiga yozuv qo'sha
+  // olardi. Modulning qolgan qismi allaqachon himoyalangan edi.
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create selected to checkout (self)' })
+  @UseGuards(UserSelfBodyGuard)
   @Post('create')
   async create(
     @Body() createSelectedToCheckoutDto: CreateSelectedToCheckoutDto,

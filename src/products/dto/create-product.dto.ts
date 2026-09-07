@@ -55,9 +55,14 @@ export class CreateProductDto {
   @IsNotEmpty()
   quantity: number;
 
+  // `required: false` MUHIM: `@IsOptional()` faqat validatsiyaga ta'sir
+  // qiladi, OpenAPI esa `@ApiProperty` ni ko'rib maydonni MAJBURIY deb
+  // yozardi. Shu sabab hujjatga qarab tekshirganda `producer` hamon
+  // majburiy ko'rinardi, amalda esa emas edi (topshiriq №12, 5-band).
   @ApiProperty({
     example: 'Hisense',
-    description: 'Producer(maker) of product',
+    description: "Ishlab chiqaruvchi — berilmasa store.name dan olinadi",
+    required: false,
   })
   // `producer` endi IXTIYORIY — berilmasa `store.name` dan to'ldiriladi.
   // Do'kon endi `store_id` orqali belgilanadi (topshiriq №10, 5-band).

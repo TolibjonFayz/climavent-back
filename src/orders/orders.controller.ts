@@ -53,6 +53,7 @@ export class OrdersController {
 
   //Get order by id
   @ApiOperation({ summary: 'Get order by id' })
+  @ApiBearerAuth()
   @UseGuards(UserGuard)
   @Get('one/:id')
   async getOne(@Param('id', ParseIntPipe) id: number): Promise<Order> {
@@ -61,6 +62,7 @@ export class OrdersController {
 
   //Get order by user id — foydalanuvchi faqat o'zinikini ko'radi
   @ApiOperation({ summary: 'Get order by user id' })
+  @ApiBearerAuth()
   @UseGuards(UserSelfGuard)
   @Get('oneuser/:id')
   async getOneByUserId(@Param('id', ParseIntPipe) id: number): Promise<Order[]> {
@@ -69,6 +71,7 @@ export class OrdersController {
 
   //Update order by id — faqat egasi yoki admin
   @ApiOperation({ summary: 'Update order by id (owner or admin)' })
+  @ApiBearerAuth()
   @UseGuards(UserGuard)
   @Patch('update/:id')
   async updateOne(
@@ -81,6 +84,7 @@ export class OrdersController {
 
   //Delete order by id — faqat egasi yoki admin
   @ApiOperation({ summary: 'Delete order by id (owner or admin)' })
+  @ApiBearerAuth()
   @UseGuards(UserGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id', ParseIntPipe) id: number, @Req() req: any) {

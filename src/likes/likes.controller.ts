@@ -26,6 +26,7 @@ export class LikesController {
 
   //Create like — faqat o'z nomidan (body.user_id == token egasi)
   @ApiOperation({ summary: 'Create like (self)' })
+  @ApiBearerAuth()
   @UseGuards(UserSelfBodyGuard)
   @Post('create')
   async create(@Body() createLikeDto: CreateLikeDto) {
@@ -34,6 +35,7 @@ export class LikesController {
 
   //Get all likes of a user — faqat o'sha foydalanuvchining o'zi
   @ApiOperation({ summary: 'Get all user likes (self)' })
+  @ApiBearerAuth()
   @UseGuards(UserSelfGuard)
   @Get('useralllikes/:id')
   async getAllUserlikes(@Param('id', ParseIntPipe) id: number): Promise<Like[]> {
@@ -60,6 +62,7 @@ export class LikesController {
 
   //Update like by id — frontend ishlatmaydi, faqat admin
   @ApiOperation({ summary: 'Update like by id (admin)' })
+  @ApiBearerAuth()
   @UseGuards(AdminGuard)
   @Patch('update/:id')
   async updateOne(
@@ -71,6 +74,7 @@ export class LikesController {
 
   //Delete one like — faqat o'z nomidan (body.user_id == token egasi)
   @ApiOperation({ summary: 'Delete one like (self)' })
+  @ApiBearerAuth()
   @UseGuards(UserSelfBodyGuard)
   @Delete('delete')
   async deleteOne(@Body() body: { user_id: number; product_id: number }) {
