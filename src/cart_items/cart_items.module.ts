@@ -7,6 +7,7 @@ import { CartItem } from './model/cart_item.model';
 import { Cart } from 'src/cart/models/cart.model';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
 import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
+import { Product } from 'src/products/model/product.model';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { ProductModelInside } from 'src/product_model_inside/models/product_mode
       Cart,
       Characteristic,
       ProductModelInside,
+      Product,
     ]),
     JwtModule.register({}),
   ],

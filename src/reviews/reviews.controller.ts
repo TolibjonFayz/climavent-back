@@ -13,10 +13,10 @@ import {
 import { ReviewsService } from './reviews.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Review } from './model/review.model';
 import { UserGuard } from 'src/guards/user.guard';
-import { AdminGuard } from 'src/guards/admin.guard';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('Reviews')
 @Controller('reviews')
@@ -30,10 +30,12 @@ export class ReviewsController {
     return this.reviewsService.createProductReview(createReviewDto);
   }
 
-  //Get all product reviews — faqat admin (to'liq user ma'lumoti bilan)
+  // Get all product reviews — admin JWT YOKI servis kaliti (topshiriq
+  // №11, 1-band). Faqat O'QISH; update/delete sharh egasida qoldi.
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get all product reviews (admin)' })
-  @UseGuards(AdminGuard)
+  @ApiSecurity('service-key')
+  @ApiOperation({ summary: 'Get all product reviews (admin or service key)' })
+  @UseGuards(JwtOrServiceKeyGuard)
   @Get('all')
   async getAll(): Promise<Review[]> {
     return this.reviewsService.getAllProductreviews();

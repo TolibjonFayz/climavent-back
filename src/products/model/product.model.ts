@@ -25,6 +25,9 @@ interface ProductAtr {
   description_short_en: string;
   views: number;
   sold_count: number;
+  cart_count: number;
+  likes_count: number;
+  reviews_count: number;
   quantity: number;
   producer: string;
   sizes: string;
@@ -94,6 +97,23 @@ export class Product extends Model<Product, ProductAtr> {
   @ApiProperty({ example: 42, description: 'Sotilgan (buyurtirilgan) soni' })
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
   sold_count: number;
+
+  // KUMULYATIV: necha marta savatga solingan. Savat tozalansa yoki
+  // buyurtma berilsa KAMAYMAYDI — `views -> savat -> sotuv` voronkasi
+  // uchun uchala raqam ham bir turdagi bo'lishi kerak.
+  @ApiProperty({ example: 87, description: 'Necha marta savatga solingan (kumulyativ)' })
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  cart_count: number;
+
+  // JORIY: hozir nechta layk bor. Layk olib tashlansa kamayadi.
+  @ApiProperty({ example: 12, description: 'Layklar soni (joriy)' })
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  likes_count: number;
+
+  // JORIY: hozir nechta sharh bor. Sharh o'chirilsa kamayadi.
+  @ApiProperty({ example: 4, description: 'Sharhlar soni (joriy)' })
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  reviews_count: number;
 
   @ApiProperty({ example: 20, description: 'Quantity of product' })
   @Column({ type: DataType.INTEGER, allowNull: false })

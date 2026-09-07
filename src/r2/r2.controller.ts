@@ -20,7 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { CreateR2Dto } from './dto/create-r2.dto';
 import { UpdateR2Dto } from './dto/update-r2.dto';
-import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+import { AdminOrStoreGuard } from 'src/guards/admin_or_store.guard';
 
 @ApiTags('R2')
 @Controller('r2')
@@ -48,7 +48,7 @@ export class R2Controller {
     status: 400,
     description: "`data` majburiy va bo'sh bo'lmasligi kerak",
   })
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(AdminOrStoreGuard)
   @Post('r2-upload')
   async testUpload(@Body() createR2Dto: CreateR2Dto): Promise<{
     success: boolean;
@@ -87,7 +87,7 @@ export class R2Controller {
       },
     },
   })
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(AdminOrStoreGuard)
   @Put('r2-update')
   async updateContent(@Body() updateDto: UpdateR2Dto): Promise<{
     success: boolean;
@@ -121,7 +121,7 @@ export class R2Controller {
       example: { success: true, key: 'climavent/12345-abcd.json', message: "Fayl o'chirildi" },
     },
   })
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(AdminOrStoreGuard)
   @Delete('r2-object')
   async deleteObject(@Query('key') key: string): Promise<{
     success: boolean;

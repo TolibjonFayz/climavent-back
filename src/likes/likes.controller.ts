@@ -12,11 +12,12 @@ import {
 import { LikesService } from './likes.service';
 import { CreateLikeDto } from './dto/create-like.dto';
 import { UpdateLikeDto } from './dto/update-like.dto';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Like } from './model/like.model';
 import { UserSelfGuard } from 'src/guards/user_self.guard';
 import { UserSelfBodyGuard } from 'src/guards/user_self_body.guard';
 import { AdminGuard } from 'src/guards/admin.guard';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('Likes')
 @Controller('likes')
@@ -39,9 +40,12 @@ export class LikesController {
     return this.likesService.getUserAllLikes(id);
   }
 
-  //Get allll likes — faqat admin (barcha foydalanuvchilar like'larini ko'rsatadi)
-  @ApiOperation({ summary: 'Get allll likes (admin)' })
-  @UseGuards(AdminGuard)
+  // Get allll likes — admin JWT YOKI servis kaliti (topshiriq №11,
+  // 1-band). Faqat O'QISH; create/delete xaridor tokenida qoldi.
+  @ApiOperation({ summary: 'Get allll likes (admin or service key)' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Get('alllikes')
   async getAll(): Promise<Like[]> {
     return this.likesService.getAllLikes();

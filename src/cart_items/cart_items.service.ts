@@ -10,6 +10,7 @@ import { CartItem } from './model/cart_item.model';
 import { Cart } from 'src/cart/models/cart.model';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
 import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
+import { Product } from 'src/products/model/product.model';
 
 @Injectable()
 export class CartItemsService {
@@ -20,6 +21,8 @@ export class CartItemsService {
     private readonly characteristicRepository: typeof Characteristic,
     @InjectModel(ProductModelInside)
     private readonly insideRepository: typeof ProductModelInside,
+    @InjectModel(Product)
+    private readonly productRepository: typeof Product,
   ) {}
 
   // Savatga solish statistikasi. Atomik increment, `silent: true` —
@@ -28,6 +31,15 @@ export class CartItemsService {
   // o'tkazib yuboramiz, mijoz savatga qo'sha olgan bo'lishi muhimroq.
   private async bumpCartCounters(dto: CreateCartItemDto) {
     try {
+      // Mahsulot darajasi (topshiriq №11, 2-band). Model tanlanmagan
+      // bo'lsa ham sanaladi — voronkada "savatga solindi" qadami
+      // mahsulotga tegishli, modelga emas.
+      if (dto.product_id) {
+        await this.productRepository.increment('cart_count', {
+          where: { id: dto.product_id },
+          silent: true,
+        });
+      }
       if (dto.characteristic_id) {
         await this.characteristicRepository.increment('cart_count', {
           where: { id: dto.characteristic_id },

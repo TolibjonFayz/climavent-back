@@ -6,10 +6,11 @@ import { JwtModule } from '@nestjs/jwt';
 import { OrderItem } from './model/order_item.model';
 import { Product } from 'src/products/model/product.model';
 import { Order } from 'src/orders/model/order.model';
+import { Characteristic } from 'src/characteristics/model/characteristic.model';
 
 @Module({
   imports: [
-    SequelizeModule.forFeature([OrderItem, Product, Order]),
+    SequelizeModule.forFeature([OrderItem, Product, Order, Characteristic]),
     JwtModule.register({}),
   ],
   controllers: [OrderItemsController],

@@ -16,7 +16,27 @@ import { Characteristic } from 'src/characteristics/model/characteristic.model';
 export class LikesService {
   constructor(
     @InjectModel(Like) private readonly likeRepository: typeof Like,
+    @InjectModel(Product) private readonly productRepository: typeof Product,
   ) {}
+
+  // `products.likes_count` — JORIY son (topshiriq №11, 2-band).
+  // Layk qo'shilsa +1, olib tashlansa -1. Statistika asosiy oqimni
+  // to'xtatmasligi kerak: xato bo'lsa jimgina o'tkazib yuboramiz,
+  // foydalanuvchi laykni qo'ya olgani muhimroq.
+  //
+  // `silent: true` — `updatedAt` ga tegmaydi, u mahsulot tahrir vaqti
+  // bo'lib qolsin.
+  private async bumpLikesCount(product_id: number, by: number) {
+    try {
+      await this.productRepository.increment('likes_count', {
+        by,
+        where: { id: product_id },
+        silent: true,
+      });
+    } catch (error) {
+      console.error('likes_count increment error:', error.message);
+    }
+  }
 
   //Create like
   async createLike(createLikeDto: CreateLikeDto) {
@@ -30,6 +50,7 @@ export class LikesService {
     if (isUserLikedThisProductBefore)
       throw new BadRequestException('This user liked this product already');
     const newLike = await this.likeRepository.create(createLikeDto);
+    await this.bumpLikesCount(createLikeDto.product_id, 1);
     const response = {
       message: 'Like successfully created',
       newLike,
@@ -89,7 +110,12 @@ export class LikesService {
     const deleting = await this.likeRepository.destroy({
       where: { user_id, product_id },
     });
-    if (deleting) return deleting;
-    else throw new NotFoundException('Like not found or something wrong');
+    // Faqat haqiqatan o'chgan bo'lsa kamaytiramiz — aks holda mavjud
+    // bo'lmagan laykni "o'chirish" hisoblagichni manfiyga tushirardi.
+    if (deleting) {
+      await this.bumpLikesCount(product_id, -deleting);
+      return deleting;
+    }
+    throw new NotFoundException('Like not found or something wrong');
   }
 }

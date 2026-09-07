@@ -12,11 +12,12 @@ import {
 import { CartService } from './cart.service';
 import { CreateCartDto } from './dto/create-cart.dto';
 import { UpdateCartDto } from './dto/update-cart.dto';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Cart } from './models/cart.model';
 import { UserSelfGuard } from 'src/guards/user_self.guard';
 import { UserSelfBodyGuard } from 'src/guards/user_self_body.guard';
 import { AdminGuard } from 'src/guards/admin.guard';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('Cart')
 @Controller('cart')
@@ -31,9 +32,14 @@ export class CartController {
     return this.cartService.createCart(createCartDto);
   }
 
-  //Get all carts — faqat admin (barcha foydalanuvchilar savatini ko'rsatadi)
-  @ApiOperation({ summary: 'Get all carts (admin)' })
-  @UseGuards(AdminGuard)
+  // Get all carts — admin JWT YOKI servis kaliti (topshiriq №11, 1-band).
+  // Adminka do'kon kabineti, mijoz kabineti emas: unda xaridor JWT si
+  // yo'q va bo'lishi ham kerak emas. YOZISH endpointlari tegilmadi —
+  // ular xaridor tokenida qoladi.
+  @ApiOperation({ summary: 'Get all carts (admin or service key)' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(JwtOrServiceKeyGuard)
   @Get('all')
   async getAll(): Promise<Cart[]> {
     return this.cartService.getAllCarts();

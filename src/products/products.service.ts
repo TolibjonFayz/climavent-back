@@ -144,6 +144,14 @@ export class ProductsService {
         'description_short_uz',
         'producer',
         'views',
+        // Analitika hisoblagichlari (topshiriq №11, 2-band). Bularsiz
+        // adminka savat/layk/sharh sonini bilish uchun butun
+        // `cart-items` va `likes` jadvallarini tortib, o'zi sanashi
+        // kerak bo'lardi.
+        'sold_count',
+        'cart_count',
+        'likes_count',
+        'reviews_count',
         // Ro'yxatda do'konni ko'rsatish uchun — ilgari faqat `producer`
         // matni bor edi va adminka do'konni undan taxmin qilardi.
         'store_id',

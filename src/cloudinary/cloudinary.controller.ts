@@ -20,7 +20,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { CloudinaryService } from './cloudinary.service';
-import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+import { AdminOrStoreGuard } from 'src/guards/admin_or_store.guard';
 
 @ApiTags('Images (Cloudinary)')
 @Controller('images')
@@ -108,7 +108,7 @@ export class CloudinaryController {
       "Tur mijoz aytgan mimetype bo'yicha emas, faylning magic-bytes'i " +
       "bo'yicha aniqlanadi.",
   })
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(AdminOrStoreGuard)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 8 * 1024 * 1024, files: 1 },
@@ -163,7 +163,7 @@ export class CloudinaryController {
       example: { success: true, message: "Rasm o'chirildi" },
     },
   })
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(AdminOrStoreGuard)
   @Delete('upload-image')
   async deleteImage(
     @Query('publicId') publicId: string,

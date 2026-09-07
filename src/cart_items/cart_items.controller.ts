@@ -13,10 +13,10 @@ import {
 import { CartItemsService } from './cart_items.service';
 import { CreateCartItemDto } from './dto/create-cart_item.dto';
 import { UpdateCartItemDto } from './dto/update-cart_item.dto';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { CartItem } from './model/cart_item.model';
 import { UserGuard } from 'src/guards/user.guard';
-import { AdminGuard } from 'src/guards/admin.guard';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
 @ApiTags('Cart item')
 @Controller('cart-items')
@@ -35,10 +35,13 @@ export class CartItemsController {
     return this.cartItemsService.createCartItem(createCartItemDto, req.user);
   }
 
-  //Get all cart items — faqat admin
+  // Get all cart items — admin JWT YOKI servis kaliti (topshiriq №11,
+  // 1-band). Faqat O'QISH ochildi; create/update/delete xaridor
+  // tokenida qoldi.
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get all cart items (admin)' })
-  @UseGuards(AdminGuard)
+  @ApiSecurity('service-key')
+  @ApiOperation({ summary: 'Get all cart items (admin or service key)' })
+  @UseGuards(JwtOrServiceKeyGuard)
   @Get('all')
   async getAll(): Promise<CartItem[]> {
     return this.cartItemsService.getAllCartItems();

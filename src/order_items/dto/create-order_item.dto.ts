@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsInt, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateOrderItemDto {
   @ApiProperty({ example: 1, description: 'Order id' })
@@ -16,6 +16,17 @@ export class CreateOrderItemDto {
   @IsString()
   @IsNotEmpty()
   product_model: string;
+
+  // Ixtiyoriy: eski mijozlar yubormasa ham buyurtma o'tadi. Yuborilsa —
+  // model bo'yicha sotuv statistikasi ishonchli yig'iladi.
+  @ApiProperty({
+    example: 102,
+    description: 'Katalogdagi model (characteristic) id — ixtiyoriy',
+    required: false,
+  })
+  @IsOptional()
+  @IsInt()
+  product_model_id?: number;
 
   @ApiProperty({ example: 1, description: 'Quantity of product' })
   @IsNumber()
