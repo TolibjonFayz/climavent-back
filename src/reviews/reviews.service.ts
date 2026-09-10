@@ -9,6 +9,7 @@ import { InjectModel } from '@nestjs/sequelize';
 import { Review } from './model/review.model';
 import { User } from 'src/users/model/user.model';
 import { Product } from 'src/products/model/product.model';
+import { RequestActor } from 'src/guards/customer_or_backoffice.guard';
 
 @Injectable()
 export class ReviewsService {
@@ -37,12 +38,15 @@ export class ReviewsService {
     }
   }
 
-  // Sharh egasini (yoki admin ekanini) tekshiradi
-  private ensureOwnerOrAdmin(
-    review: Review,
-    requester: { id?: number; is_admin?: boolean },
-  ) {
-    if (review.user_id !== requester?.id && !requester?.is_admin) {
+  // Sharhga yozish huquqi (topshiriq №14, 3-band).
+  //
+  // Ilgari faqat sharh EGASI (mijoz JWT) o'tardi — ya'ni spam yoki
+  // haqorat sharhni hech kim olib tashlay olmasdi. Endi orqa ofis
+  // (servis kaliti, sayt admini, do'kon hisobi) ham moderatsiya qila
+  // oladi.
+  private ensureOwnerOrBackoffice(review: Review, actor: RequestActor) {
+    if (actor?.kind === 'superadmin' || actor?.kind === 'store_admin') return;
+    if (review.user_id !== actor?.user_id && !actor?.is_admin) {
       throw new ForbiddenException('Bu sharh sizga tegishli emas');
     }
   }
@@ -67,9 +71,13 @@ export class ReviewsService {
   }
 
   //Get product reviews by product id — ochiq, shuning uchun user'dan faqat ism
-  async getProductReviewsByProductId(id: number) {
+  // Yashirilgan sharhlar saytda ko'rinmaydi (topshiriq №14, 3-band).
+  async getProductReviewsByProductId(id: number, privileged = false) {
     const productReviews = await this.ReviewReviewRepository.findAll({
-      where: { product_id: id },
+      where: {
+        product_id: id,
+        ...(privileged ? {} : { is_hidden: false }),
+      },
       include: [{ model: User, attributes: ['name'] }],
     });
     return productReviews;
@@ -92,13 +100,21 @@ export class ReviewsService {
   async updateProductReviewById(
     id: number,
     updateReviewDto: UpdateReviewDto,
-    requester: { id?: number; is_admin?: boolean },
+    actor: RequestActor,
   ) {
     const existing = await this.ReviewReviewRepository.findByPk(id);
     if (!existing) {
       throw new NotFoundException('Product review not found or something wrong');
     }
-    this.ensureOwnerOrAdmin(existing, requester);
+    this.ensureOwnerOrBackoffice(existing, actor);
+
+    // `is_hidden` o'zgarsa — mahsulotning sharh hisoblagichi ham
+    // moslashadi: sayt yashirilgan sharhni ko'rsatmaydi, demak son ham
+    // uni sanamasligi kerak (topshiriq №11 hisoblagichi bilan izchil).
+    const yangiHidden = (updateReviewDto as any).is_hidden;
+    if (yangiHidden !== undefined && yangiHidden !== existing.is_hidden) {
+      await this.bumpReviewsCount(existing.product_id, yangiHidden ? -1 : 1);
+    }
 
     if (Object.keys(updateReviewDto).length === 0) {
       return existing.dataValues;
@@ -116,23 +132,26 @@ export class ReviewsService {
   }
 
   //Delete product review by id — faqat sharh egasi yoki admin
-  async deleteProductReviewById(
-    id: number,
-    requester: { id?: number; is_admin?: boolean },
-  ) {
+  async deleteProductReviewById(id: number, actor: RequestActor) {
     const existing = await this.ReviewReviewRepository.findByPk(id);
     if (!existing) {
       throw new NotFoundException('Product review not found or something wrong');
     }
-    this.ensureOwnerOrAdmin(existing, requester);
+    this.ensureOwnerOrBackoffice(existing, actor);
 
     const deleting = await this.ReviewReviewRepository.destroy({
       where: { id: id },
     });
     // Mahsulot id'sini o'chirishdan OLDIN olingan yozuvdan olamiz —
     // keyin qator yo'q.
+    //
+    // Yashirilgan sharh hisoblagichdan ALLAQACHON chiqarilgan, shuning
+    // uchun uni o'chirishda yana kamaytirmaymiz — aks holda son manfiyga
+    // ketardi.
     if (deleting) {
-      await this.bumpReviewsCount(existing.product_id, -deleting);
+      if (!existing.is_hidden) {
+        await this.bumpReviewsCount(existing.product_id, -deleting);
+      }
       return deleting;
     }
     throw new NotFoundException('Product review not found or something wrong');

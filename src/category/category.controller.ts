@@ -22,7 +22,10 @@ import {
 import { Category } from './model/category.model';
 import { Product } from 'src/products/model/product.model';
 import { SortbyCategoryIdProductDto } from './dto/sortbycategoryid-product.dto';
-import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+// Do'kon tokeni ham qabul qilinadi (topshiriq №14, 5-band): ilgari
+// `products/create` do'kon tokenini tanirdi-yu, `category/create` yo'q
+// edi — bir xil oqimda ikki xil guvohnoma talab qilinardi.
+import { AdminOrStoreGuard } from 'src/guards/admin_or_store.guard';
 
 @ApiTags('Category')
 @Controller('category')
@@ -44,7 +47,7 @@ export class CategoryController {
       },
     },
   })
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(AdminOrStoreGuard)
   @Post('create')
   async create(@Body() createCategoryDto: CreateCategoryDto) {
     return this.categoryService.createCategory(createCategoryDto);
@@ -79,7 +82,7 @@ export class CategoryController {
   @ApiOperation({ summary: 'Update category by id' })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(AdminOrStoreGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id', ParseIntPipe) id: number,
@@ -92,7 +95,7 @@ export class CategoryController {
   @ApiOperation({ summary: 'Delete category by id' })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(AdminOrStoreGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id', ParseIntPipe) id: number) {
     return this.categoryService.deleteCategoryById(id);

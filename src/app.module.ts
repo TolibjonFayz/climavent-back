@@ -8,7 +8,7 @@ import { Store } from './stores/model/store.model';
 import { ConfigModule } from '@nestjs/config';
 import { OtpModule } from './otp/otp.module';
 import { Otp } from './otp/models/otp.model';
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { LikesModule } from './likes/likes.module';
 import { BannersModule } from './banners/banners.module';
 import { CategoryModule } from './category/category.module';
@@ -31,10 +31,13 @@ import { StoreAuthModule } from './store_auth/store_auth.module';
 import { StoreScopeModule } from './store_auth/store_scope.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { JwtModule } from '@nestjs/jwt';
+import { ViewerScopeMiddleware } from './common/middleware/viewer_scope.middleware';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ envFilePath: '.env', isGlobal: true }),
+    JwtModule.register({}),
     GuardsModule,
     // Butun API uchun umumiy tezlik cheklovi — daqiqasiga 120 so'rov/IP.
     // Login kabi qimmat endpointlar o'zining qattiqroq cheklovini
@@ -101,6 +104,17 @@ import { APP_GUARD } from '@nestjs/core';
     StoreScopeModule,
   ],
   controllers: [],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    ViewerScopeMiddleware,
+  ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  // HAMMA marshrutga qo'yiladi: middleware hech kimni to'xtatmaydi,
+  // faqat `req.isPrivileged` bayrog'ini qo'yadi. Ommaviy o'qish
+  // endpointlari shu asosda nofaol do'kon mahsulotini yashiradi
+  // (topshiriq №14, 1-band).
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(ViewerScopeMiddleware).forRoutes('*');
+  }
+}

@@ -39,6 +39,7 @@ interface ProductAtr {
   markirovka: string;
   markirovkaJson: string;
   isRishotka: boolean;
+  is_active: boolean;
   store_id: number;
 }
 
@@ -129,6 +130,15 @@ export class Product extends Model<Product, ProductAtr> {
   @ApiProperty({ example: true, description: 'Is product a rishotka' })
   @Column({ type: DataType.BOOLEAN, defaultValue: false })
   isRishotka: boolean;
+
+  // `false` bo'lsa saytda ko'rinmaydi, lekin adminkada qoladi va
+  // buyurtmalar tarixi buzilmaydi (topshiriq №14, 6-band). Mahsulotni
+  // vaqtincha sotuvdan olish uchun — o'chirish o'rniga.
+  // Do'kon nofaol bo'lsa mahsulot baribir ko'rinmaydi: ikkala shart ham
+  // tekshiriladi.
+  @ApiProperty({ example: true, description: "Mahsulot saytda ko'rinadimi" })
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })
+  is_active: boolean;
 
   @ApiProperty({ example: 'Size info', description: 'Product sizes' })
   @Column({

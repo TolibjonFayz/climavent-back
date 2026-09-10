@@ -17,11 +17,18 @@ export class StoresService {
     @InjectModel(Product) private readonly productRepository: typeof Product,
   ) {}
 
-  // Do'konlar ro'yxati. `onlyActive` — sayt uchun (nofaol do'kon
-  // ko'rinmasin), adminka esa hammasini oladi.
-  async getAll(onlyActive = false): Promise<Store[]> {
+  // Do'konlar ro'yxati.
+  //
+  // Ilgari nofaolni yashirish MIJOZNING ishi edi (`?active=true`), ya'ni
+  // frontend so'ramasa nofaol do'kon ham ro'yxatga tushardi. Endi
+  // standart holat XAVFSIZ: mehmon faqat faol do'konlarni ko'radi,
+  // adminka/bot esa hammasini (topshiriq №14, 1-band).
+  //
+  // `?active=true` hamon ishlaydi — eski mijozlar buzilmasin.
+  async getAll(onlyActive = false, privileged = false): Promise<Store[]> {
+    const faqatFaol = onlyActive || !privileged;
     return this.storeRepository.findAll({
-      ...(onlyActive ? { where: { is_active: true } } : {}),
+      ...(faqatFaol ? { where: { is_active: true } } : {}),
       order: [
         ['sort_order', 'ASC'],
         ['id', 'ASC'],
@@ -29,16 +36,22 @@ export class StoresService {
     });
   }
 
-  async getOne(id: number): Promise<Store> {
+  // Nofaol do'konga TO'G'RIDAN-TO'G'RI havola ham ochilmasin: odamlarda
+  // eski havola saqlanib qolgan bo'lishi mumkin. Adminka uchun ochiq.
+  async getOne(id: number, privileged = false): Promise<Store> {
     const store = await this.storeRepository.findByPk(id);
-    if (!store) throw new NotFoundException("Do'kon topilmadi");
+    if (!store || (!privileged && !store.is_active)) {
+      throw new NotFoundException("Do'kon topilmadi");
+    }
     return store;
   }
 
   // Sayt do'kon sahifasi uchun — URL'da id emas, slug turadi.
-  async getBySlug(slug: string): Promise<Store> {
+  async getBySlug(slug: string, privileged = false): Promise<Store> {
     const store = await this.storeRepository.findOne({ where: { slug } });
-    if (!store) throw new NotFoundException("Do'kon topilmadi");
+    if (!store || (!privileged && !store.is_active)) {
+      throw new NotFoundException("Do'kon topilmadi");
+    }
     return store;
   }
 
@@ -49,19 +62,22 @@ export class StoresService {
   }
 
   async update(id: number, dto: UpdateStoreDto) {
-    const store = await this.getOne(id);
+    // `true` MAJBURIY: aks holda nofaol do'konni qayta faollashtirib
+    // bo'lmasdi — `getOne` uni mehmonga 404 qiladi, ya'ni superadmin
+    // o'zi o'chirgan do'konni ochib ololmay qolardi.
+    const store = await this.getOne(id, true);
     if (dto.slug && dto.slug !== store.slug) {
       await this.ensureSlugFree(dto.slug);
     }
     await this.storeRepository.update(dto as any, { where: { id } });
-    return this.getOne(id);
+    return this.getOne(id, true);
   }
 
   // Mahsuloti bor do'kon O'CHIRILMAYDI. Kaskad o'chirish bu yerda juda
   // xavfli — bitta noto'g'ri so'rov butun katalogni yo'q qilishi mumkin.
   // O'chirish o'rniga `is_active = false`.
   async remove(id: number) {
-    await this.getOne(id);
+    await this.getOne(id, true);
     const productCount = await this.productRepository.count({
       where: { store_id: id },
     });

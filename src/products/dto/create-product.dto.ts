@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateProductDto {
   @ApiProperty({
@@ -70,6 +70,17 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   producer?: string;
+
+  // Mahsulotni vaqtincha sotuvdan olish uchun (topshiriq №14, 6-band).
+  // Berilmasa `true` — mavjud mijozlar buzilmaydi.
+  @ApiProperty({
+    example: true,
+    description: "Saytda ko'rinadimi. Standart: true",
+    required: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  is_active?: boolean;
 
   @ApiProperty({ example: 2, description: "Do'kon id (MAJBURIY)" })
   @IsNumber()

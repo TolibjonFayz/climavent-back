@@ -15,6 +15,7 @@ interface ReviewAtr {
   stars: Number;
   user_id: Number;
   product_id: Number;
+  is_hidden: Boolean;
 }
 
 @Table({ tableName: 'reviews' })
@@ -46,6 +47,19 @@ export class Review extends Model<Review, ReviewAtr> {
     allowNull: false,
   })
   stars: number;
+
+  // Spam yoki haqorat sharh O'CHIRILMAYDI, YASHIRILADI (topshiriq №14,
+  // 3-band): xato bilan o'chirilgan sharhni qaytarib bo'lmaydi,
+  // yashirilganini esa istalgan payt qaytarish mumkin.
+  // Saytda ko'rinmaydi va `products.reviews_count` ga kirmaydi;
+  // adminkada esa ko'rinib turadi.
+  @ApiProperty({ example: false, description: 'Sharh yashirilganmi' })
+  @Column({
+    type: DataType.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+  })
+  is_hidden: boolean;
 
   @ForeignKey(() => User)
   @ApiProperty({ example: 1, description: 'User id' })

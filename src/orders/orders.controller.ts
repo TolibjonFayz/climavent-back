@@ -24,6 +24,7 @@ import { AdminGuard } from 'src/guards/admin.guard';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 import { UserGuard } from 'src/guards/user.guard';
 import { UserSelfGuard } from 'src/guards/user_self.guard';
+import { CustomerOrBackofficeGuard } from 'src/guards/customer_or_backoffice.guard';
 
 @ApiTags('Orders')
 @ApiBearerAuth()
@@ -69,25 +70,37 @@ export class OrdersController {
     return this.ordersService.getOrderByUserId(id);
   }
 
-  //Update order by id — faqat egasi yoki admin
-  @ApiOperation({ summary: 'Update order by id (owner or admin)' })
+  // Update order by id — MIJOZ (egasi), SUPERADMIN yoki DO'KON ADMINI
+  // (topshiriq №14, 2-band). Ilgari faqat mijoz JWT'si o'tardi, ya'ni
+  // buyurtma holatini faqat xaridorning o'zi o'zgartira olardi — bu
+  // mantiqan teskari edi.
+  //
+  // Do'kon admini aralash buyurtmaga tega olmaydi: batafsil qoida
+  // `orders.service.ts` -> `ensureCanWrite`.
+  @ApiOperation({
+    summary: "Update order by id (egasi, superadmin yoki do'kon admini)",
+  })
   @ApiBearerAuth()
-  @UseGuards(UserGuard)
+  @ApiSecurity('service-key')
+  @UseGuards(CustomerOrBackofficeGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateOrderDto: UpdateOrderDto,
     @Req() req: any,
   ) {
-    return this.ordersService.updateOrderById(id, updateOrderDto, req.user);
+    return this.ordersService.updateOrderById(id, updateOrderDto, req.actor);
   }
 
-  //Delete order by id — faqat egasi yoki admin
-  @ApiOperation({ summary: 'Delete order by id (owner or admin)' })
+  // Delete order by id — update bilan bir xil qoida.
+  @ApiOperation({
+    summary: "Delete order by id (egasi, superadmin yoki do'kon admini)",
+  })
   @ApiBearerAuth()
-  @UseGuards(UserGuard)
+  @ApiSecurity('service-key')
+  @UseGuards(CustomerOrBackofficeGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
-    return this.ordersService.deleteOrderById(id, req.user);
+    return this.ordersService.deleteOrderById(id, req.actor);
   }
 }

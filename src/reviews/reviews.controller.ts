@@ -15,7 +15,9 @@ import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Review } from './model/review.model';
+import { Privileged } from 'src/common/decorators/privileged.decorator';
 import { UserGuard } from 'src/guards/user.guard';
+import { CustomerOrBackofficeGuard } from 'src/guards/customer_or_backoffice.guard';
 import { UserSelfBodyGuard } from 'src/guards/user_self_body.guard';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 
@@ -55,8 +57,12 @@ export class ReviewsController {
   //Get product reviews by product id — ochiq, lekin user'dan faqat ism qaytadi
   @ApiOperation({ summary: 'Get product reviews by product id' })
   @Get('productone/:id')
-  async getProductReviews(@Param('id', ParseIntPipe) id: number): Promise<Review[]> {
-    return this.reviewsService.getProductReviewsByProductId(id);
+  async getProductReviews(
+    @Param('id', ParseIntPipe) id: number,
+    @Privileged() privileged: boolean,
+  ): Promise<Review[]> {
+    // Yashirilgan sharh saytda ko'rinmaydi, adminkada ko'rinadi.
+    return this.reviewsService.getProductReviewsByProductId(id, privileged);
   }
 
   //Get product review by id — ochiq, lekin user'dan faqat ism qaytadi
@@ -66,10 +72,14 @@ export class ReviewsController {
     return this.reviewsService.getProductReviewById(id);
   }
 
-  //Update product review by id — faqat sharh egasi yoki admin
+  // Update product review — sharh EGASI yoki ORQA OFIS (topshiriq №14,
+  // 3-band). Moderatsiya uchun `is_hidden` shu endpoint orqali qo'yiladi.
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Update product review by id (owner or admin)' })
-  @UseGuards(UserGuard)
+  @ApiSecurity('service-key')
+  @ApiOperation({
+    summary: 'Update product review by id (egasi yoki orqa ofis)',
+  })
+  @UseGuards(CustomerOrBackofficeGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id', ParseIntPipe) id: number,
@@ -79,16 +89,23 @@ export class ReviewsController {
     return this.reviewsService.updateProductReviewById(
       id,
       updateReviewDto,
-      req.user,
+      req.actor,
     );
   }
 
-  //Delete product review by id — faqat sharh egasi yoki admin
+  // Delete product review — sharh EGASI yoki ORQA OFIS.
+  //
+  // ESLATMA: butunlay o'chirish qaytarib bo'lmaydi. Spam/haqorat uchun
+  // `PATCH update/:id` bilan `is_hidden: true` qo'yish TAVSIYA ETILADI —
+  // xato bilan yashirilgan sharhni qaytarib bo'ladi.
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Delete product review by id (owner or admin)' })
-  @UseGuards(UserGuard)
+  @ApiSecurity('service-key')
+  @ApiOperation({
+    summary: "Delete product review by id (egasi yoki orqa ofis)",
+  })
+  @UseGuards(CustomerOrBackofficeGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
-    return this.reviewsService.deleteProductReviewById(id, req.user);
+    return this.reviewsService.deleteProductReviewById(id, req.actor);
   }
 }

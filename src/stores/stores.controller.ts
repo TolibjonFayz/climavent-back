@@ -21,6 +21,7 @@ import {
 } from '@nestjs/swagger';
 import { StoresService } from './stores.service';
 import { Store } from './model/store.model';
+import { Privileged } from 'src/common/decorators/privileged.decorator';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
 import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
@@ -40,24 +41,33 @@ export class StoresController {
   })
   @ApiResponse({ status: 200, type: [Store] })
   @Get('all')
-  async getAll(@Query('active') active?: string): Promise<Store[]> {
-    return this.storesService.getAll(active === 'true');
+  async getAll(
+    @Query('active') active?: string,
+    @Privileged() privileged?: boolean,
+  ): Promise<Store[]> {
+    return this.storesService.getAll(active === 'true', privileged);
   }
 
   @ApiOperation({ summary: "Bitta do'kon" })
   @ApiResponse({ status: 200, type: Store })
   @ApiResponse({ status: 404, description: "Do'kon topilmadi" })
   @Get('one/:id')
-  async getOne(@Param('id', ParseIntPipe) id: number): Promise<Store> {
-    return this.storesService.getOne(id);
+  async getOne(
+    @Param('id', ParseIntPipe) id: number,
+    @Privileged() privileged: boolean,
+  ): Promise<Store> {
+    return this.storesService.getOne(id, privileged);
   }
 
   @ApiOperation({ summary: "Do'kon slug bo'yicha (sayt sahifasi uchun)" })
   @ApiResponse({ status: 200, type: Store })
   @ApiResponse({ status: 404, description: "Do'kon topilmadi" })
   @Get('slug/:slug')
-  async getBySlug(@Param('slug') slug: string): Promise<Store> {
-    return this.storesService.getBySlug(slug);
+  async getBySlug(
+    @Param('slug') slug: string,
+    @Privileged() privileged: boolean,
+  ): Promise<Store> {
+    return this.storesService.getBySlug(slug, privileged);
   }
 
   @ApiOperation({ summary: "Do'kon yaratish (superadmin)" })

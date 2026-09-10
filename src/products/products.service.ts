@@ -59,7 +59,10 @@ export class ProductsService {
   }
 
   //Search product by query
-  async searchProducts(searchProductsByQueryDto: SearchProductsByQueryDto) {
+  async searchProducts(
+    searchProductsByQueryDto: SearchProductsByQueryDto,
+    privileged = false,
+  ) {
     const text = searchProductsByQueryDto.text;
     // Har bir so'z alohida qidiriladi (barchasi mos kelishi kerak, lekin
     // turli maydonlarda bo'lishi mumkin) — shu orqali "kanal ventilyatori"
@@ -86,7 +89,10 @@ export class ProductsService {
       ],
     }));
     const blogs = await this.productRepository.findAll({
-      where: { [Op.and]: wordConditions },
+      where: {
+        [Op.and]: wordConditions,
+        ...this.visibilityWhere(privileged),
+      },
       attributes: ['id', 'name_uz', 'name_en', 'name_ru'],
       include: [
         {
@@ -113,12 +119,20 @@ export class ProductsService {
   //(parametrsiz chaqiruv ham cheksiz javob qaytarmaydi)
   //`storeId` berilsa faqat o'sha do'kon mahsulotlari qaytadi — marketplace
   //adminkasi hamma mahsulotni tortib, mijoz tomonda filtrlamasin.
-  async getAllProducts(page?: number, limit?: number, storeId?: number) {
+  async getAllProducts(
+    page?: number,
+    limit?: number,
+    storeId?: number,
+    privileged = false,
+  ) {
     const effectiveLimit = limit || 20;
     const effectivePage = page || 1;
     const offset = (effectivePage - 1) * effectiveLimit;
     return this.productRepository.findAll({
-      ...(storeId ? { where: { store_id: storeId } } : {}),
+      where: {
+        ...this.visibilityWhere(privileged),
+        ...(storeId ? { store_id: storeId } : {}),
+      },
       // Katalog kartochkalari narxni insides[].price dan oladi
       include: this.catalogInclude(),
       order: [['id', 'ASC']],
@@ -165,21 +179,28 @@ export class ProductsService {
   }
 
   //Get all products count
-  async getAllProductsCount() {
-    const products = await this.productRepository.count({});
+  // Sahifalash shu songa tayanadi, shuning uchun u ham FILTRDAN
+  // KEYINGI son bo'lishi kerak — aks holda sayt "177 ta" deb yozib,
+  // 137 tasini ko'rsatardi (topshiriq №14, 1-band, 3-qadam).
+  async getAllProductsCount(privileged = false) {
+    const products = await this.productRepository.count({
+      where: this.visibilityWhere(privileged),
+    });
     return products;
   }
 
   //Get recently added products
   async getRecentlyAddedProducts(
     getRecentlyAddedProductsDto: GetRecentlyAddedProductsDto,
+    privileged = false,
   ) {
     const offset =
       (getRecentlyAddedProductsDto.page - 1) *
       getRecentlyAddedProductsDto.limit;
-    const count = await this.getAllProductsCount();
+    const count = await this.getAllProductsCount(privileged);
 
     const products = await this.productRepository.findAll({
+      where: this.visibilityWhere(privileged),
       order: [['createdAt', 'DESC']],
       limit: getRecentlyAddedProductsDto.limit,
       offset: offset,
@@ -201,6 +222,29 @@ export class ProductsService {
     if (price === 'Ommabop') return [['views', 'DESC']];
     if (price === 'kopbuyurtirilgan') return [['sold_count', 'DESC']];
     return null;
+  }
+
+  // KO'RINUVCHANLIK FILTRI (topshiriq №14, 1- va 6-bandlar).
+  //
+  // Mehmon (sayt) faqat quyidagilarni ko'radi:
+  //   - do'koni FAOL (`stores.is_active = true`)
+  //   - mahsulotning O'ZI faol (`products.is_active = true`)
+  //
+  // Adminka/bot (`privileged`) esa hammasini ko'radi — nofaol do'kon
+  // mahsulotini tahrirlab turishi kerak.
+  //
+  // Do'kon shartida `literal` subquery ishlatilgan: alohida so'rov
+  // qilinmaydi, hamma narsa bitta SQL da hal bo'ladi.
+  private visibilityWhere(privileged: boolean): Record<string, any> {
+    if (privileged) return {};
+    return {
+      is_active: true,
+      store_id: {
+        [Op.in]: Sequelize.literal(
+          '(SELECT id FROM stores WHERE is_active = true)',
+        ),
+      },
+    };
   }
 
   // Katalog kartochkalari uchun include — characters va ularning
@@ -236,7 +280,7 @@ export class ProductsService {
   }
 
   //Get products by sort
-  async getProductsBySort(searchProductDto: SortProductDto) {
+  async getProductsBySort(searchProductDto: SortProductDto, privileged = false) {
     const offset = (searchProductDto.page - 1) * searchProductDto.limit;
 
     if (
@@ -244,6 +288,7 @@ export class ProductsService {
       searchProductDto.price === 'DESC'
     ) {
       const all = await this.productRepository.findAll({
+        where: this.visibilityWhere(privileged),
         include: this.catalogInclude(),
       });
       const sorted = this.sortByInsidePrice(all, searchProductDto.price);
@@ -252,6 +297,7 @@ export class ProductsService {
 
     const order = this.buildOrder(searchProductDto.price);
     return this.productRepository.findAll({
+      where: this.visibilityWhere(privileged),
       include: this.catalogInclude(),
       ...(order ? { order } : {}),
       limit: searchProductDto.limit,
@@ -262,6 +308,7 @@ export class ProductsService {
   //Get products by category (+ bola kategoriyalar) — bitta query, DB darajasida sort
   async sortProductsByCategoryId(
     sortbyCategoryIdProduct: SortbyCategoryIdProductDto,
+    privileged = false,
   ) {
     // Bola (sub) kategoriyalarni topamiz
     const children = await this.categoryRepository.findAll({
@@ -280,7 +327,10 @@ export class ProductsService {
       sortbyCategoryIdProduct.price === 'DESC'
     ) {
       const all = await this.productRepository.findAll({
-        where: { category_id: { [Op.in]: categoryIds } },
+        where: {
+          category_id: { [Op.in]: categoryIds },
+          ...this.visibilityWhere(privileged),
+        },
         include: this.catalogInclude(),
       });
       const sorted = this.sortByInsidePrice(all, sortbyCategoryIdProduct.price);
@@ -289,7 +339,10 @@ export class ProductsService {
 
     const order = this.buildOrder(sortbyCategoryIdProduct.price);
     return this.productRepository.findAll({
-      where: { category_id: { [Op.in]: categoryIds } },
+      where: {
+        category_id: { [Op.in]: categoryIds },
+        ...this.visibilityWhere(privileged),
+      },
       include: this.catalogInclude(),
       ...(order ? { order } : {}),
       limit: sortbyCategoryIdProduct.limit,
@@ -299,12 +352,21 @@ export class ProductsService {
   //Get product by id.
   //`countView=false` bo'lsa ko'rish hisoblagichi oshmaydi — admin/servis
   //o'qishlari mijoz tashrifi emas.
-  async getProductById(id: number, countView = true) {
+  async getProductById(id: number, countView = true, privileged = false) {
     const product = await this.productRepository.findOne({
-      where: { id: id },
+      // Nofaol do'kon mahsulotiga TO'G'RIDAN-TO'G'RI havola ham
+      // ochilmasin (topshiriq №14, 1-band, 2-qadam): odamlarda eski
+      // havola saqlanib qolgan bo'lishi mumkin. Filtr `where` ichida —
+      // shuning uchun natija topilmaydi va quyida 404 beriladi.
+      where: { id: id, ...this.visibilityWhere(privileged) },
       include: [
         {
+          // Yashirilgan sharhlar saytda ko'rinmaydi (topshiriq №14,
+          // 3-band). Adminka sharhlarni `reviews/*` orqali o'qiydi,
+          // u yerda hammasi qaytadi.
           model: Review,
+          required: false,
+          ...(privileged ? {} : { where: { is_hidden: false } }),
           include: [{ model: User, attributes: ['name'] }],
         },
         // Narx (USD) characteristics'ning SAP variantlarida turadi.

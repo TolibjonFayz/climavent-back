@@ -32,6 +32,7 @@ import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-pr
 import { GetRecentlyAddedProductsDto } from './dto/getlastadded-product.dto';
 import { SearchProductsByQueryDto } from './dto/search-product.dto';
 import { parsePositiveIntParam } from 'src/common/helpers/pagination';
+import { Privileged } from 'src/common/decorators/privileged.decorator';
 
 @ApiTags('Products')
 @Controller('products')
@@ -64,15 +65,21 @@ export class ProductsController {
   //Search product by query
   @ApiOperation({ summary: 'Search product by query' })
   @Post('search')
-  async search(@Body() searchProductsByQueryDto: SearchProductsByQueryDto) {
-    return this.productsService.searchProducts(searchProductsByQueryDto);
+  async search(
+    @Body() searchProductsByQueryDto: SearchProductsByQueryDto,
+    @Privileged() privileged: boolean,
+  ) {
+    return this.productsService.searchProducts(
+      searchProductsByQueryDto,
+      privileged,
+    );
   }
 
   //Get all products count
   @ApiOperation({ summary: 'Get all products count' })
   @Get('allcount')
-  async getAllCount(): Promise<number> {
-    return this.productsService.getAllProductsCount();
+  async getAllCount(@Privileged() privileged: boolean): Promise<number> {
+    return this.productsService.getAllProductsCount(privileged);
   }
 
   //Get all products (page/limit/store_id ixtiyoriy)
@@ -105,11 +112,13 @@ export class ProductsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('store_id') storeId?: string,
+    @Privileged() privileged?: boolean,
   ): Promise<Product[]> {
     return this.productsService.getAllProducts(
       parsePositiveIntParam(page, 'page'),
       parsePositiveIntParam(limit, 'limit'),
       parsePositiveIntParam(storeId, 'store_id'),
+      privileged,
     );
   }
 
@@ -142,9 +151,11 @@ export class ProductsController {
   @Post('lastadded')
   async getLastAddedProducts(
     @Body() getRecentlyAddedProductsDto: GetRecentlyAddedProductsDto,
+    @Privileged() privileged: boolean,
   ): Promise<any> {
     return this.productsService.getRecentlyAddedProducts(
       getRecentlyAddedProductsDto,
+      privileged,
     );
   }
 
@@ -153,8 +164,9 @@ export class ProductsController {
   @Post('bysort')
   async getProductsBySort(
     @Body() searchProductDto: SortProductDto,
+    @Privileged() privileged: boolean,
   ): Promise<Product[]> {
-    return this.productsService.getProductsBySort(searchProductDto);
+    return this.productsService.getProductsBySort(searchProductDto, privileged);
   }
 
   //Get products by category
@@ -162,9 +174,11 @@ export class ProductsController {
   @Post('categoryslug')
   async getBySlug(
     @Body() sortbyCategoryIdProduct: SortbyCategoryIdProductDto,
+    @Privileged() privileged: boolean,
   ): Promise<Product[]> {
     return this.productsService.sortProductsByCategoryId(
       sortbyCategoryIdProduct,
+      privileged,
     );
   }
 
@@ -187,11 +201,13 @@ export class ProductsController {
   async getOne(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: Request,
+    @Privileged() privileged?: boolean,
     @Query('count') count?: string,
   ): Promise<Product> {
     const isService = Boolean(req.headers['x-api-key']);
     const countView = !isService && count !== 'false';
-    return this.productsService.getProductById(id, countView);
+    // Nofaol do'kon mahsuloti mehmonga 404, adminkaga esa ochiq.
+    return this.productsService.getProductById(id, countView, privileged);
   }
 
   //Update product by id

@@ -12,6 +12,12 @@ import { Product } from 'src/products/model/product.model';
 import { User } from 'src/users/model/user.model';
 import { ProductImages } from 'src/product_images/model/product_image.model';
 import { Review } from 'src/reviews/model/review.model';
+import { RequestActor } from 'src/guards/customer_or_backoffice.guard';
+import {
+  normalizeOrderStatus,
+  ORDER_STATUS_MESSAGE,
+} from './order-status';
+import { BadRequestException } from '@nestjs/common';
 
 @Injectable()
 export class OrdersService {
@@ -23,7 +29,12 @@ export class OrdersService {
 
   //Creating a order
   async createOrder(createOrderDto: CreateOrderDto) {
-    const newOrder = await this.OrderRepository.create(createOrderDto);
+    const status = normalizeOrderStatus(createOrderDto.status);
+    if (!status) throw new BadRequestException(ORDER_STATUS_MESSAGE);
+    const newOrder = await this.OrderRepository.create({
+      ...createOrderDto,
+      status,
+    });
     const response = { message: 'Order successfully created', newOrder };
     return response;
   }
@@ -78,29 +89,73 @@ export class OrdersService {
   }
 
   // Buyurtma egasini (yoki admin ekanini) tekshiradi
-  private async ensureOwnerOrAdmin(
-    id: number,
-    requester: { id?: number; is_admin?: boolean },
-  ) {
+  /**
+   * Buyurtmaga yozish huquqi (topshiriq №14, 2-band va 2-savol).
+   *
+   *   superadmin   — istalgan buyurtma (servis kaliti, sayt admini,
+   *                  superadmin do'kon hisobi)
+   *   store_admin  — faqat buyurtmadagi HAMMA qator o'z do'koniga
+   *                  tegishli bo'lsa. Aralash buyurtmada bitta do'kon
+   *                  boshqasining sotuvi holatini o'zgartira olmasligi
+   *                  kerak.
+   *   customer     — faqat o'z buyurtmasi (to'lov oqimi shunga tayanadi)
+   */
+  private async ensureCanWrite(id: number, actor: RequestActor) {
     const order = await this.OrderRepository.findOne({ where: { id } });
     if (!order) {
       throw new NotFoundException('Order not found or something wrong');
     }
-    if (order.user_id !== requester?.id && !requester?.is_admin) {
+
+    if (actor?.kind === 'superadmin') return order;
+
+    if (actor?.kind === 'store_admin') {
+      const items = await this.OrderItemsRepository.findAll({
+        where: { order_id: id },
+        include: [{ model: Product, attributes: ['store_id'] }],
+      });
+      const storeIds = new Set(
+        items.map((i) => (i as any).product?.store_id ?? null),
+      );
+      // Bo'sh buyurtma yoki do'koni noma'lum qator bo'lsa — ruxsat yo'q.
+      const hammasiMeniki =
+        items.length > 0 &&
+        storeIds.size === 1 &&
+        storeIds.has(actor.store_id ?? null);
+      if (!hammasiMeniki) {
+        throw new ForbiddenException(
+          "Bu buyurtmada boshqa do'kon mahsuloti ham bor — holatini " +
+            "faqat superadmin o'zgartira oladi",
+        );
+      }
+      return order;
+    }
+
+    // customer
+    if (order.user_id !== actor?.user_id && !actor?.is_admin) {
       throw new ForbiddenException('Bu buyurtma sizga tegishli emas');
     }
     return order;
   }
 
-  //Update order by id — faqat egasi yoki admin
+  //Update order by id — mijoz (egasi), superadmin yoki do'kon admini
   async updateOrderById(
     id: number,
     updateOrderDto: UpdateOrderDto,
-    requester: { id?: number; is_admin?: boolean },
+    actor: RequestActor,
   ) {
-    await this.ensureOwnerOrAdmin(id, requester);
+    await this.ensureCanWrite(id, actor);
 
-    const updated = await this.OrderRepository.update(updateOrderDto, {
+    const payload: any = { ...updateOrderDto };
+    // Holat qat'iy ro'yxatdan (topshiriq №14, 4-band). Eski o'zbekcha
+    // nomlar hozircha qabul qilinadi va yangisiga aylantiriladi —
+    // migratsiyagacha yozilgan mijozlar buzilmasin.
+    if (payload.status !== undefined) {
+      const normalized = normalizeOrderStatus(payload.status);
+      if (!normalized) throw new BadRequestException(ORDER_STATUS_MESSAGE);
+      payload.status = normalized;
+    }
+
+    const updated = await this.OrderRepository.update(payload, {
       where: { id: id },
       returning: true,
     });
@@ -109,11 +164,8 @@ export class OrdersService {
   }
 
   //Delete order by id — faqat egasi yoki admin
-  async deleteOrderById(
-    id: number,
-    requester: { id?: number; is_admin?: boolean },
-  ) {
-    await this.ensureOwnerOrAdmin(id, requester);
+  async deleteOrderById(id: number, actor: RequestActor) {
+    await this.ensureCanWrite(id, actor);
 
     const deleting = await this.OrderRepository.destroy({ where: { id: id } });
     await this.OrderItemsRepository.destroy({ where: { order_id: id } });
