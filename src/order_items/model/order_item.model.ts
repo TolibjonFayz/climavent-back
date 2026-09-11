@@ -10,14 +10,16 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Product } from 'src/products/model/product.model';
 import { Order } from 'src/orders/model/order.model';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
+import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
 
 interface OrderItemAtr {
   order_id: number;
   product_id: number;
   product_model: string;
   product_model_id?: number;
+  product_model_inside_id?: number;
   quantity: number;
-  price: number;
+  price: number | null;
 }
 
 @Table({ tableName: 'order-items' })
@@ -85,10 +87,37 @@ export class OrderItem extends Model<OrderItem, OrderItemAtr> {
   })
   quantity: number;
 
-  @ApiProperty({ example: 1200000, description: 'Price of product' })
-  @Column({
-    type: DataType.INTEGER,
-    allowNull: false,
+  // Aynan qaysi SAP varianti sotilgani (topshiriq №13, 4-band). Narx
+  // variantga bog'liq, shuning uchun server to'g'ri narxni shu orqali
+  // topadi. NULL — variantsiz model yoki eski qator.
+  @ForeignKey(() => ProductModelInside)
+  @ApiProperty({ example: 331, required: false, description: 'SAP varianti id' })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  product_model_inside_id: number;
+  @BelongsTo(() => ProductModelInside)
+  inside: ProductModelInside;
+
+  // Bir donaning so'mdagi narxi — BUYURTMA PAYTIDA SERVER hisoblaydi va
+  // muhrlaydi (topshiriq №13, 4-band). Mijoz yuborgan narx e'tiborga
+  // olinmaydi.
+  //
+  // NULL — katalogda narx yo'q ("so'rov bo'yicha"). 0 endi "narx yo'q"
+  // ma'nosida yozilmaydi; eski qatorlardagi 0 lar tegilmagan.
+  //
+  // BIGINT: PostgreSQL uni satr qilib qaytaradi — getter JSON'da son
+  // bo'lib qolishini ta'minlaydi.
+  @ApiProperty({
+    example: 1200000,
+    nullable: true,
+    description: "Bir dona narxi (so'm). null — narx yozilmagan",
   })
-  price: number;
+  @Column({
+    type: DataType.BIGINT,
+    allowNull: true,
+    get(this: OrderItem) {
+      const v = this.getDataValue('price');
+      return v === null || v === undefined ? null : Number(v);
+    },
+  })
+  price: number | null;
 }

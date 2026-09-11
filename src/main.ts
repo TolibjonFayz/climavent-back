@@ -6,13 +6,20 @@ import { ValidationPipe } from '@nestjs/common';
 import * as bodyParser from 'body-parser';
 import helmet from 'helmet';
 import { BadInputFilter } from './common/filters/bad-input.filter';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { stripSensitiveFields } from './common/serialization/sensitive-fields';
 
 const start = async () => {
   try {
     const PORT = process.env.PORT || 3333;
 
-    const app = await NestFactory.create(AppModule);
+    const app = await NestFactory.create<NestExpressApplication>(AppModule);
     app.setGlobalPrefix('api');
+
+    // Maxfiy maydonlar (refresh_token, unique_id, parol hash'lari) HECH BIR
+    // javobda, hech qanday chuqurlikda chiqmasin (topshiriq №13, 2-band).
+    // Nega aynan shu yerda — `common/serialization/sensitive-fields.ts`.
+    app.set('json replacer', stripSensitiveFields);
 
     // CSP o'chirilgan — Swagger UI (/api/docs) inline script/style ishlatadi,
     // qattiq CSP uni buzadi. Qolgan sarlavhalar (HSTS, X-Frame-Options,
@@ -35,6 +42,9 @@ const start = async () => {
       allowedHeaders: 'Content-Type, Authorization',
       credentials: true,
       optionsSuccessStatus: 200,
+      // `users/all` sahifalashda jami sonni shu sarlavhada beradi
+      // (topshiriq №13, 1-band). Expose qilinmasa brauzer uni o'qiy olmaydi.
+      exposedHeaders: 'X-Total-Count',
     });
 
     const config = new DocumentBuilder()

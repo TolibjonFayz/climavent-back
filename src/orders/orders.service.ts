@@ -18,6 +18,7 @@ import {
   ORDER_STATUS_MESSAGE,
 } from './order-status';
 import { BadRequestException } from '@nestjs/common';
+import Sequelize, { Op } from 'sequelize';
 
 @Injectable()
 export class OrdersService {
@@ -25,6 +26,8 @@ export class OrdersService {
     @InjectModel(Order) private readonly OrderRepository: typeof Order,
     @InjectModel(OrderItem)
     private readonly OrderItemsRepository: typeof OrderItem,
+    @InjectModel(Product)
+    private readonly productRepository: typeof Product,
   ) {}
 
   //Creating a order
@@ -34,17 +37,55 @@ export class OrdersService {
     const newOrder = await this.OrderRepository.create({
       ...createOrderDto,
       status,
+      // Summani mijoz emas, SERVER hisoblaydi — qatorlar qo'shilganda
+      // `OrderPricingService.recomputeOrderTotal` yozadi (topshiriq №13,
+      // 4-band). Qatorsiz buyurtmaning summasi noma'lum.
+      totalAmount: null,
     });
     const response = { message: 'Order successfully created', newOrder };
     return response;
   }
 
-  //Get all orders
-  async getAllOrders() {
+  // Get all orders.
+  //
+  // `storeId` berilsa (do'kon admini tokeni) — topshiriq №13, 6-band:
+  //   - faqat o'sha do'kon mahsuloti BOR buyurtmalar qaytadi;
+  //   - ularning ichidagi `orderItems` ham faqat o'sha do'konniki bo'ladi.
+  // Aralash buyurtmada boshqa do'konning qatorlari ko'rinmaydi.
+  //
+  // `totalAmount` esa BUTUN buyurtmaniki bo'lib qoladi (qayta hisoblanmaydi)
+  // — hozir bitta ham aralash buyurtma yo'q; bo'lganda do'kon ulushini
+  // qatorlardan hisoblash kerak bo'ladi.
+  async getAllOrders(storeId?: number | null) {
+    if (!storeId) {
+      return this.OrderRepository.findAll({ include: { all: true } });
+    }
+
     const orders = await this.OrderRepository.findAll({
+      where: {
+        id: {
+          [Op.in]: Sequelize.literal(
+            `(SELECT DISTINCT order_id FROM "order-items" WHERE product_id IN ` +
+              `(SELECT id FROM products WHERE store_id = ${Number(storeId)}))`,
+          ),
+        },
+      },
       include: { all: true },
     });
-    return orders;
+
+    // Ichma-ich qatorlarni ham do'kon bo'yicha qisqartiramiz.
+    const mahsulotlar = await this.productRepository.findAll({
+      where: { store_id: Number(storeId) },
+      attributes: ['id'],
+    });
+    const meniki = new Set(mahsulotlar.map((p) => p.id));
+    return orders.map((o) => {
+      const plain: any = o.get({ plain: true });
+      plain.orderItems = (plain.orderItems || []).filter((i: any) =>
+        meniki.has(i.product_id),
+      );
+      return plain;
+    });
   }
 
   //Get order by id
@@ -146,6 +187,8 @@ export class OrdersService {
     await this.ensureCanWrite(id, actor);
 
     const payload: any = { ...updateOrderDto };
+    // Summa qatorlardan hisoblanadi — to'g'ridan-to'g'ri yozib bo'lmaydi.
+    delete payload.totalAmount;
     // Holat qat'iy ro'yxatdan (topshiriq №14, 4-band). Eski o'zbekcha
     // nomlar hozircha qabul qilinadi va yangisiga aylantiriladi —
     // migratsiyagacha yozilgan mijozlar buzilmasin.

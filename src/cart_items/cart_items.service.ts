@@ -11,6 +11,8 @@ import { Cart } from 'src/cart/models/cart.model';
 import { Characteristic } from 'src/characteristics/model/characteristic.model';
 import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
 import { Product } from 'src/products/model/product.model';
+import { Op } from 'sequelize';
+import { storeProductIds } from 'src/common/helpers/store-scope';
 
 @Injectable()
 export class CartItemsService {
@@ -114,9 +116,13 @@ export class CartItemsService {
     }
   }
 
-  //Get all cart items
-  async getAllCartItems() {
+  // Get all cart items. `storeId` berilsa (do'kon admini) — faqat o'sha
+  // do'kon mahsulotlariga tegishli qatorlar (topshiriq №13, 6-band).
+  async getAllCartItems(storeId?: number | null) {
     const cartItems = await this.CartItemRepository.findAll({
+      ...(storeId
+        ? { where: { product_id: { [Op.in]: storeProductIds(storeId) } } }
+        : {}),
       include: { all: true },
     });
     return cartItems;

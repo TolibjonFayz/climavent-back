@@ -81,9 +81,15 @@ export class LikesService {
     return likes;
   }
 
-  //Get allll likes
+  // Get allll likes — mijoz obyekti bilan (topshiriq №13, 3-band).
+  // Ilgari faqat `user_id` qaytardi: faqat layk bosgan mijoz adminkada
+  // ismsiz `#4` bo'lib turardi. `reviews/all` dagi bilan bir xil shaklda.
+  // Maxfiy maydonlar global JSON filtri tomonidan chiqariladi.
   async getAllLikes() {
-    const likes = await this.likeRepository.findAll();
+    const likes = await this.likeRepository.findAll({
+      include: [{ model: User }],
+      order: [['id', 'ASC']],
+    });
     return likes;
   }
 

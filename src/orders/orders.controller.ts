@@ -13,17 +13,13 @@ import {
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiSecurity,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Order } from './model/order.model';
-import { AdminGuard } from 'src/guards/admin.guard';
-import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+import { AdminOrStoreGuard } from 'src/guards/admin_or_store.guard';
+import { scopedStoreId } from 'src/common/helpers/store-scope';
 import { UserGuard } from 'src/guards/user.guard';
 import { UserSelfGuard } from 'src/guards/user_self.guard';
+import { UserSelfOrBackofficeGuard } from 'src/guards/user_self_or_backoffice.guard';
 import { CustomerOrBackofficeGuard } from 'src/guards/customer_or_backoffice.guard';
 
 @ApiTags('Orders')
@@ -43,13 +39,17 @@ export class OrdersController {
   //Get all orders — admin JWT yoki servis kaliti (X-API-Key).
   //Servis kalitiga FAQAT o'qish berilgan: yozish endpointlari admin/user
   //guvohnomasida qoladi. Bu adminka daromad analitikasi uchun kerak.
-  @ApiOperation({ summary: 'Get all orders (admin yoki servis kaliti)' })
+  // Do'kon tokeni ham qabul qilinadi — u holda faqat o'sha do'kon
+  // mahsuloti bor buyurtmalar qaytadi (topshiriq №13, 6-band).
+  @ApiOperation({
+    summary: "Get all orders (servis kaliti, admin yoki do'kon tokeni)",
+  })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(AdminOrStoreGuard)
   @Get('all')
-  async getAll(): Promise<Order[]> {
-    return this.ordersService.getAllOrders();
+  async getAll(@Req() req: any): Promise<Order[]> {
+    return this.ordersService.getAllOrders(scopedStoreId(req));
   }
 
   //Get order by id
@@ -64,7 +64,10 @@ export class OrdersController {
   //Get order by user id — foydalanuvchi faqat o'zinikini ko'radi
   @ApiOperation({ summary: 'Get order by user id' })
   @ApiBearerAuth()
-  @UseGuards(UserSelfGuard)
+    // Mijozning o'zi YOKI orqa ofis (servis kaliti, sayt admini) —
+  // adminkaning mijoz sahifasi uchun (topshiriq №13, 1-band).
+  @ApiSecurity('service-key')
+  @UseGuards(UserSelfOrBackofficeGuard)
   @Get('oneuser/:id')
   async getOneByUserId(@Param('id', ParseIntPipe) id: number): Promise<Order[]> {
     return this.ordersService.getOrderByUserId(id);

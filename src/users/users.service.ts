@@ -181,11 +181,43 @@ export class UsersService {
   }
 
   //Get all users
-  async getAllUsers() {
-    const users = await this.UsersRepository.findAll({
+  // Mijozlar ro'yxati — adminka "Foydalanuvchilar" bo'limi uchun
+  // (topshiriq №13, 1-band).
+  //
+  // Ilgari parametrsiz butun jadvalni qaytarardi. Mijoz soni minglab
+  // bo'lganda bu ishlamaydi, shuning uchun sahifalanadi va qidiriladi.
+  // Jami son (filtrdan keyingi) `total` da qaytadi — controller uni
+  // `X-Total-Count` sarlavhasiga qo'yadi, javob tanasi esa oldingidek
+  // MASSIV bo'lib qoladi.
+  //
+  // Maxfiy maydonlar (refresh_token, unique_id) global JSON filtri
+  // tomonidan javobdan chiqariladi — `common/serialization`.
+  async getAllUsers(options: { page?: number; limit?: number; search?: string } = {}) {
+    const limit = Math.min(options.limit || 50, 500);
+    const page = options.page || 1;
+    const q = (options.search || '').trim();
+
+    const where = q
+      ? {
+          [Op.or]: [
+            { name: { [Op.iLike]: `%${q}%` } },
+            { surname: { [Op.iLike]: `%${q}%` } },
+            { email: { [Op.iLike]: `%${q}%` } },
+            // Telefonni bo'shliq/defissiz ham topsin: "90 123-45-67"
+            { phone_number: { [Op.iLike]: `%${q.replace(/[\s()-]/g, '')}%` } },
+          ],
+        }
+      : {};
+
+    const { rows, count } = await this.UsersRepository.findAndCountAll({
+      where,
       include: { all: true },
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset: (page - 1) * limit,
+      distinct: true,
     });
-    return users;
+    return { rows, total: count };
   }
 
   //Get user by id

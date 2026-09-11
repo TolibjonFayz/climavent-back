@@ -1,30 +1,46 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
 import { CreateOrderItemDto } from './create-order_item.dto';
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
+// Hamma maydon IXTIYORIY.
+//
+// Ilgari maydonlar `@IsNotEmpty()` bilan qayta e'lon qilingan edi — ya'ni
+// `PartialType` ga qaramay HAMMASI majburiy bo'lib qolgandi va yolg'iz
+// `quantity` ni o'zgartirib bo'lmasdi.
+//
+// Kim nimani o'zgartira oladi — servisda (`updateOrderItemById`):
+// mijoz faqat `quantity`, sayt admini esa narxni ham (kelishilgan narx).
 export class UpdateOrderItemDto extends PartialType(CreateOrderItemDto) {
-  @ApiProperty({ example: 1, description: 'Order id' })
+  @ApiProperty({ example: 1, required: false })
+  @IsOptional()
   @IsNumber()
-  @IsNotEmpty()
-  order_id: number;
+  order_id?: number;
 
-  @ApiProperty({ example: 1, description: 'Product id' })
+  @ApiProperty({ example: 1, required: false })
+  @IsOptional()
   @IsNumber()
-  @IsNotEmpty()
-  product_id: number;
+  product_id?: number;
 
-  @ApiProperty({ example: 'HVAUSDHVOH', description: 'Model of product' })
+  @ApiProperty({ example: 'HVAUSDHVOH', required: false })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  product_model: string;
+  product_model?: string;
 
-  @ApiProperty({ example: 1, description: 'Quantity of product' })
+  @ApiProperty({ example: 2, required: false })
+  @IsOptional()
   @IsNumber()
-  @IsNotEmpty()
-  quantity: number;
+  @Min(1)
+  quantity?: number;
 
-  @ApiProperty({ example: 1200000, description: 'Price of product' })
-  @IsNumber()
-  @IsNotEmpty()
-  price: number;
+  // Faqat sayt admini uchun: "so'rov bo'yicha" modelning kelishilgan narxi.
+  // Mijoz yuborsa e'tiborga olinmaydi.
+  @ApiProperty({
+    example: 1200000,
+    required: false,
+    nullable: true,
+    description: "Bir dona narxi (so'm) — faqat admin o'zgartira oladi",
+  })
+  @IsOptional()
+  @IsInt()
+  price?: number;
 }

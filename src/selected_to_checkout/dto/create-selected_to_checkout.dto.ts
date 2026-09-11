@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsInt, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateSelectedToCheckoutDto {
@@ -26,4 +26,17 @@ export class CreateSelectedToCheckoutDto {
   @IsNumber()
   @IsNotEmpty()
   price: number;
+
+  // Savat qatoridan ko'chiriladi — buyurtma narxi aynan tanlangan variant
+  // bo'yicha hisoblanishi uchun (topshiriq №13, 4-band). Ixtiyoriy: eski
+  // mijozlar yubormasa ham ishlaydi.
+  @ApiProperty({ example: 253, required: false, description: 'Model id' })
+  @IsOptional()
+  @IsInt()
+  characteristic_id?: number;
+
+  @ApiProperty({ example: 331, required: false, description: 'SAP varianti id' })
+  @IsOptional()
+  @IsInt()
+  product_model_inside_id?: number;
 }

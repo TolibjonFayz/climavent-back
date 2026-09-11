@@ -1,9 +1,11 @@
 import {
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { Cart } from './models/cart.model';
+import { RequestActor } from 'src/guards/customer_or_backoffice.guard';
 import { InjectModel } from '@nestjs/sequelize';
 import { UpdateCartDto } from './dto/update-cart.dto';
 import { CreateCartDto } from './dto/create-cart.dto';
@@ -33,13 +35,27 @@ export class CartService {
   }
 
   //Get cart by id
-  async getCartById(id: number) {
+  // Savat egasi yoki superadmin.
+  //
+  // Ilgari guard UMUMAN yo'q edi: tokensiz `GET /cart/one/:id` mijozning
+  // to'liq obyektini — telefon, e-pochta, manzil, tug'ilgan sana va
+  // `refresh_token` hash'ini — qaytarardi. Savat id'lari ketma-ket, ya'ni
+  // hamma mijozni aylanib chiqish mumkin edi.
+  //
+  // Do'kon admini ATAYLAB o'tkazilmaydi: savatda boshqa do'konlarning
+  // mahsulotlari va mijozning shaxsiy ma'lumoti bor.
+  async getCartById(id: number, actor?: RequestActor) {
     const cart = await this.CartRepository.findOne({
       where: { id: id },
       include: { all: true },
     });
-    if (cart) return cart;
-    else throw new NotFoundException('Cart not found or id is invalid');
+    if (!cart) throw new NotFoundException('Cart not found or id is invalid');
+    const egasi = actor?.kind === 'customer' && cart.user_id === actor.user_id;
+    const admin = actor?.kind === 'superadmin' || actor?.is_admin;
+    if (!egasi && !admin) {
+      throw new ForbiddenException('Bu savat sizga tegishli emas');
+    }
+    return cart;
   }
 
   //Get cart by userid

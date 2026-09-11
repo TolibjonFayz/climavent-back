@@ -3,7 +3,7 @@ import {
   ORDER_STATUSES,
   ORDER_STATUS_MESSAGE,
 } from '../order-status';
-import { IsIn, IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateOrderDto {
   @ApiProperty({ example: 1, description: 'User id' })
@@ -11,10 +11,18 @@ export class CreateOrderDto {
   @IsNotEmpty()
   user_id: number;
 
-  @ApiProperty({ example: 549000, description: 'Total amount of items id' })
+  // E'TIBORGA OLINMAYDI (topshiriq №13, 4-band): summa qatorlar
+  // yig'indisidan serverda hisoblanadi. Eski mijozlar buzilmasligi uchun
+  // qabul qilinadi.
+  @ApiProperty({
+    example: 549000,
+    required: false,
+    deprecated: true,
+    description: "E'tiborga olinmaydi — summani server hisoblaydi",
+  })
+  @IsOptional()
   @IsNumber()
-  @IsNotEmpty()
-  totalAmount: number;
+  totalAmount?: number;
 
   // Qat'iy ro'yxat (topshiriq №14, 4-band). Eski o'zbekcha nomlar
   // ("Tolanmagan", "Yetkazilyapti", "Done") hozircha servis qatlamida

@@ -21,8 +21,9 @@ import {
 } from '@nestjs/swagger';
 import { OrderItem } from './model/order_item.model';
 import { UserGuard } from 'src/guards/user.guard';
-import { AdminGuard } from 'src/guards/admin.guard';
-import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+import { AdminOrStoreGuard } from 'src/guards/admin_or_store.guard';
+import { CustomerOrBackofficeGuard } from 'src/guards/customer_or_backoffice.guard';
+import { scopedStoreId } from 'src/common/helpers/store-scope';
 
 @ApiTags('Order items')
 @ApiBearerAuth()
@@ -44,29 +45,48 @@ export class OrderItemsController {
     );
   }
 
-  //Get all order items — admin JWT yoki servis kaliti (X-API-Key).
-  //Servis kalitiga FAQAT o'qish berilgan (analitika uchun).
-  @ApiOperation({ summary: 'Get all order items (admin yoki servis kaliti)' })
+  // Get all order items — servis kaliti, sayt admini yoki DO'KON TOKENI.
+  // Do'kon admini faqat o'z do'koni mahsulotlariga tegishli qatorlarni
+  // oladi (topshiriq №13, 6-band) — izolyatsiya endi serverda.
+  @ApiOperation({
+    summary: "Get all order items (servis kaliti, admin yoki do'kon tokeni)",
+  })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(AdminOrStoreGuard)
   @Get('all')
-  async getAll(): Promise<OrderItem[]> {
-    return this.orderItemsService.getAllOrderItems();
+  async getAll(@Req() req: any): Promise<OrderItem[]> {
+    return this.orderItemsService.getAllOrderItems(scopedStoreId(req));
   }
 
-  //Get order by id
-  @ApiOperation({ summary: 'Get order item by id' })
+  // Get order item by id.
+  // Ilgari guard UMUMAN yo'q edi — tokensiz so'rov mijozning yetkazib
+  // berish manzilini qaytarardi. Endi: buyurtma egasi, orqa ofis yoki
+  // (o'z mahsuloti bo'lsa) do'kon admini.
+  @ApiOperation({ summary: 'Get order item by id (egasi yoki orqa ofis)' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(CustomerOrBackofficeGuard)
   @Get('one/:id')
-  async getOne(@Param('id', ParseIntPipe) id: number): Promise<OrderItem> {
-    return this.orderItemsService.getOrderItemById(id);
+  async getOne(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: any,
+  ): Promise<OrderItem> {
+    return this.orderItemsService.getOrderItemById(id, req.actor);
   }
 
-  //Get order by user id
-  @ApiOperation({ summary: 'Get order item by user id' })
+  // Get order item by ORDER id (nomi tarixiy — `oneuser` emas, buyurtma
+  // id'si kutiladi). Himoya `one/:id` bilan bir xil.
+  @ApiOperation({ summary: 'Get order item by order id (egasi yoki orqa ofis)' })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(CustomerOrBackofficeGuard)
   @Get('oneuser/:id')
-  async getOneByUserId(@Param('id', ParseIntPipe) id: number): Promise<OrderItem> {
-    return this.orderItemsService.getOrderItemByOrderId(id);
+  async getOneByUserId(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: any,
+  ): Promise<OrderItem> {
+    return this.orderItemsService.getOrderItemByOrderId(id, req.actor);
   }
 
   //Update order item by id — faqat buyurtma egasi yoki admin

@@ -15,6 +15,7 @@ import { UpdateLikeDto } from './dto/update-like.dto';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Like } from './model/like.model';
 import { UserSelfGuard } from 'src/guards/user_self.guard';
+import { UserSelfOrBackofficeGuard } from 'src/guards/user_self_or_backoffice.guard';
 import { UserSelfBodyGuard } from 'src/guards/user_self_body.guard';
 import { AdminGuard } from 'src/guards/admin.guard';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
@@ -36,7 +37,10 @@ export class LikesController {
   //Get all likes of a user — faqat o'sha foydalanuvchining o'zi
   @ApiOperation({ summary: 'Get all user likes (self)' })
   @ApiBearerAuth()
-  @UseGuards(UserSelfGuard)
+    // Mijozning o'zi YOKI orqa ofis (servis kaliti, sayt admini) —
+  // adminkaning mijoz sahifasi uchun (topshiriq №13, 1-band).
+  @ApiSecurity('service-key')
+  @UseGuards(UserSelfOrBackofficeGuard)
   @Get('useralllikes/:id')
   async getAllUserlikes(@Param('id', ParseIntPipe) id: number): Promise<Like[]> {
     return this.likesService.getUserAllLikes(id);

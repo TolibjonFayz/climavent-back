@@ -5,6 +5,7 @@ import { ServiceKeyGuard } from './service_key.guard';
 import { JwtOrServiceKeyGuard } from './jwt_or_service_key.guard';
 import { AdminOrStoreGuard } from './admin_or_store.guard';
 import { CustomerOrBackofficeGuard } from './customer_or_backoffice.guard';
+import { UserSelfOrBackofficeGuard } from './user_self_or_backoffice.guard';
 import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
 
 // Global qilib berilgan, chunki JwtOrServiceKeyGuard ko'p modullarda
@@ -21,6 +22,7 @@ import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
     StoreAuthGuard,
     AdminOrStoreGuard,
     CustomerOrBackofficeGuard,
+    UserSelfOrBackofficeGuard,
   ],
   exports: [
     AdminGuard,
@@ -29,6 +31,7 @@ import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
     StoreAuthGuard,
     AdminOrStoreGuard,
     CustomerOrBackofficeGuard,
+    UserSelfOrBackofficeGuard,
   ],
 })
 export class GuardsModule {}

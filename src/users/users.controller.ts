@@ -9,8 +9,16 @@ import {
   Get,
   Res,
   UseGuards,
+  Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
 import { RegisterUserDto } from './dto/register-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { LoginUserDto } from './dto/login-user.dto.';
@@ -20,7 +28,9 @@ import { User } from './model/user.model';
 import { Response } from 'express';
 import { SignoutDto } from './dto/signout.dto';
 import { UserSelfGuard } from 'src/guards/user_self.guard';
-import { AdminGuard } from 'src/guards/admin.guard';
+import { UserSelfOrBackofficeGuard } from 'src/guards/user_self_or_backoffice.guard';
+import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+import { parsePositiveIntParam } from 'src/common/helpers/pagination';
 import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('Users')
@@ -66,19 +76,56 @@ export class UsersController {
     return this.usersService.signOutUser(signoutDto, res);
   }
 
-  //Get all users — faqat admin
+  // Get all users — sayt admini YOKI servis kaliti (topshiriq №13, 1-band).
+  // Do'kon tokeni ATAYLAB qabul qilinmaydi: bu yerda BARCHA mijozlarning
+  // shaxsiy ma'lumoti bor.
+  //
+  // Javob tanasi — massiv (oldingidek). Jami son `X-Total-Count`
+  // sarlavhasida: sahifalash uchun alohida so'rov kerak emas.
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get all users (admin)' })
+  @ApiSecurity('service-key')
+  @ApiOperation({ summary: 'Get all users (admin yoki servis kaliti)' })
+  @ApiQuery({ name: 'page', required: false, example: '1' })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    example: '50',
+    description: "Standart 50, eng ko'pi 500",
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    example: 'Tolibjon',
+    description: "Ism, familiya, telefon yoki e-pochta bo'yicha",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Mijozlar massivi. Jami son — `X-Total-Count` sarlavhasida",
+  })
   @Get('all')
-  @UseGuards(AdminGuard)
-  async getAllUsers(): Promise<User[] | any> {
-    return this.usersService.getAllUsers();
+  @UseGuards(JwtOrServiceKeyGuard)
+  async getAllUsers(
+    @Res({ passthrough: true }) res: Response,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ): Promise<User[]> {
+    const { rows, total } = await this.usersService.getAllUsers({
+      page: parsePositiveIntParam(page, 'page'),
+      limit: parsePositiveIntParam(limit, 'limit'),
+      search,
+    });
+    res.setHeader('X-Total-Count', String(total));
+    return rows;
   }
 
   //Get user by id
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get user by id' })
-  @UseGuards(UserSelfGuard)
+    // Mijozning o'zi YOKI orqa ofis (servis kaliti, sayt admini) —
+  // adminkaning mijoz sahifasi uchun (topshiriq №13, 1-band).
+  @ApiSecurity('service-key')
+  @UseGuards(UserSelfOrBackofficeGuard)
   @Get('one/:id')
   async getUserById(@Param('id', ParseIntPipe) id: number): Promise<User> {
     return this.usersService.getUserById(id);
@@ -87,7 +134,10 @@ export class UsersController {
   //Get user badges by id — faqat o'sha foydalanuvchining o'zi
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get user badges by id (self)' })
-  @UseGuards(UserSelfGuard)
+    // Mijozning o'zi YOKI orqa ofis (servis kaliti, sayt admini) —
+  // adminkaning mijoz sahifasi uchun (topshiriq №13, 1-band).
+  @ApiSecurity('service-key')
+  @UseGuards(UserSelfOrBackofficeGuard)
   @Get('badges/:id')
   async getUserBadgeById(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.getUserBadgeNumbers(id);

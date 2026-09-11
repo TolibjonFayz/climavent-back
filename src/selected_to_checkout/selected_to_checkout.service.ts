@@ -20,11 +20,20 @@ export class SelectedToCheckoutService {
   async createSelectedToCh(
     createSelectedToCheckoutDto: CreateSelectedToCheckoutDto,
   ) {
-    //Check if the user has already selected to checkout
+    // Dublikat — faqat AYNAN o'sha model va variant bo'lsa.
+    //
+    // Ilgari kalit faqat (user_id, product_id) edi. Savat esa 2026-09-03
+    // dan beri bir mahsulotning turli variantlarini ALOHIDA qator qilib
+    // saqlaydi — ya'ni ikkinchi variant checkout'ga "already selected"
+    // deb JIMGINA tushmay qolardi va buyurtmadan tushib qolardi (summa
+    // ham kam chiqardi). Kalit savatdagi bilan bir xil qilindi.
     const checkselectedToCh = await this.selecteddToChRepository.findAll({
       where: {
         user_id: createSelectedToCheckoutDto.user_id,
         product_id: createSelectedToCheckoutDto.product_id,
+        product_model: createSelectedToCheckoutDto.product_model,
+        product_model_inside_id:
+          createSelectedToCheckoutDto.product_model_inside_id ?? null,
       },
     });
     if (checkselectedToCh.length > 0) {

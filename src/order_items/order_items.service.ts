@@ -6,9 +6,13 @@ import {
 import { CreateOrderItemDto } from './dto/create-order_item.dto';
 import { UpdateOrderItemDto } from './dto/update-order_item.dto';
 import { InjectModel } from '@nestjs/sequelize';
+import { Op } from 'sequelize';
 import { OrderItem } from './model/order_item.model';
 import { Product } from 'src/products/model/product.model';
 import { Order } from 'src/orders/model/order.model';
+import { OrderPricingService } from './order-pricing.service';
+import { RequestActor } from 'src/guards/customer_or_backoffice.guard';
+import { storeProductIds } from 'src/common/helpers/store-scope';
 
 @Injectable()
 export class OrderItemsService {
@@ -19,6 +23,7 @@ export class OrderItemsService {
     private readonly productRepository: typeof Product,
     @InjectModel(Order)
     private readonly orderRepository: typeof Order,
+    private readonly pricing: OrderPricingService,
   ) {}
 
   // Qatorning tegishli buyurtmasi egasi (yoki admin ekanini) tekshiradi
@@ -43,8 +48,28 @@ export class OrderItemsService {
   ) {
     await this.ensureOrderOwnerOrAdmin(createOrderItemDto.order_id, requester);
 
-    const newOrderItem =
-      await this.OrderItemRepository.create(createOrderItemDto);
+    // Narx va model bog'lanishini SERVER aniqlaydi (topshiriq №13, 4-band).
+    // Mijoz yuborgan `price` e'tiborga olinmaydi.
+    const priced = await this.pricing.resolve({
+      product_id: createOrderItemDto.product_id,
+      product_model: createOrderItemDto.product_model,
+      product_model_id: createOrderItemDto.product_model_id,
+      product_model_inside_id: createOrderItemDto.product_model_inside_id,
+    });
+
+    const newOrderItem = await this.OrderItemRepository.create({
+      order_id: createOrderItemDto.order_id,
+      product_id: createOrderItemDto.product_id,
+      product_model: createOrderItemDto.product_model,
+      quantity: createOrderItemDto.quantity,
+      price: priced.price,
+      // Mijoz yubormagan bo'lsa ham nom bo'yicha topilgan model yoziladi —
+      // "qaysi model ko'proq sotilgan" reytingi (№11) shunga tayanadi.
+      product_model_id: priced.product_model_id ?? undefined,
+      product_model_inside_id: priced.product_model_inside_id ?? undefined,
+    });
+
+    await this.pricing.recomputeOrderTotal(createOrderItemDto.order_id);
 
     // "kopbuyurtirilgan" sort uchun mahsulotning sotilgan sonini oshiramiz
     await this.productRepository.increment('sold_count', {
@@ -56,33 +81,66 @@ export class OrderItemsService {
     return response;
   }
 
-  //Get all order items
-  async getAllOrderItems() {
+  // Get all order items.
+  // `storeId` berilsa (do'kon admini tokeni) — faqat o'sha do'kon
+  // mahsulotlariga tegishli qatorlar (topshiriq №13, 6-band). Ilgari butun
+  // jadval qaytib, izolyatsiyani adminkaning o'zi qilardi.
+  async getAllOrderItems(storeId?: number | null) {
     const orderItems = await this.OrderItemRepository.findAll({
+      ...(storeId
+        ? { where: { product_id: { [Op.in]: storeProductIds(storeId) } } }
+        : {}),
       include: { all: true },
     });
     return orderItems;
   }
 
+  /**
+   * Bitta qatorni o'qish huquqi.
+   *
+   * Ilgari `one/:id` va `oneuser/:id` da guard UMUMAN yo'q edi: tokensiz
+   * so'rov buyurtmaning yetkazib berish manzilini (`order.location`) va
+   * `user_id` sini qaytarardi, id'lar esa ketma-ket — ya'ni hamma
+   * mijozlarning manzilini yig'ib olish mumkin edi.
+   */
+  private async ensureCanRead(item: OrderItem, actor: RequestActor) {
+    if (actor?.kind === 'superadmin') return;
+    if (actor?.kind === 'store_admin') {
+      const product = await this.productRepository.findByPk(item.product_id, {
+        attributes: ['store_id'],
+      });
+      if (product?.store_id && product.store_id === actor.store_id) return;
+      throw new ForbiddenException("Bu buyurtma qatori sizning do'koningizga tegishli emas");
+    }
+    const order = await this.orderRepository.findByPk(item.order_id, {
+      attributes: ['user_id'],
+    });
+    if (order?.user_id === actor?.user_id || actor?.is_admin) return;
+    throw new ForbiddenException('Bu buyurtma sizga tegishli emas');
+  }
+
   //Get order item by id
-  async getOrderItemById(id: number) {
-    const order = await this.OrderItemRepository.findOne({
+  async getOrderItemById(id: number, actor: RequestActor) {
+    const item = await this.OrderItemRepository.findOne({
       where: { id: id },
       include: { all: true },
     });
-    if (order) return order;
-    else throw new NotFoundException('Order item not found or id is invalid');
+    if (!item) throw new NotFoundException('Order item not found or id is invalid');
+    await this.ensureCanRead(item, actor);
+    return item;
   }
 
   //Get order item by order
-  async getOrderItemByOrderId(id: number) {
-    const userOrder = await this.OrderItemRepository.findOne({
+  async getOrderItemByOrderId(id: number, actor: RequestActor) {
+    const item = await this.OrderItemRepository.findOne({
       where: { order_id: id },
       include: { all: true },
     });
-    if (userOrder) return userOrder;
-    else
+    if (!item) {
       throw new NotFoundException('User order item not found or id is invalid');
+    }
+    await this.ensureCanRead(item, actor);
+    return item;
   }
 
   //Update order item by id — faqat buyurtma egasi yoki admin
@@ -97,17 +155,30 @@ export class OrderItemsService {
     }
     await this.ensureOrderOwnerOrAdmin(existing.order_id, requester);
 
-    if (Object.keys(updateOrderItemDto).length === 0) {
-      return existing.dataValues;
+    // Kim nimani o'zgartira oladi (topshiriq №13, 4-band):
+    //   mijoz — faqat SONINI. Narx buyurtma paytida muhrlangan; mijoz uni
+    //           o'zgartira olsa pul analitikasiga ishonib bo'lmasdi.
+    //   sayt admini — narxni ham ("so'rov bo'yicha" modelning kelishilgan
+    //           narxi) va qatorni boshqa buyurtmaga ko'chirmasdan tahrirlash.
+    const payload: any = requester?.is_admin
+      ? { ...updateOrderItemDto }
+      : { quantity: updateOrderItemDto.quantity };
+    delete payload.order_id;
+    Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+
+    if (Object.keys(payload).length === 0) {
+      return existing.get({ plain: true });
     }
 
-    const updated = await this.OrderItemRepository.update(updateOrderItemDto, {
+    const updated = await this.OrderItemRepository.update(payload, {
       where: { id: id },
       returning: true,
     });
-    if (updated[1][0]?.dataValues) return updated[1][0].dataValues;
-    else
+    if (!updated[1][0]) {
       throw new NotFoundException('Order item not found or something wrong');
+    }
+    await this.pricing.recomputeOrderTotal(existing.order_id);
+    return updated[1][0].get({ plain: true });
   }
 
   //Delete order item by id — faqat buyurtma egasi yoki admin
@@ -124,7 +195,10 @@ export class OrderItemsService {
     const deleting = await this.OrderItemRepository.destroy({
       where: { id: id },
     });
-    if (deleting) return deleting;
-    else throw new NotFoundException('Order item not found or something wrong');
+    if (!deleting) {
+      throw new NotFoundException('Order item not found or something wrong');
+    }
+    await this.pricing.recomputeOrderTotal(existing.order_id);
+    return deleting;
   }
 }

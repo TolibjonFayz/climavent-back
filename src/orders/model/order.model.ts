@@ -13,7 +13,7 @@ import { OrderItem } from 'src/order_items/model/order_item.model';
 
 interface OrderAtr {
   user_id: number;
-  totalAmount: number;
+  totalAmount: number | null;
   status: string;
   location: string;
 }
@@ -38,12 +38,29 @@ export class Order extends Model<Order, OrderAtr> {
   @BelongsTo(() => User)
   user: User;
 
-  @ApiProperty({ example: 1, description: 'Total amount of items' })
-  @Column({
-    type: DataType.INTEGER,
-    allowNull: false,
+  // Qatorlar yig'indisi (narx x soni) — SERVER hisoblaydi, har safar
+  // qator qo'shilganda/o'zgarganda/o'chirilganda qayta hisoblanadi
+  // (topshiriq №13, 4-band). Mijoz yuborgan qiymat e'tiborga olinmaydi.
+  //
+  // NULL — kamida bitta qatorning narxi noma'lum: qisman yig'indini
+  // "summa" deb ko'rsatish yolg'on bo'lardi.
+  //
+  // BIGINT: INTEGER chegarasi ~2.15 mlrd so'm, sanoat uskunasi buyurtmasi
+  // undan oshishi mumkin. Getter JSON'da son qaytaradi.
+  @ApiProperty({
+    example: 148692000,
+    nullable: true,
+    description: "Buyurtma summasi (so'm). null — narxi yozilmagan qator bor",
   })
-  totalAmount: number;
+  @Column({
+    type: DataType.BIGINT,
+    allowNull: true,
+    get(this: Order) {
+      const v = this.getDataValue('totalAmount');
+      return v === null || v === undefined ? null : Number(v);
+    },
+  })
+  totalAmount: number | null;
 
   @ApiProperty({ example: 1, description: 'Status of order' })
   @Column({
