@@ -24,9 +24,15 @@ const start = async () => {
     // Railway so'rovni o'z proksisi orqali uzatadi. Busiz `req.ip` — proksi
     // manzili bo'lardi: IP boshiga cheklovlar (OTP, ariza) amalda HAMMAGA
     // UMUMIY bo'lib qolardi, oferta dalilida (`offer_ip`) esa mijozning
-    // emas, Railway'ning manzili yozilardi. `1` — faqat eng yaqin bitta
-    // proksiga ishonamiz: mijoz o'zi yuborgan X-Forwarded-For e'tiborsiz.
-    app.set('trust proxy', 1);
+    // emas, Railway'ning manzili yozilardi.
+    //
+    // Railway'da zanjir IKKI bo'g'inli (GET /health/client-ip bilan o'lchangan):
+    // soket — ichki 100.64.x.x, X-Forwarded-For — "<mijoz>, <Railway edge>".
+    // `2` — shu ikkala proksiga ishonamiz va undan oldingi manzilni olamiz.
+    // Mijoz o'zi yuborgan X-Forwarded-For'ni Railway almashtiradi; almashtirmay
+    // oldiga qo'shib yuborgan taqdirda ham 2 bo'g'in o'ngdan sanaladi — soxta
+    // qiymat baribir tanlanmaydi.
+    app.set('trust proxy', 2);
 
     // CSP o'chirilgan — Swagger UI (/api/docs) inline script/style ishlatadi,
     // qattiq CSP uni buzadi. Qolgan sarlavhalar (HSTS, X-Frame-Options,
