@@ -30,7 +30,7 @@ import { Request, Response } from 'express';
 import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
 import { SuperadminGuard } from 'src/store_auth/superadmin.guard';
 import { parsePositiveIntParam } from 'src/common/helpers/pagination';
-import { SellerApplicationsService } from './seller-applications.service';
+import { Actor, SellerApplicationsService } from './seller-applications.service';
 import {
   ApproveApplicationDto,
   CreateSellerApplicationDto,
@@ -56,7 +56,10 @@ const ctxOf = (req: Request) => ({
 });
 
 // Servis kaliti bilan kelinsa hisob yozuvi yo'q — aktor NULL.
-const actorOf = (req: any): number | null => req.storeUser?.user_id ?? null;
+const actorOf = (req: any): Actor => ({
+  id: req.storeUser?.user_id ?? null,
+  login: req.storeUser?.user_id ? req.storeUser?.login ?? null : null,
+});
 
 @ApiTags('Seller applications')
 @Controller('seller-applications')

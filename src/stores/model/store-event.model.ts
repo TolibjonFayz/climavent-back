@@ -11,5 +11,7 @@ export class StoreEvent extends Model {
   @Column({ type: DataType.INTEGER, allowNull: false }) store_id: number;
   @Column({ type: DataType.TEXT, allowNull: false }) type: string;
   @Column({ type: DataType.INTEGER, allowNull: true }) actor_id: number;
+  // Hisob o'chirilsa `actor_id` NULL bo'ladi — login matni qoladi
+  @Column({ type: DataType.TEXT, allowNull: true }) actor_login: string;
   @Column({ type: DataType.TEXT, allowNull: true }) message: string;
 }

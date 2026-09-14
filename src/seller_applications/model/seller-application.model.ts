@@ -66,6 +66,8 @@ export class SellerApplication extends Model {
   reviewed_by: number;
   @BelongsTo(() => StoreUser, { foreignKey: 'reviewed_by', as: 'reviewer' })
   reviewer: StoreUser;
+  // Login MATNI qaror paytida: hisob keyin o'chirilsa ham tarixda "kim" qoladi
+  @Column({ type: DataType.TEXT, allowNull: true }) reviewed_by_login: string;
 
   @Column({ type: DataType.DATE, allowNull: true }) reviewed_at: Date;
   @Column({ type: DataType.INTEGER, allowNull: true }) store_id: number;
@@ -75,6 +77,7 @@ export class SellerApplication extends Model {
   store_user_id: number;
   @BelongsTo(() => StoreUser, { foreignKey: 'store_user_id', as: 'sellerAccount' })
   sellerAccount: StoreUser;
+  @Column({ type: DataType.TEXT, allowNull: true }) store_user_login: string;
 
   @HasMany(() => SellerApplicationDocument, 'application_id')
   documents: SellerApplicationDocument[];

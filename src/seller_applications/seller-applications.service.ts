@@ -41,8 +41,15 @@ export interface RequestContext {
   userAgent?: string;
 }
 
-/** `null` — servis kaliti (hisob yozuvi yo'q) yoki sotuvchi. */
-export type ActorId = number | null;
+/**
+ * Qaror chiqargan hisob. Servis kaliti yoki sotuvchi — ikkalasi ham `null`.
+ * Login MATNI ham yoziladi: hisob keyin o'chirilsa `id` NULL bo'ladi, login qoladi.
+ */
+export interface Actor {
+  id: number | null;
+  login: string | null;
+}
+const NO_ACTOR: Actor = { id: null, login: null };
 
 // Ariza maydonlari — DTO dan modelga ko'chiriladiganlari (ochiq ro'yxat).
 const FIELDS = [
@@ -127,7 +134,7 @@ export class SellerApplicationsService {
           { transaction },
         );
         await this.linkDocuments(docIds, created.id, transaction);
-        await this.event(created.id, 'created', null, null, transaction);
+        await this.event(created.id, 'created', NO_ACTOR, null, transaction);
         // Shartnoma tuzilganining DALILI (oferta 3.6). Baza trigger'i uni
         // o'zgartirish va o'chirishni taqiqlaydi.
         await this.acceptanceRepo.create(
@@ -169,12 +176,17 @@ export class SellerApplicationsService {
     this.validateCrossFields(merged);
     if (changes.tin && changes.tin !== app.tin) await this.ensureTinFree(changes.tin, app.id);
 
-    const newIds = [...new Set(dto.document_ids || [])];
-    const newDocs = await this.loadFreeDocuments(newIds);
-    const existing = await this.docRepo.findAll({
-      where: { application_id: app.id, deleted_at: null },
-      attributes: ['type'],
+    // Forma to'liq ro'yxatni (eski + yangi) yuborishi tabiiy — shu arizaga
+    // allaqachon bog'langan hujjatlar (o'chirilganlari ham) jimgina tashlab
+    // yuboriladi, faqat YANGILARI tekshiriladi va bog'lanadi (№16 tekshiruvi, 1-izoh).
+    const own = await this.docRepo.findAll({
+      where: { application_id: app.id },
+      attributes: ['id', 'type', 'deleted_at'],
     });
+    const ownIds = new Set(own.map((d) => d.id));
+    const newIds = [...new Set(dto.document_ids || [])].filter((docId) => !ownIds.has(docId));
+    const newDocs = await this.loadFreeDocuments(newIds);
+    const existing = own.filter((d) => !d.deleted_at);
     if (existing.length + newDocs.length > DOCS_PER_APPLICATION) {
       throw new BadRequestException(`Bitta arizada eng ko'pi ${DOCS_PER_APPLICATION} ta fayl`);
     }
@@ -192,7 +204,7 @@ export class SellerApplicationsService {
           changedNames.length ? `o'zgargan maydonlar: ${changedNames.join(', ')}` : null,
           newIds.length ? `yangi hujjatlar: ${newDocs.map((d) => d.type).join(', ')}` : null,
         ].filter(Boolean);
-        await this.event(app.id, 'resubmitted', null, parts.join('; ') || null, transaction);
+        await this.event(app.id, 'resubmitted', NO_ACTOR, parts.join('; ') || null, transaction);
       });
     } catch (e) {
       if (e instanceof UniqueConstraintError) {
@@ -259,35 +271,36 @@ export class SellerApplicationsService {
     };
   }
 
-  async requestInfo(id: number, message: string, actorId: ActorId) {
-    return this.decide(id, actorId, async (app, transaction) => {
+  async requestInfo(id: number, message: string, actor: Actor) {
+    return this.decide(id, async (app, transaction) => {
       await app.update({ status: 'needs_info', info_request: message.trim() }, { transaction });
-      await this.event(app.id, 'info_requested', actorId, message.trim(), transaction);
+      await this.event(app.id, 'info_requested', actor, message.trim(), transaction);
     });
   }
 
-  async reject(id: number, reason: string, actorId: ActorId) {
-    return this.decide(id, actorId, async (app, transaction) => {
+  async reject(id: number, reason: string, actor: Actor) {
+    return this.decide(id, async (app, transaction) => {
       await app.update(
         {
           status: 'rejected',
           reject_reason: reason.trim(),
-          reviewed_by: actorId,
+          reviewed_by: actor.id,
+          reviewed_by_login: actor.login,
           reviewed_at: new Date(),
         },
         { transaction },
       );
-      await this.event(app.id, 'rejected', actorId, reason.trim(), transaction);
+      await this.event(app.id, 'rejected', actor, reason.trim(), transaction);
     });
   }
 
-  async updateNote(id: number, note: string | null, actorId: ActorId) {
+  async updateNote(id: number, note: string | null, actor: Actor) {
     const app = await this.appRepo.findByPk(id);
     if (!app) throw new NotFoundException('Ariza topilmadi');
     const value = note?.trim() || null;
     await this.appRepo.sequelize.transaction(async (transaction) => {
       await app.update({ admin_note: value }, { transaction });
-      await this.event(app.id, 'note', actorId, value, transaction);
+      await this.event(app.id, 'note', actor, value, transaction);
     });
     return this.getOne(id);
   }
@@ -297,7 +310,7 @@ export class SellerApplicationsService {
    * do'kon (nofaol) + yopiq rekvizitlar + parolsiz hisob + parol tokeni +
    * ariza holati + tarix. Biror qadam yiqilsa HAMMASI qaytariladi.
    */
-  async approve(id: number, dto: ApproveApplicationDto, actorId: ActorId) {
+  async approve(id: number, dto: ApproveApplicationDto, actor: Actor) {
     try {
       return await this.appRepo.sequelize.transaction(async (transaction) => {
         // Qatorni qulflaymiz: ikki superadmin bir vaqtda bossa ham ikkita
@@ -365,7 +378,9 @@ export class SellerApplicationsService {
             status: 'approved',
             store_id: store.id,
             store_user_id: account.id,
-            reviewed_by: actorId,
+            store_user_login: account.login,
+            reviewed_by: actor.id,
+            reviewed_by_login: actor.login,
             reviewed_at: new Date(),
           },
           { transaction },
@@ -373,7 +388,7 @@ export class SellerApplicationsService {
         await this.event(
           app.id,
           'approved',
-          actorId,
+          actor,
           `Do'kon #${store.id} (${slug}), login: ${account.login}`,
           transaction,
         );
@@ -427,7 +442,7 @@ export class SellerApplicationsService {
         await this.event(
           app.id,
           'documents_purged',
-          null,
+          NO_ACTOR,
           `${app.documents.length} ta pasport fayli saqlash muddati (${PASSPORT_RETENTION_DAYS} kun) tugagani uchun o'chirildi`,
           transaction,
         );
@@ -561,7 +576,6 @@ export class SellerApplicationsService {
   /** Qaror amallari uchun umumiy qobiq: qulf + yakuniy holat tekshiruvi. */
   private async decide(
     id: number,
-    actorId: ActorId,
     apply: (app: SellerApplication, t: Transaction) => Promise<void>,
   ) {
     await this.appRepo.sequelize.transaction(async (transaction) => {
@@ -572,7 +586,6 @@ export class SellerApplicationsService {
       }
       await apply(app, transaction);
     });
-    void actorId;
     return this.getOne(id);
   }
 
@@ -615,12 +628,12 @@ export class SellerApplicationsService {
   private event(
     applicationId: number,
     type: string,
-    actorId: ActorId,
+    actor: Actor,
     message: string | null,
     transaction: Transaction,
   ) {
     return this.eventRepo.create(
-      { application_id: applicationId, type, actor_id: actorId, message },
+      { application_id: applicationId, type, actor_id: actor.id, actor_login: actor.login, message },
       { transaction },
     );
   }

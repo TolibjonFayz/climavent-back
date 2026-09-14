@@ -185,6 +185,7 @@ export class StoresService {
               store_id: id,
               type: 'bank_requisites_changed',
               actor_id: requester?.user_id ?? null,
+              actor_login: requester?.login ?? null,
               // Eski qiymat ham yoziladi: nizoda "oldin qaysi hisob edi"
               message: bankChanged
                 .map((f) => `${f}: ${before[f] ?? '—'} → ${(requisiteFields as any)[f] ?? '—'}`)

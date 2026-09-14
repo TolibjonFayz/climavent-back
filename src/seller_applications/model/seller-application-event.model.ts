@@ -24,6 +24,9 @@ export class SellerApplicationEvent extends Model {
   actor_id: number;
   @BelongsTo(() => StoreUser, { foreignKey: 'actor_id', as: 'actor' })
   actor: StoreUser;
+  // Login MATNI yozilgan paytda. `actor_id` hisob o'chganda NULL bo'ladi,
+  // bu esa qoladi (trigger uni o'zgartirishni taqiqlaydi).
+  @Column({ type: DataType.TEXT, allowNull: true }) actor_login: string;
 
   @Column({ type: DataType.TEXT, allowNull: true }) message: string;
 

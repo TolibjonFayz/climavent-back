@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import * as bcrypt from 'bcrypt';
+import { DatabaseError, ForeignKeyConstraintError } from 'sequelize';
 import { StoreUser } from './model/store_user.model';
 import { Store } from 'src/stores/model/store.model';
 import { CreateStoreUserDto } from './dto/create-store-user.dto';
@@ -119,7 +120,23 @@ export class StoreUsersService {
   async remove(id: number, requester: Requester) {
     const user = await this.getOneOrFail(id);
     this.ensureCanTouch(user, requester);
-    await this.storeUserRepository.destroy({ where: { id } });
+    try {
+      await this.storeUserRepository.destroy({ where: { id } });
+    } catch (e) {
+      // Hisobga bog'langan yozuv o'chirishni to'ssa — 500 emas, tushunarli 409.
+      // Hozir hamma bog'lanishlar `SET NULL`, bu himoya kelajakdagi jadvallar uchun.
+      if (e instanceof ForeignKeyConstraintError) {
+        throw new ConflictException(
+          "Hisobni o'chirib bo'lmaydi: unga bog'langan yozuvlar bor. Hisobni nofaol qiling (is_active: false)",
+        );
+      }
+      if (e instanceof DatabaseError && /dalil|tarix/.test(e.message)) {
+        throw new ConflictException(
+          "Hisobni o'chirib bo'lmaydi: tarix yozuvlari himoyalangan. Hisobni nofaol qiling (is_active: false)",
+        );
+      }
+      throw e;
+    }
     return { message: "Hisob o'chirildi" };
   }
 

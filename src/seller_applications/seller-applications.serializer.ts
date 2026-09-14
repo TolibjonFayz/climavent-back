@@ -45,7 +45,7 @@ export function toEventView(e: SellerApplicationEvent) {
     type: e.type,
     // Login MATNI (ID emas) — topshiriq talabi. NULL: sotuvchi, tizim yoki
     // servis kaliti.
-    actor: e.actor?.login ?? null,
+    actor: e.actor_login ?? e.actor?.login ?? null,
     message: e.message,
     created_at: iso(e.created_at),
   };
@@ -90,11 +90,12 @@ export function toAdminView(
     info_request: app.info_request,
     reject_reason: app.reject_reason,
     admin_note: app.admin_note,
-    reviewed_by: app.reviewer?.login ?? null,
+    // Qaror paytidagi login matni — hisob o'chirilgan bo'lsa ham ko'rinadi
+    reviewed_by: app.reviewed_by_login ?? app.reviewer?.login ?? null,
     reviewed_at: iso(app.reviewed_at),
     store_id: app.store_id,
     store_user_id: app.store_user_id,
-    store_user_login: app.sellerAccount?.login ?? null,
+    store_user_login: app.sellerAccount?.login ?? app.store_user_login ?? null,
     documents_count: opts.documentsCount,
     created_at: iso(app.created_at),
     updated_at: iso(app.updated_at),
