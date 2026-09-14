@@ -22,6 +22,8 @@ import {
 import { StoresService } from './stores.service';
 import { Store } from './model/store.model';
 import { Privileged } from 'src/common/decorators/privileged.decorator';
+import { CurrentViewer } from 'src/common/decorators/viewer.decorator';
+import type { Viewer } from 'src/common/middleware/viewer_scope.middleware';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
 import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
@@ -44,8 +46,13 @@ export class StoresController {
   async getAll(
     @Query('active') active?: string,
     @Privileged() privileged?: boolean,
-  ): Promise<Store[]> {
-    return this.storesService.getAll(active === 'true', privileged);
+    @CurrentViewer() viewer?: Viewer,
+  ) {
+    // Yopiq rekvizitlar faqat o'z do'koni va superadminga (№16, 8-band)
+    return this.storesService.present(
+      await this.storesService.getAll(active === 'true', privileged),
+      viewer,
+    );
   }
 
   @ApiOperation({ summary: "Bitta do'kon" })
@@ -55,8 +62,9 @@ export class StoresController {
   async getOne(
     @Param('id', ParseIntPipe) id: number,
     @Privileged() privileged: boolean,
-  ): Promise<Store> {
-    return this.storesService.getOne(id, privileged);
+    @CurrentViewer() viewer: Viewer,
+  ) {
+    return this.storesService.present(await this.storesService.getOne(id, privileged), viewer);
   }
 
   @ApiOperation({ summary: "Do'kon slug bo'yicha (sayt sahifasi uchun)" })
@@ -66,8 +74,9 @@ export class StoresController {
   async getBySlug(
     @Param('slug') slug: string,
     @Privileged() privileged: boolean,
-  ): Promise<Store> {
-    return this.storesService.getBySlug(slug, privileged);
+    @CurrentViewer() viewer: Viewer,
+  ) {
+    return this.storesService.present(await this.storesService.getBySlug(slug, privileged), viewer);
   }
 
   @ApiOperation({ summary: "Do'kon yaratish (superadmin)" })
@@ -89,8 +98,10 @@ export class StoresController {
     return this.storesService.create(dto);
   }
 
-  // store_admin o'z do'konini tahrirlashi mumkin, superadmin — hammasini.
-  @ApiOperation({ summary: "Do'konni tahrirlash" })
+  // store_admin o'z do'konining profili va bank rekvizitlarini, superadmin
+  // — hammasini (is_active, nom, slug, yuridik nom, STIR ham).
+  @ApiOperation({ summary: "Do'konni tahrirlash (qismiy)" })
+  @ApiResponse({ status: 403, description: "Boshqa do'kon yoki faqat superadmin maydoni (is_active, name, slug, legal_name, tin, ...)" })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
   @ApiResponse({ status: 200, type: Store })
@@ -109,7 +120,9 @@ export class StoresController {
     ) {
       return this.storesService.forbidOtherStore();
     }
-    return this.storesService.update(id, dto);
+    // Maydon darajasidagi ruxsat (is_active, nom, rekvizitlar) — servisda
+    const updated = await this.storesService.update(id, dto, requester);
+    return this.storesService.present(updated, req.viewer);
   }
 
   @ApiOperation({ summary: "Do'konni o'chirish (superadmin)" })

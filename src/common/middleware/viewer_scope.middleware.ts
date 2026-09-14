@@ -4,11 +4,22 @@ import { JwtService } from '@nestjs/jwt';
 import { NextFunction, Request, Response } from 'express';
 import { timingSafeEqual } from 'crypto';
 
+/**
+ * So'rov egasi. `isPrivileged` ko'rinuvchanlik uchun yetarli, lekin do'kon
+ * rekvizitlari (topshiriq №16, 8-band) uchun AYNAN kim ekani kerak:
+ * `store_admin` faqat O'Z do'konining bank rekvizitlarini ko'radi.
+ */
+export interface Viewer {
+  kind: 'service' | 'site_admin' | 'superadmin' | 'store_admin' | null;
+  store_id: number | null;
+}
+
 declare module 'express' {
   interface Request {
     // Adminka/bot so'rovimi? Ommaviy o'qish endpointlari shu bayroqqa
     // qarab nofaol do'kon va yashirilgan mahsulotni ko'rsatadi yoki yo'q.
     isPrivileged?: boolean;
+    viewer?: Viewer;
   }
 }
 
@@ -36,24 +47,26 @@ export class ViewerScopeMiddleware implements NestMiddleware {
   ) {}
 
   async use(req: Request, _res: Response, next: NextFunction) {
-    req.isPrivileged = await this.aniqla(req);
+    req.viewer = await this.aniqla(req);
+    req.isPrivileged = req.viewer.kind !== null;
     next();
   }
 
-  private async aniqla(req: Request): Promise<boolean> {
-    if (this.servisKaliti(req)) return true;
+  private async aniqla(req: Request): Promise<Viewer> {
+    const guest: Viewer = { kind: null, store_id: null };
+    if (this.servisKaliti(req)) return { kind: 'service', store_id: null };
 
     const authHeader = req.headers.authorization;
-    if (!authHeader) return false;
+    if (!authHeader) return guest;
     const [bearer, token] = authHeader.split(' ');
-    if (bearer !== 'Bearer' || !token) return false;
+    if (bearer !== 'Bearer' || !token) return guest;
 
     // Sayt admini
     try {
       const payload: any = await this.jwtService.verifyAsync(token, {
         secret: this.config.get<string>('ACCESS_TOKEN_KEY_USER'),
       });
-      if (payload?.is_admin) return true;
+      if (payload?.is_admin) return { kind: 'site_admin', store_id: null };
     } catch {
       // e'tiborsiz — quyida do'kon tokeni sinaladi
     }
@@ -65,9 +78,13 @@ export class ViewerScopeMiddleware implements NestMiddleware {
           this.config.get<string>('STORE_TOKEN_KEY') ||
           this.config.get<string>('ACCESS_TOKEN_KEY'),
       });
-      return payload?.role === 'superadmin' || payload?.role === 'store_admin';
+      if (payload?.role === 'superadmin') return { kind: 'superadmin', store_id: null };
+      if (payload?.role === 'store_admin') {
+        return { kind: 'store_admin', store_id: Number(payload.store_id) || null };
+      }
+      return guest;
     } catch {
-      return false;
+      return guest;
     }
   }
 

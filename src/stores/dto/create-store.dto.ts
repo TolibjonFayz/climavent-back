@@ -2,11 +2,13 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsHexColor,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
+  MaxLength,
 } from 'class-validator';
 
 export class CreateStoreDto {
@@ -83,4 +85,52 @@ export class CreateStoreDto {
   @IsOptional()
   @IsInt()
   sort_order?: number;
+
+  // ------------------------------------------------ rekvizitlar (№16, 8-band)
+  // Ochiq (saytda ko'rinadi): legal_name, tin. Qolganlari yopiq —
+  // `store_requisites` jadvalida. Kim o'zgartira olishi — `StoresService.update`.
+
+  @ApiProperty({ required: false, nullable: true, example: '"AIRCOOL TASHKENT" MChJ' })
+  @IsOptional() @IsString() @MaxLength(255)
+  legal_name?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, example: '305123456', description: 'STIR: 9 raqam (YaTT: 9 yoki 14)' })
+  @IsOptional() @Matches(/^(\d{9}|\d{14})$/, { message: "tin 9 yoki 14 raqam bo'lsin" })
+  tin?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, enum: ['llc', 'jsc', 'other_legal_entity', 'sole_proprietor'] })
+  @IsOptional() @IsIn(['llc', 'jsc', 'other_legal_entity', 'sole_proprietor'])
+  legal_form?: string | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  @IsOptional() @IsString() @MaxLength(500)
+  legal_address?: string | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  @IsOptional() @IsString() @MaxLength(255)
+  director_name?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, example: 'Kapitalbank' })
+  @IsOptional() @IsString() @MaxLength(255)
+  bank_name?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, example: '20208000900123456001' })
+  @IsOptional() @Matches(/^\d{20}$/, { message: "bank_account 20 raqam bo'lsin" })
+  bank_account?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, example: '01088' })
+  @IsOptional() @Matches(/^\d{5}$/, { message: "bank_mfo 5 raqam bo'lsin" })
+  bank_mfo?: string | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  @IsOptional() @IsBoolean()
+  vat_payer?: boolean | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  @IsOptional() @Matches(/^\d{6,20}$/, { message: "vat_code faqat raqam bo'lsin" })
+  vat_code?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, enum: ['manufacturer', 'distributor', 'dealer', 'reseller'] })
+  @IsOptional() @IsIn(['manufacturer', 'distributor', 'dealer', 'reseller'])
+  business_type?: string | null;
 }

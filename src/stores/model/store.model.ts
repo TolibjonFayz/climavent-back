@@ -87,6 +87,18 @@ export class Store extends Model<Store, StoreAtr> {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
   sort_order: number;
 
+  // OCHIQ rekvizitlar (topshiriq №16, 8-band): saytda sotuvchining yuridik
+  // nomi va STIR ko'rinishi elektron tijorat talabi bo'lishi mumkin.
+  // Bank, rahbar, QQS esa `store_requisites` da — pastdagi eslatmaga qarang.
+  // O'zgartirish: faqat superadmin.
+  @ApiProperty({ required: false, nullable: true, example: '"AIRCOOL TASHKENT" MChJ' })
+  @Column({ type: DataType.TEXT, allowNull: true })
+  legal_name: string;
+
+  @ApiProperty({ required: false, nullable: true, example: '305123456', description: 'STIR' })
+  @Column({ type: DataType.TEXT, allowNull: true })
+  tin: string;
+
   // Eslatma: `@HasMany(() => Product)` ATAYLAB yo'q. Store `forRoot`
   // modellari ro'yxatida (User unga havola qiladi), Product esa emas —
   // teskari bog'lanish qo'shilsa "Product has not been defined" xatosi

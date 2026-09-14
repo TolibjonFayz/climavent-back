@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -9,11 +9,30 @@ import { Throttle } from '@nestjs/throttler';
 import { StoreAuthService } from './store_auth.service';
 import { StoreLoginDto } from './dto/store-login.dto';
 import { StoreAuthGuard } from './store_auth.guard';
+import { PasswordSetupService } from './password-setup.service';
+import { SetPasswordDto } from './dto/set-password.dto';
 
 @ApiTags('Store auth')
 @Controller('store-auth')
 export class StoreAuthController {
-  constructor(private readonly storeAuthService: StoreAuthService) {}
+  constructor(
+    private readonly storeAuthService: StoreAuthService,
+    private readonly passwordSetup: PasswordSetupService,
+  ) {}
+
+  // Bir martalik havola orqali parol o'rnatish (topshiriq №16, 7-band).
+  // Guvohnomasiz: havolaning o'zi guvohnoma. Token taxmin qilishga qarshi
+  // IP boshiga daqiqasiga 10 urinish.
+  @ApiOperation({ summary: "Parolni bir martalik havola orqali o'rnatish" })
+  @ApiResponse({ status: 200, schema: { example: { login: 'aircool' } } })
+  @ApiResponse({ status: 400, description: "Parol 8 belgidan qisqa" })
+  @ApiResponse({ status: 410, description: "Token yo'q, ishlatilgan yoki muddati o'tgan" })
+  @Throttle({ default: { limit: 10, ttl: 60 * 1000 } })
+  @HttpCode(200)
+  @Post('set-password')
+  async setPassword(@Body() dto: SetPasswordDto) {
+    return this.passwordSetup.setPassword(dto.token, dto.password);
+  }
 
   // Parol tanlash hujumiga qarshi qattiq cheklov: IP boshiga soatiga 10 ta.
   @ApiOperation({ summary: "Do'kon paneliga kirish" })

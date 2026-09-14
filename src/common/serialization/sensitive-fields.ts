@@ -29,6 +29,10 @@ export const SENSITIVE_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
   // chiqaradi — bu ikkinchi himoya qatlami.
   'password_hash',
   'hashed_password',
+  // Bir martalik tokenlarning xeshlari (topshiriq №16): parol o'rnatish va
+  // sotuvchi arizasining holat sahifasi.
+  'password_setup_token_hash',
+  'public_token_hash',
 ]);
 
 /** `JSON.stringify` uchun replacer — maxfiy kalitlarni tashlab yuboradi. */

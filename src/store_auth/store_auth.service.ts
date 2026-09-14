@@ -25,6 +25,10 @@ export class StoreAuthService {
     const invalid = new UnauthorizedException("Login yoki parol noto'g'ri");
     if (!user || !user.is_active) throw invalid;
 
+    // Parolsiz hisob (ariza tasdiqlangan, lekin sotuvchi hali parol
+    // o'rnatmagan) — kirib bo'lmaydi. Tekshiruvsiz `bcrypt.compare` NULL
+    // xeshda xato tashlab 500 berardi.
+    if (!user.password_hash) throw invalid;
     const ok = await bcrypt.compare(dto.password, user.password_hash);
     if (!ok) throw invalid;
 

@@ -41,8 +41,19 @@ export class StoreUser extends Model<StoreUser, StoreUserAtr> {
 
   // Ochiq parol HECH QACHON saqlanmaydi va HECH QACHON javobda qaytmaydi.
   // `toJSON` da ham chiqarib tashlanadi (pastga qarang).
-  @Column({ type: DataType.STRING, allowNull: false })
+  //
+  // NULL bo'lishi mumkin (topshiriq №16): ariza tasdiqlanganda hisob
+  // PAROLSIZ ochiladi, sotuvchi parolni bir martalik havola orqali o'zi
+  // o'rnatadi. Parolsiz hisob bilan kirib bo'lmaydi (`StoreAuthService`).
+  @Column({ type: DataType.STRING, allowNull: true })
   password_hash: string;
+
+  // Parol o'rnatish tokenining SHA-256 XESHI (72 soat, bir martalik).
+  @Column({ type: DataType.TEXT, allowNull: true })
+  password_setup_token_hash: string;
+
+  @Column({ type: DataType.DATE, allowNull: true })
+  password_setup_expires_at: Date;
 
   @ApiProperty({ example: 'Anvar Karimov', required: false })
   @Column({ type: DataType.STRING, allowNull: true })
@@ -70,6 +81,7 @@ export class StoreUser extends Model<StoreUser, StoreUserAtr> {
   toJSON() {
     const values = { ...super.toJSON() } as Record<string, unknown>;
     delete values.password_hash;
+    delete values.password_setup_token_hash;
     return values;
   }
 }

@@ -21,6 +21,13 @@ const start = async () => {
     // Nega aynan shu yerda — `common/serialization/sensitive-fields.ts`.
     app.set('json replacer', stripSensitiveFields);
 
+    // Railway so'rovni o'z proksisi orqali uzatadi. Busiz `req.ip` — proksi
+    // manzili bo'lardi: IP boshiga cheklovlar (OTP, ariza) amalda HAMMAGA
+    // UMUMIY bo'lib qolardi, oferta dalilida (`offer_ip`) esa mijozning
+    // emas, Railway'ning manzili yozilardi. `1` — faqat eng yaqin bitta
+    // proksiga ishonamiz: mijoz o'zi yuborgan X-Forwarded-For e'tiborsiz.
+    app.set('trust proxy', 1);
+
     // CSP o'chirilgan — Swagger UI (/api/docs) inline script/style ishlatadi,
     // qattiq CSP uni buzadi. Qolgan sarlavhalar (HSTS, X-Frame-Options,
     // X-Content-Type-Options, X-Powered-By yashirish va h.k.) standart holida.

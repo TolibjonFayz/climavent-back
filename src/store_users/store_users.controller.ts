@@ -21,6 +21,8 @@ import { StoreUsersService } from './store_users.service';
 import { CreateStoreUserDto } from './dto/create-store-user.dto';
 import { UpdateStoreUserDto } from './dto/update-store-user.dto';
 import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
+import { SuperadminGuard } from 'src/store_auth/superadmin.guard';
+import { PasswordSetupService } from 'src/store_auth/password-setup.service';
 
 // DIQQAT: hech bir javobda `password_hash` qaytmaydi — StoreUser
 // modelidagi `toJSON` uni chiqarib tashlaydi.
@@ -30,7 +32,25 @@ import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
 @UseGuards(StoreAuthGuard)
 @Controller('store-users')
 export class StoreUsersController {
-  constructor(private readonly storeUsersService: StoreUsersService) {}
+  constructor(
+    private readonly storeUsersService: StoreUsersService,
+    private readonly passwordSetup: PasswordSetupService,
+  ) {}
+
+  // Yangi parol o'rnatish havolasi (topshiriq №16, 7-band) — sotuvchi
+  // havolani yo'qotsa, muddati o'tsa yoki parolini unutsa. Faqat superadmin.
+  // Eski token o'z-o'zidan bekor bo'ladi; mavjud parol esa yangisi
+  // o'rnatilguncha ishlayveradi.
+  @ApiOperation({ summary: "Parol o'rnatish havolasi uchun token (superadmin)" })
+  @ApiResponse({
+    status: 201,
+    schema: { example: { password_setup_token: '9c1e…', expires_at: '2026-09-17T09:30:00Z' } },
+  })
+  @UseGuards(SuperadminGuard)
+  @Post(':id/password-setup')
+  async passwordSetupToken(@Param('id', ParseIntPipe) id: number) {
+    return this.passwordSetup.issue(id);
+  }
 
   @ApiOperation({ summary: "Hisoblar ro'yxati (o'z do'koni yoki hammasi)" })
   @ApiResponse({ status: 200, description: 'Hisoblar' })
