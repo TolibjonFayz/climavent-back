@@ -65,6 +65,8 @@ export class PasswordSetupService {
       await user.update(
         {
           password_hash: await bcrypt.hash(password, SALT_ROUNDS),
+          // Yangi parol — shu hisobning barcha eski tokenlari bekor (№17)
+          token_version: (user.token_version ?? 0) + 1,
           // Bir martalik: ishlatilgan zahoti bekor
           password_setup_token_hash: null,
           password_setup_expires_at: null,

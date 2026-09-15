@@ -9,6 +9,7 @@ import { Otp } from 'src/otp/models/otp.model';
 import { OtpModule } from 'src/otp/otp.module';
 import { Like } from 'src/likes/model/like.model';
 import { Cart } from 'src/cart/models/cart.model';
+import { OffersModule } from 'src/offers/offers.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { Cart } from 'src/cart/models/cart.model';
     JwtModule.register({}),
     MailModule,
     OtpModule,
+    OffersModule, // rozilik dalili (№18)
   ],
   controllers: [UsersController],
   providers: [UsersService],

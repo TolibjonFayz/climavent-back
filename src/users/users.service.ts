@@ -25,6 +25,7 @@ import { SignoutDto } from './dto/signout.dto';
 import { Like } from 'src/likes/model/like.model';
 import { Cart } from 'src/cart/models/cart.model';
 import { Op } from 'sequelize';
+import { ConsentService } from 'src/offers/consent.service';
 
 // Refresh token cookie muddati: 75 kun — REFRESH_TOKEN_TIME_USER (.env) bilan
 // mos kelishi kerak, aks holda cookie JWT haqiqiy amal qilish muddatidan
@@ -47,6 +48,7 @@ export class UsersService {
     @InjectModel(Like) private readonly likeRepo: typeof Like,
     @InjectModel(Cart) private readonly cartRepo: typeof Cart,
     private readonly jwtservice: JwtService,
+    private readonly consent: ConsentService,
     private readonly mailService: MailService,
     private readonly otpService: OtpService,
   ) {}
@@ -129,6 +131,20 @@ export class UsersService {
     let user = await this.UsersRepository.findOne({
       where: { phone_number: loginuserDto.phone_number },
     });
+
+    // Rozilik (topshiriq №18). Yangi raqam uchun sayt belgini SMS DAN OLDIN
+    // so'raydi: `check_consent` bilan kelib, versiyalar yo'q bo'lsa — SMS
+    // yuborilmaydi, yozuv ham yaratilmaydi. Hisobi bor (faol) odamdan so'ralmaydi.
+    const versions = await this.checkConsentVersions(loginuserDto);
+    const isNew = !user || !user.is_active;
+    if (loginuserDto.check_consent === true && isNew && !versions) {
+      return {
+        consent_required: true,
+        terms: await this.consent.currentPublic('buyer'),
+        privacy: await this.consent.currentPublic('privacy'),
+      };
+    }
+
     if (!user) {
       // Eskirgan, hech qachon tasdiqlanmagan (login qilib, OTP kiritilmagan)
       // yozuvlarni tozalab turamiz — aks holda baza soxta raqamlar bilan to'ladi.
@@ -349,8 +365,15 @@ export class UsersService {
     return { status: 'Sent', details: encoded };
   }
 
-  async verifyOtpClient(verifyOtpDto: VerifyOtpDto, res: Response) {
+  async verifyOtpClient(
+    verifyOtpDto: VerifyOtpDto,
+    res: Response,
+    ctx: { ip?: string; userAgent?: string } = {},
+  ) {
     const { verification_key, otp, phone_number } = verifyOtpDto;
+    // Versiyalar kod tekshirilishidan OLDIN tekshiriladi: eskirgan bo'lsa 409,
+    // OTP urinishi behuda sarflanmaydi.
+    const versions = await this.checkConsentVersions(verifyOtpDto);
 
     let obj: IOtpType;
     try {
@@ -405,6 +428,14 @@ export class UsersService {
       throw new BadRequestException('Foydalanuvchi topilmadi');
     }
 
+    // Rozilik dalili — raqam SMS-kod bilan tasdiqlangandan keyin (oferta 3.6
+    // bilan bir xil qoida: versiya, vaqt, hisob, IP, brauzer).
+    if (versions) {
+      for (const [kind, version] of [['buyer', versions.terms], ['privacy', versions.privacy]] as const) {
+        await this.consent.record({ kind, version, user_id: client.id, ip: ctx.ip, userAgent: ctx.userAgent });
+      }
+    }
+
     const tokens = await this.getTokens(client);
     client.refresh_token = await bcrypt.hash(tokens.refreshToken, 8);
     await client.save();
@@ -415,6 +446,22 @@ export class UsersService {
     });
 
     return { client, tokens, status: 1 };
+  }
+
+  /**
+   * `terms_version` va `privacy_version` birga keladi. Bittasi bo'lsa — 400;
+   * joriy versiya emas — 409; ikkalasi ham yo'q — `null` (eskicha oqim).
+   */
+  private async checkConsentVersions(dto: { terms_version?: string; privacy_version?: string }) {
+    const terms = dto.terms_version?.trim();
+    const privacy = dto.privacy_version?.trim();
+    if (!terms && !privacy) return null;
+    if (!terms || !privacy) {
+      throw new BadRequestException('terms_version va privacy_version birga yuborilishi kerak');
+    }
+    await this.consent.assertCurrent('buyer', terms);
+    await this.consent.assertCurrent('privacy', privacy);
+    return { terms, privacy };
   }
 
   async makeVerifyTrue(otp_id: string) {

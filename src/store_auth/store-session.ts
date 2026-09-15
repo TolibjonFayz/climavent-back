@@ -1,0 +1,40 @@
+import { StoreUser } from 'src/store_users/model/store_user.model';
+import type { StoreRequester } from './store_auth.guard';
+
+/**
+ * Do'kon paneli tokenidan so'rov egasini BAZA bo'yicha aniqlaydi (topshiriq №17, 3-band).
+ *
+ * Ilgari guard faqat JWT imzosi va ichidagi `role` ga ishonardi: hisob nofaol
+ * qilinsa yoki o'chirilsa ham token muddati tugaguncha (12 soat) hamma narsa
+ * ishlardi — superadmin bo'lsa arizalar, pasport havolalari, do'konlar.
+ *
+ * Endi har so'rovda:
+ *   - hisob bazada bor va `is_active`;
+ *   - tokendagi `tv` hisobning `token_version` iga teng (parol almashsa oshadi —
+ *     o'g'irlangan eski token o'ladi);
+ *   - rol va do'kon TOKENDAN EMAS, bazadan olinadi: superadminlikdan tushirilgan
+ *     yoki boshqa do'konga o'tkazilgan hisob darhol yangi huquq bilan ishlaydi.
+ *
+ * `null` — tokenni rad etish kerak (chaqiruvchi 401 beradi).
+ *
+ * Model DI orqali emas, to'g'ridan-to'g'ri ishlatiladi: guard ko'p modulda
+ * `@UseGuards` bilan qo'llanadi va har biriga `StoreUser` ni qo'shish shart bo'lmasin.
+ */
+export async function resolveStoreSession(payload: any): Promise<StoreRequester | null> {
+  const id = Number(payload?.user_id);
+  if (!Number.isInteger(id) || id <= 0) return null;
+
+  const user = await StoreUser.findByPk(id, {
+    attributes: ['id', 'login', 'role', 'store_id', 'is_active', 'token_version'],
+  });
+  if (!user || !user.is_active) return null;
+  if (Number(payload?.tv ?? 0) !== Number(user.token_version ?? 0)) return null;
+  if (user.role !== 'superadmin' && user.role !== 'store_admin') return null;
+
+  return {
+    role: user.role,
+    store_id: user.role === 'superadmin' ? null : user.store_id ?? null,
+    user_id: user.id,
+    login: user.login,
+  };
+}

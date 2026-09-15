@@ -76,6 +76,10 @@ export class StoreUser extends Model<StoreUser, StoreUserAtr> {
   @Column({ type: DataType.DATE, allowNull: true })
   last_login_at: Date;
 
+  // Parol almashganda oshadi — eski tokenlar (`tv` boshqa) 401 oladi (№17, 3-band)
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  token_version: number;
+
   // Parol hash'i javobga TUSHMASIN — bitta joyda kafolatlaymiz, har bir
   // endpointda qo'lda o'chirishga tayanmaymiz.
   toJSON() {

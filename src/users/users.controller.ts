@@ -10,6 +10,7 @@ import {
   Res,
   UseGuards,
   Query,
+  Req,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -25,7 +26,7 @@ import { LoginUserDto } from './dto/login-user.dto.';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { UsersService } from './users.service';
 import { User } from './model/user.model';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { SignoutDto } from './dto/signout.dto';
 import { UserSelfGuard } from 'src/guards/user_self.guard';
 import { UserSelfOrBackofficeGuard } from 'src/guards/user_self_or_backoffice.guard';
@@ -150,8 +151,12 @@ export class UsersController {
   verifyOtp(
     @Body() verifyOtpDto: VerifyOtpDto,
     @Res({ passthrough: true }) res: Response,
+    @Req() req: Request,
   ) {
-    return this.usersService.verifyOtpClient(verifyOtpDto, res);
+    return this.usersService.verifyOtpClient(verifyOtpDto, res, {
+      ip: req.ip,
+      userAgent: String(req.headers['user-agent'] || ''),
+    });
   }
 
   //Update user by id

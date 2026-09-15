@@ -45,10 +45,26 @@ const start = async () => {
 
     // credentials: true bilan origin '*' ishlamaydi — brauzer rad etadi.
     // Shuning uchun aniq domenlar ro'yxatini .env dan o'qiymiz.
-    const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000')
-      .split(',')
-      .map((o) => o.trim())
-      .filter(Boolean);
+    //
+    // Production domenlari KODDA ham turadi (topshiriq №17, 1-band): Railway
+    // muhit o'zgaruvchisi unutilsa yoki qayta yozilsa, sayt va adminka
+    // brauzerdan backendga chiqolmay qolmasin. `CORS_ORIGINS` qo'shimcha
+    // (lokal, preview) domenlar uchun.
+    const PRODUCTION_ORIGINS = [
+      'https://climavent.uz',
+      'https://www.climavent.uz',
+      // Next.js marketpleys adminkasi (sotuvchi arizasi formasi shu yerda)
+      'https://climavent-marketplace-admin.vercel.app',
+    ];
+    const allowedOrigins = [
+      ...new Set([
+        ...PRODUCTION_ORIGINS,
+        ...(process.env.CORS_ORIGINS || 'http://localhost:3000')
+          .split(',')
+          .map((o) => o.trim())
+          .filter(Boolean),
+      ]),
+    ];
 
     app.enableCors({
       origin: allowedOrigins,

@@ -118,6 +118,10 @@ export class SellerApplicationsService {
     const docs = await this.loadFreeDocuments(docIds);
     this.ensureRequiredDocuments(fields.legal_form, docs.map((d) => d.type));
 
+    // Formadagi belgi ofertani VA maxfiylik siyosatini qamraydi (№18, 3-band) —
+    // joriy maxfiylik versiyasiga ham dalil yoziladi.
+    const privacy = await this.offerRepo.findOne({ where: { kind: 'privacy', is_current: true } });
+
     const rawToken = randomBytes(32).toString('hex');
     try {
       const app = await this.appRepo.sequelize.transaction(async (transaction) => {
@@ -148,6 +152,19 @@ export class SellerApplicationsService {
           },
           { transaction },
         );
+        if (privacy) {
+          await this.acceptanceRepo.create(
+            {
+              kind: 'privacy',
+              version: privacy.version,
+              application_id: created.id,
+              accepted_at: created.offer_accepted_at,
+              ip: ctx.ip ?? null,
+              user_agent: ctx.userAgent?.slice(0, 500) ?? null,
+            },
+            { transaction },
+          );
+        }
         return created;
       });
       return { id: app.id, status: app.status, public_token: rawToken };

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { NextFunction, Request, Response } from 'express';
 import { timingSafeEqual } from 'crypto';
+import { resolveStoreSession } from 'src/store_auth/store-session';
 
 /**
  * So'rov egasi. `isPrivileged` ko'rinuvchanlik uchun yetarli, lekin do'kon
@@ -71,21 +72,24 @@ export class ViewerScopeMiddleware implements NestMiddleware {
       // e'tiborsiz — quyida do'kon tokeni sinaladi
     }
 
-    // Do'kon hisobi
+    // Do'kon hisobi — imzo yetarli emas, hisob bazadan tekshiriladi (№17, 3-band).
+    // Aks holda nofaol qilingan hisob tokeni nofaol do'konlar va bank
+    // rekvizitlarini ko'rishda davom etardi.
+    let payload: any;
     try {
-      const payload: any = await this.jwtService.verifyAsync(token, {
+      payload = await this.jwtService.verifyAsync(token, {
         secret:
           this.config.get<string>('STORE_TOKEN_KEY') ||
           this.config.get<string>('ACCESS_TOKEN_KEY'),
       });
-      if (payload?.role === 'superadmin') return { kind: 'superadmin', store_id: null };
-      if (payload?.role === 'store_admin') {
-        return { kind: 'store_admin', store_id: Number(payload.store_id) || null };
-      }
-      return guest;
     } catch {
       return guest;
     }
+    const session = await resolveStoreSession(payload);
+    if (!session) return guest;
+    return session.role === 'superadmin'
+      ? { kind: 'superadmin', store_id: null }
+      : { kind: 'store_admin', store_id: session.store_id };
   }
 
   private servisKaliti(req: Request): boolean {

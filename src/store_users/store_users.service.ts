@@ -89,6 +89,8 @@ export class StoreUsersService {
     // Parol berilsa — qayta hash qilinadi, ochiq holda saqlanmaydi.
     if (dto.password) {
       payload.password_hash = await bcrypt.hash(dto.password, SALT_ROUNDS);
+      // Parol almashdi — eski tokenlar bekor (№17, 3-band)
+      payload.token_version = (user.token_version ?? 0) + 1;
     }
 
     if (dto.login && dto.login !== user.login) {

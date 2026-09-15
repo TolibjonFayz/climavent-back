@@ -7,6 +7,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { timingSafeEqual } from 'crypto';
+import { resolveStoreSession } from './store-session';
 
 // So'rov kim tomonidan qilinayotgani. Yozish endpointlari shu asosda
 // cheklanadi (StoreScopeGuard).
@@ -43,22 +44,24 @@ export class StoreAuthGuard implements CanActivate {
       throw new UnauthorizedException('Token formati xato');
     }
 
+    let payload: any;
     try {
-      const payload = await this.jwtService.verifyAsync(token, {
+      payload = await this.jwtService.verifyAsync(token, {
         secret:
           this.config.get<string>('STORE_TOKEN_KEY') ||
           this.config.get<string>('ACCESS_TOKEN_KEY'),
       });
-      req.storeUser = {
-        role: payload.role,
-        store_id: payload.store_id ?? null,
-        user_id: payload.user_id,
-        login: payload.login,
-      } as StoreRequester;
-      return true;
     } catch {
       throw new UnauthorizedException('Token yaroqsiz yoki muddati tugagan');
     }
+
+    // Imzo yetarli emas — hisob bazada bor, faol va parol almashmaganmi (№17)
+    const session = await resolveStoreSession(payload);
+    if (!session) {
+      throw new UnauthorizedException("Hisob faol emas yoki sessiya bekor qilingan — qayta kiring");
+    }
+    req.storeUser = session;
+    return true;
   }
 
   private isServiceKey(req: any): boolean {

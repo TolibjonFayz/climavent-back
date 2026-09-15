@@ -7,6 +7,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { timingSafeEqual } from 'crypto';
+import { resolveStoreSession } from 'src/store_auth/store-session';
 
 /**
  * MIJOZ (sayt) yoki ORQA OFIS (adminka) — ikkalasi ham o'tadi
@@ -68,25 +69,27 @@ export class CustomerOrBackofficeGuard implements CanActivate {
       // e'tiborsiz — quyida do'kon tokeni sinaladi
     }
 
-    // 3) Do'kon hisobi tokeni
+    // 3) Do'kon hisobi tokeni — hisob bazadan tekshiriladi (№17, 3-band)
+    let payload: any;
     try {
-      const payload: any = await this.jwtService.verifyAsync(token, {
+      payload = await this.jwtService.verifyAsync(token, {
         secret:
           this.config.get<string>('STORE_TOKEN_KEY') ||
           this.config.get<string>('ACCESS_TOKEN_KEY'),
       });
-      if (payload?.role !== 'superadmin' && payload?.role !== 'store_admin') {
-        throw new Error('rol tanilmadi');
-      }
-      req.actor = {
-        kind: payload.role,
-        user_id: payload.user_id,
-        store_id: payload.store_id ?? null,
-      } as RequestActor;
-      return true;
     } catch {
       throw new UnauthorizedException('Token yaroqsiz yoki muddati tugagan');
     }
+    const session = await resolveStoreSession(payload);
+    if (!session) {
+      throw new UnauthorizedException("Hisob faol emas yoki sessiya bekor qilingan — qayta kiring");
+    }
+    req.actor = {
+      kind: session.role,
+      user_id: session.user_id,
+      store_id: session.store_id,
+    } as RequestActor;
+    return true;
   }
 
   private servisKaliti(req: any): boolean {

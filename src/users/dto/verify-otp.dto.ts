@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, Matches } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class VerifyOtpDto {
@@ -31,4 +31,18 @@ export class VerifyOtpDto {
     example: '1',
   })
   userId: string;
+
+  // ---- Rozilik (topshiriq №18, 2-band). Ikkalasi birga beriladi; berilmasa
+  // eskicha ishlaydi (sayt yangilanguncha buzilmasin).
+  @ApiProperty({ example: '1.0', required: false, description: "Qabul qilingan foydalanish shartlari versiyasi" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  terms_version?: string;
+
+  @ApiProperty({ example: '1.0', required: false, description: "Qabul qilingan maxfiylik siyosati versiyasi" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  privacy_version?: string;
 }

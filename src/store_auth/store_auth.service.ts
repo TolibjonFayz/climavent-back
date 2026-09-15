@@ -43,6 +43,8 @@ export class StoreAuthService {
         store_id: user.store_id ?? null,
         role: user.role,
         login: user.login,
+        // Parol versiyasi: parol almashsa eski tokenlar yaroqsiz (№17)
+        tv: user.token_version ?? 0,
       },
       {
         secret: process.env.STORE_TOKEN_KEY || process.env.ACCESS_TOKEN_KEY,
