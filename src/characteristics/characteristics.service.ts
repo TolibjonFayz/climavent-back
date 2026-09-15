@@ -1,9 +1,12 @@
 import { CreateCharacteristicDto } from './dto/create-characteristic.dto';
 import { UpdateCharacteristicDto } from './dto/update-characteristic.dto';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Characteristic } from './model/characteristic.model';
 import { InjectModel } from '@nestjs/sequelize';
+import { Op } from 'sequelize';
 import { R2Service } from 'src/r2/r2.service';
+import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
+import { resolveSaleUpdate } from 'src/common/pricing/sale-update';
 
 @Injectable()
 export class CharacteristicsService {
@@ -137,11 +140,30 @@ export class CharacteristicsService {
       else payload.contentJson = resolved;
     }
 
+    // Aksiya (topshiriq №15). Narxli SAP varianti bor modelda narx
+    // variantlardan olinadi — modelning o'z aksiyasi saytda hech qayerda
+    // ishlamasdi, shuning uchun jimgina qabul qilmay 400 qaytaramiz.
+    if (payload.sale_price !== undefined && payload.sale_price !== null) {
+      const pricedVariants = await ProductModelInside.count({
+        where: { product_model_id: id, price: { [Op.gt]: 0 } },
+      });
+      if (pricedVariants > 0) {
+        throw new BadRequestException(
+          `Bu modelda narx SAP variantlarida (${pricedVariants} ta) — aksiyani variantga qo'ying (PATCH /product-model-inside/:id)`,
+        );
+      }
+    }
+    const sale = resolveSaleUpdate(existing, payload);
+    delete payload.sale_price;
+    delete payload.sale_starts_at;
+    delete payload.sale_ends_at;
+    Object.assign(payload, sale);
+
     if (Object.keys(payload).length === 0) {
       return existing.dataValues;
     }
 
-    const updated = await this.charecteristicRepository.update(payload, {
+    const updated = await this.charecteristicRepository.update(payload as any, {
       where: { id: id },
       returning: true,
     });

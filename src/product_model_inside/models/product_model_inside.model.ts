@@ -59,6 +59,28 @@ export class ProductModelInside extends Model<
   })
   price: number;
 
+  // ---- Aksiya (topshiriq №15). Faolligini server hisoblaydi
+  // (`common/pricing/sale.ts`); mehmonga faqat FAOL aksiya ko'rinadi
+  // (`SalePresentationInterceptor`), adminkaga xom qiymat + `sale_active`.
+  @ApiProperty({ example: 103.12, required: false, nullable: true, description: 'Aksiya narxi (USD)' })
+  @Column({
+    type: DataType.DECIMAL(10, 2),
+    allowNull: true,
+    get(this: any): number | null {
+      const raw = this.getDataValue('sale_price');
+      return raw === null || raw === undefined ? null : Number(raw);
+    },
+  })
+  sale_price: number;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Aksiya boshlanishi' })
+  @Column({ type: DataType.DATE, allowNull: true })
+  sale_starts_at: Date;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Aksiya tugashi' })
+  @Column({ type: DataType.DATE, allowNull: true })
+  sale_ends_at: Date;
+
   // SAP varianti bo'yicha statistika — qaysi aniq variant qiziqish
   // uyg'otyapti va qaysisi savatga tushyapti.
   @ApiProperty({ example: 12, description: 'Necha marta tanlangani' })

@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/sequelize';
 import { CreateProductModelInsideDto } from './dto/create-product_model_inside.dto';
 import { UpdateProductModelInsideDto } from './dto/update-product_model_inside.dto';
 import { ProductModelInside } from './models/product_model_inside.model';
+import { resolveSaleUpdate } from 'src/common/pricing/sale-update';
 
 @Injectable()
 export class ProductModelInsideService {
@@ -68,7 +69,13 @@ export class ProductModelInsideService {
     updateProductModelInsideDto: UpdateProductModelInsideDto,
   ) {
     const item = await this.findOne(id);
-    return item.update(updateProductModelInsideDto);
+    // Aksiya maydonlari tekshiriladi va sanalar Date ga aylantiriladi (№15)
+    const sale = resolveSaleUpdate(item, updateProductModelInsideDto);
+    const payload: Record<string, unknown> = { ...updateProductModelInsideDto };
+    delete payload.sale_price;
+    delete payload.sale_starts_at;
+    delete payload.sale_ends_at;
+    return item.update({ ...payload, ...sale });
   }
 
   // id bo'yicha o'chirish

@@ -77,9 +77,18 @@ export class ProductsController {
 
   //Get all products count
   @ApiOperation({ summary: 'Get all products count' })
+  @ApiQuery({
+    name: 'on_sale',
+    required: false,
+    description: "`true` — faqat faol aksiyadagilar soni (`all?on_sale=true` bilan mos)",
+    example: 'true',
+  })
   @Get('allcount')
-  async getAllCount(@Privileged() privileged: boolean): Promise<number> {
-    return this.productsService.getAllProductsCount(privileged);
+  async getAllCount(
+    @Privileged() privileged: boolean,
+    @Query('on_sale') onSale?: string,
+  ): Promise<number> {
+    return this.productsService.getAllProductsCount(privileged, onSale === 'true');
   }
 
   //Get all products (page/limit/store_id ixtiyoriy)
@@ -106,6 +115,12 @@ export class ProductsController {
     description: "Berilsa faqat shu do'kon mahsulotlari qaytadi",
     example: '2',
   })
+  @ApiQuery({
+    name: 'on_sale',
+    required: false,
+    description: "`true` — faqat kamida bitta varianti FAOL aksiyadagi mahsulotlar",
+    example: 'true',
+  })
   @ApiResponse({ status: 200, description: 'Mahsulotlar', type: [Product] })
   @Get('all')
   async getAll(
@@ -113,12 +128,15 @@ export class ProductsController {
     @Query('limit') limit?: string,
     @Query('store_id') storeId?: string,
     @Privileged() privileged?: boolean,
+    @Query('on_sale') onSale?: string,
   ): Promise<Product[]> {
+    // Satr sifatida solishtiriladi: `Boolean("false")` true bo'lardi
     return this.productsService.getAllProducts(
       parsePositiveIntParam(page, 'page'),
       parsePositiveIntParam(limit, 'limit'),
       parsePositiveIntParam(storeId, 'store_id'),
       privileged,
+      onSale === 'true',
     );
   }
 

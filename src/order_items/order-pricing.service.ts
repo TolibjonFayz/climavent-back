@@ -6,6 +6,9 @@ import { Setting } from 'src/settings/model/setting.model';
 import { USD_RATE_KEY } from 'src/settings/settings.service';
 import { OrderItem } from './model/order_item.model';
 import { Order } from 'src/orders/model/order.model';
+import { basePrice, effectivePrice, isSaleActive, pricedOptions } from 'src/common/pricing/sale';
+
+const PRICE_ATTRS = ['price', 'sale_price', 'sale_starts_at', 'sale_ends_at'];
 
 export interface PricingInput {
   product_id: number;
@@ -15,8 +18,14 @@ export interface PricingInput {
 }
 
 export interface PricingResult {
-  /** Bir donaning so'mdagi narxi. `null` — katalogda narx yo'q. */
+  /** Bir donaning so'mdagi AMALDAGI narxi (faol aksiya hisobga olingan). `null` — katalogda narx yo'q. */
   price: number | null;
+  /** Aksiyasiz asosiy narx (so'm). */
+  regular_price: number | null;
+  /** Narx aksiya bo'yicha hisoblandimi */
+  sale_active: boolean;
+  /** Faol aksiya tugash vaqti (bo'lsa) */
+  sale_ends_at: Date | null;
   product_model_id: number | null;
   product_model_inside_id: number | null;
 }
@@ -40,6 +49,11 @@ export interface PricingResult {
  *   2. aks holda model: variantlaridan eng arzoni, bo'lmasa modelning
  *      o'z narxi;
  *   3. so'm = Math.round(usd * kurs).
+ *
+ * AKSIYA (topshiriq №15, 5-band): "narx" — AMALDAGI narx: faol aksiya bo'lsa
+ * aksiya narxi. Faollik shu yerda, buyurtma paytida qayta hisoblanadi — savatga
+ * solingandan keyin aksiya tugagan bo'lsa ham to'g'ri narx yoziladi. Asosiy
+ * narx `regular_price` ga alohida muhrlanadi (hisobot uchun).
  */
 @Injectable()
 export class OrderPricingService {
@@ -56,21 +70,24 @@ export class OrderPricingService {
   ) {}
 
   async resolve(input: PricingInput): Promise<PricingResult> {
+    const now = Date.now();
     let characteristic: Characteristic | null = null;
     let usd: number | null = null;
+    let regularUsd: number | null = null;
+    let saleRow: { sale_ends_at?: unknown } | null = null;
     let insideId: number | null = null;
 
     // 1) Aniq SAP varianti
     if (input.product_model_inside_id) {
       const inside = await this.insideRepo.findByPk(input.product_model_inside_id, {
-        attributes: ['id', 'price', 'product_model_id'],
+        attributes: ['id', 'product_model_id', ...PRICE_ATTRS],
       });
       if (!inside) {
         throw new BadRequestException('product_model_inside_id topilmadi');
       }
       characteristic = await this.characteristicRepo.findByPk(
         inside.product_model_id,
-        { attributes: ['id', 'product_id', 'price'] },
+        { attributes: ['id', 'product_id', ...PRICE_ATTRS] },
       );
       // Boshqa mahsulotning arzon variantini "tanlab" narxni tushirib
       // bo'lmasin.
@@ -80,18 +97,31 @@ export class OrderPricingService {
         );
       }
       insideId = inside.id;
-      usd = this.musbat(inside.price);
+      usd = effectivePrice(inside, now);
+      regularUsd = basePrice(inside);
+      if (isSaleActive(inside, now)) saleRow = inside;
     } else {
       // 2) Model — id bo'yicha, bo'lmasa nomi bo'yicha
       characteristic = await this.findCharacteristic(input);
-      if (characteristic) usd = await this.modelNarxi(characteristic);
+      if (characteristic) {
+        const chosen = await this.modelNarxi(characteristic, now);
+        if (chosen) {
+          usd = chosen.effective;
+          regularUsd = chosen.base;
+          if (chosen.onSale) saleRow = chosen.row;
+        }
+      }
     }
 
     const rate = usd === null ? null : await this.kurs();
-    const price = usd !== null && rate !== null ? Math.round(usd * rate) : null;
+    const toUzs = (v: number | null) => (v !== null && rate !== null ? Math.round(v * rate) : null);
+    const endsAt = saleRow?.sale_ends_at ? new Date(saleRow.sale_ends_at as string) : null;
 
     return {
-      price,
+      price: toUzs(usd),
+      regular_price: toUzs(regularUsd),
+      sale_active: saleRow !== null,
+      sale_ends_at: endsAt,
       product_model_id: characteristic?.id ?? null,
       product_model_inside_id: insideId,
     };
@@ -123,7 +153,7 @@ export class OrderPricingService {
   private async findCharacteristic(input: PricingInput) {
     if (input.product_model_id) {
       const ch = await this.characteristicRepo.findByPk(input.product_model_id, {
-        attributes: ['id', 'product_id', 'price'],
+        attributes: ['id', 'product_id', ...PRICE_ATTRS],
       });
       if (!ch || ch.product_id !== input.product_id) {
         throw new BadRequestException(
@@ -141,27 +171,22 @@ export class OrderPricingService {
     const target = norm(input.product_model);
     const candidates = await this.characteristicRepo.findAll({
       where: { product_id: input.product_id },
-      attributes: ['id', 'product_id', 'price', 'title'],
+      attributes: ['id', 'product_id', 'title', ...PRICE_ATTRS],
       order: [['id', 'ASC']],
     });
     return candidates.find((c) => norm(String(c.title || '')) === target) || null;
   }
 
-  private async modelNarxi(ch: Characteristic): Promise<number | null> {
+  // Variant tanlanmagan model: AMALDAGI narx bo'yicha eng arzon variant
+  // (aksiyadagi qimmat variant arzonga tushgan bo'lsa — o'sha), bo'lmasa model.
+  private async modelNarxi(ch: Characteristic, now: number) {
     const insides = await this.insideRepo.findAll({
       where: { product_model_id: ch.id },
-      attributes: ['price'],
+      attributes: PRICE_ATTRS,
     });
-    const narxlar = insides
-      .map((i) => this.musbat(i.price))
-      .filter((p): p is number => p !== null);
-    if (narxlar.length) return Math.min(...narxlar);
-    return this.musbat(ch.price);
-  }
-
-  private musbat(v: unknown): number | null {
-    const n = Number(v);
-    return Number.isFinite(n) && n > 0 ? n : null;
+    const options = pricedOptions({ ...ch.get({ plain: true }), insides }, now);
+    if (!options.length) return null;
+    return options.reduce((best, o) => (o.effective < best.effective ? o : best));
   }
 
   // Kurs yo'q bo'lsa buyurtmani TO'XTATMAYMIZ — narx `null` bo'ladi

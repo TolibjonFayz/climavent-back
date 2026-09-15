@@ -63,6 +63,8 @@ export class OrderItemsService {
       product_model: createOrderItemDto.product_model,
       quantity: createOrderItemDto.quantity,
       price: priced.price,
+      // Aksiyasiz narx — "aksiyada qancha chegirma berildi" hisoboti uchun (№15)
+      regular_price: priced.regular_price,
       // Mijoz yubormagan bo'lsa ham nom bo'yicha topilgan model yoziladi —
       // "qaysi model ko'proq sotilgan" reytingi (№11) shunga tayanadi.
       product_model_id: priced.product_model_id ?? undefined,

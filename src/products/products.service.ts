@@ -22,6 +22,9 @@ import { Store } from 'src/stores/model/store.model';
 import { ProductImages } from 'src/product_images/model/product_image.model';
 import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
 import { OrderItem } from 'src/order_items/model/order_item.model';
+import { ON_SALE_PRODUCT_IDS_SQL, sortPrice } from 'src/common/pricing/sale';
+
+const SALE_ATTRS = ['sale_price', 'sale_starts_at', 'sale_ends_at'];
 
 const { Op } = Sequelize;
 @Injectable()
@@ -98,11 +101,11 @@ export class ProductsService {
         {
           model: Characteristic,
           as: 'characters',
-          attributes: ['id', 'title', 'price'],
+          attributes: ['id', 'title', 'price', ...SALE_ATTRS],
           required: false,
           // Narx SAP variantlarida — qidiruv ro'yxatida ham "dan"
-          // narxini ko'rsatish uchun kerak.
-          include: [{ model: ProductModelInside, attributes: ['price'] }],
+          // narxini va aksiyani (№15) ko'rsatish uchun kerak.
+          include: [{ model: ProductModelInside, attributes: ['price', ...SALE_ATTRS] }],
         },
         // Qidiruv ro'yxatida rasm va do'kon nomi ko'rsatiladi — faqat
         // matnli ro'yxat foydalanuvchiga kam narsa aytadi.
@@ -124,6 +127,7 @@ export class ProductsService {
     limit?: number,
     storeId?: number,
     privileged = false,
+    onSale = false,
   ) {
     const effectiveLimit = limit || 20;
     const effectivePage = page || 1;
@@ -132,6 +136,7 @@ export class ProductsService {
       where: {
         ...this.visibilityWhere(privileged),
         ...(storeId ? { store_id: storeId } : {}),
+        ...this.saleWhere(onSale),
       },
       // Katalog kartochkalari narxni insides[].price dan oladi
       include: this.catalogInclude(),
@@ -182,9 +187,9 @@ export class ProductsService {
   // Sahifalash shu songa tayanadi, shuning uchun u ham FILTRDAN
   // KEYINGI son bo'lishi kerak — aks holda sayt "177 ta" deb yozib,
   // 137 tasini ko'rsatardi (topshiriq №14, 1-band, 3-qadam).
-  async getAllProductsCount(privileged = false) {
+  async getAllProductsCount(privileged = false, onSale = false) {
     const products = await this.productRepository.count({
-      where: this.visibilityWhere(privileged),
+      where: { ...this.visibilityWhere(privileged), ...this.saleWhere(onSale) },
     });
     return products;
   }
@@ -197,10 +202,11 @@ export class ProductsService {
     const offset =
       (getRecentlyAddedProductsDto.page - 1) *
       getRecentlyAddedProductsDto.limit;
-    const count = await this.getAllProductsCount(privileged);
+    const onSale = getRecentlyAddedProductsDto.on_sale === true;
+    const count = await this.getAllProductsCount(privileged, onSale);
 
     const products = await this.productRepository.findAll({
-      where: this.visibilityWhere(privileged),
+      where: { ...this.visibilityWhere(privileged), ...this.saleWhere(onSale) },
       order: [['createdAt', 'DESC']],
       limit: getRecentlyAddedProductsDto.limit,
       offset: offset,
@@ -247,6 +253,14 @@ export class ProductsService {
     };
   }
 
+  // `on_sale=true` filtri (topshiriq №15, 6-band): kamida bitta varianti
+  // (yoki variantsiz modeli) FAOL aksiyada. Shart `common/pricing/sale.ts`
+  // dagi `isSaleActive` bilan aynan bir xil.
+  private saleWhere(onSale: boolean): Record<string, any> {
+    if (!onSale) return {};
+    return { id: { [Op.in]: Sequelize.literal(ON_SALE_PRODUCT_IDS_SQL) } };
+  }
+
   // Katalog kartochkalari uchun include — characters va ularning
   // SAP variantlari (insides). Narx insides[].price da (USD), shuning
   // uchun ro'yxatda narx ko'rsatish uchun bu nested bog'lanish kerak.
@@ -258,46 +272,45 @@ export class ProductsService {
     ];
   }
 
-  // Product'ning eng arzon SAP variant narxi (USD). Narx yo'q variantlar
-  // (null) e'tiborga olinmaydi; hech qaysisida narx bo'lmasa Infinity
-  // qaytadi — bunday mahsulotlar saralashda oxiriga tushadi.
-  private getMinInsidePrice(product: Product): number {
-    const prices: number[] = [];
-    for (const c of product.characters || []) {
-      for (const inside of (c as any).insides || []) {
-        const p = Number(inside?.price);
-        if (Number.isFinite(p) && p > 0) prices.push(p);
+  // Narx bo'yicha saralash — AMALDAGI narx bilan (topshiriq №15, 6-band):
+  // aksiyadagi mahsulot "arzondan qimmatga" ro'yxatida aksiya narxi o'rnida
+  // turadi. Narx qoidasi kartadagidek (variant, bo'lmasa model). Narxsiz
+  // mahsulotlar har ikki yo'nalishda ham OXIRIDA.
+  private sortByPrice(products: Product[], direction: string) {
+    const now = Date.now();
+    const keyed = products.map((p) => ({ p, k: sortPrice(p as any, now) }));
+    keyed.sort((a, b) => {
+      if (a.k === Infinity || b.k === Infinity) {
+        return a.k === b.k ? 0 : a.k === Infinity ? 1 : -1;
       }
-    }
-    return prices.length ? Math.min(...prices) : Infinity;
-  }
-
-  private sortByInsidePrice(products: Product[], direction: string) {
-    return [...products].sort((a, b) => {
-      const diff = this.getMinInsidePrice(a) - this.getMinInsidePrice(b);
-      return direction === 'ASC' ? diff : -diff;
+      return direction === 'ASC' ? a.k - b.k : b.k - a.k;
     });
+    return keyed.map((x) => x.p);
   }
 
   //Get products by sort
   async getProductsBySort(searchProductDto: SortProductDto, privileged = false) {
     const offset = (searchProductDto.page - 1) * searchProductDto.limit;
+    const where = {
+      ...this.visibilityWhere(privileged),
+      ...this.saleWhere(searchProductDto.on_sale === true),
+    };
 
     if (
       searchProductDto.price === 'ASC' ||
       searchProductDto.price === 'DESC'
     ) {
       const all = await this.productRepository.findAll({
-        where: this.visibilityWhere(privileged),
+        where,
         include: this.catalogInclude(),
       });
-      const sorted = this.sortByInsidePrice(all, searchProductDto.price);
+      const sorted = this.sortByPrice(all, searchProductDto.price);
       return sorted.slice(offset, offset + searchProductDto.limit);
     }
 
     const order = this.buildOrder(searchProductDto.price);
     return this.productRepository.findAll({
-      where: this.visibilityWhere(privileged),
+      where,
       include: this.catalogInclude(),
       ...(order ? { order } : {}),
       limit: searchProductDto.limit,
@@ -330,10 +343,11 @@ export class ProductsService {
         where: {
           category_id: { [Op.in]: categoryIds },
           ...this.visibilityWhere(privileged),
+          ...this.saleWhere(sortbyCategoryIdProduct.on_sale === true),
         },
         include: this.catalogInclude(),
       });
-      const sorted = this.sortByInsidePrice(all, sortbyCategoryIdProduct.price);
+      const sorted = this.sortByPrice(all, sortbyCategoryIdProduct.price);
       return sorted.slice(0, sortbyCategoryIdProduct.limit);
     }
 
@@ -342,6 +356,7 @@ export class ProductsService {
       where: {
         category_id: { [Op.in]: categoryIds },
         ...this.visibilityWhere(privileged),
+        ...this.saleWhere(sortbyCategoryIdProduct.on_sale === true),
       },
       include: this.catalogInclude(),
       ...(order ? { order } : {}),

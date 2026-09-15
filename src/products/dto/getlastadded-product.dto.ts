@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNumber, IsOptional } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional } from 'class-validator';
 
 export class GetRecentlyAddedProductsDto {
   @ApiProperty({
@@ -19,4 +19,13 @@ export class GetRecentlyAddedProductsDto {
   @IsOptional()
   @IsNumber()
   limit?: number = 20;
+
+  @ApiProperty({
+    example: true,
+    required: false,
+    description: "true — faqat FAOL aksiyadagi mahsulotlar (topshiriq №15)",
+  })
+  @IsOptional()
+  @IsBoolean()
+  on_sale?: boolean;
 }

@@ -8,6 +8,7 @@ import helmet from 'helmet';
 import { BadInputFilter } from './common/filters/bad-input.filter';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { stripSensitiveFields } from './common/serialization/sensitive-fields';
+import { SalePresentationInterceptor } from './common/pricing/sale-presentation.interceptor';
 
 const start = async () => {
   try {
@@ -76,6 +77,9 @@ const start = async () => {
 
     const httpAdapterHost = app.get(HttpAdapterHost);
     app.useGlobalFilters(new BadInputFilter(httpAdapterHost.httpAdapter));
+    // Aksiya: mehmonga faqat FAOL aksiya, adminkaga xom qiymat + sale_active;
+    // mahsulotga on_sale / min_price / min_sale_price (topshiriq №15).
+    app.useGlobalInterceptors(new SalePresentationInterceptor());
 
     app.use(cookieParser());
     app.useGlobalPipes(

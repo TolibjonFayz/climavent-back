@@ -6,6 +6,8 @@ import { Product } from 'src/products/model/product.model';
 import { ProductImages } from 'src/product_images/model/product_image.model';
 import { CartItem } from 'src/cart_items/model/cart_item.model';
 import { Cart } from 'src/cart/models/cart.model';
+import { OrderPricingService } from 'src/order_items/order-pricing.service';
+import { attachCurrentPricing } from 'src/order_items/current-pricing';
 
 @Injectable()
 export class SelectedToCheckoutService {
@@ -14,6 +16,7 @@ export class SelectedToCheckoutService {
     private readonly selecteddToChRepository: typeof SelectedToCheckoutModels,
     @InjectModel(CartItem) private readonly CartItemRepository: typeof CartItem,
     @InjectModel(Cart) private readonly CartRepository: typeof Cart,
+    private readonly pricing: OrderPricingService,
   ) {}
 
   //Create selected to checkout
@@ -80,7 +83,8 @@ export class SelectedToCheckoutService {
         },
       ],
     });
-    return result;
+    // Rasmiylashtirish sahifasi summasi buyurtma bilan bir xil hisobdan (№15)
+    return attachCurrentPricing(this.pricing, JSON.parse(JSON.stringify(result)));
   }
 
   //Delete selected to checkout by user id

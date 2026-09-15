@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class SortProductDto {
   @ApiProperty({
@@ -18,4 +18,13 @@ export class SortProductDto {
   @IsNumber()
   @IsNotEmpty()
   page: number;
+
+  @ApiProperty({
+    example: true,
+    required: false,
+    description: "true — faqat FAOL aksiyadagi mahsulotlar (topshiriq №15)",
+  })
+  @IsOptional()
+  @IsBoolean()
+  on_sale?: boolean;
 }

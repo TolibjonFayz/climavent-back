@@ -20,6 +20,7 @@ interface OrderItemAtr {
   product_model_inside_id?: number;
   quantity: number;
   price: number | null;
+  regular_price?: number | null;
 }
 
 @Table({ tableName: 'order-items' })
@@ -120,4 +121,17 @@ export class OrderItem extends Model<OrderItem, OrderItemAtr> {
     },
   })
   price: number | null;
+
+  // Qator yozilgan paytdagi ASOSIY narx (so'm) — aksiyasiz (topshiriq №15, 5-band).
+  // `price < regular_price` bo'lsa qator aksiya narxida sotilgan. NULL — eski qatorlar.
+  @ApiProperty({ example: 1500000, nullable: true, description: "Aksiyasiz narx (so'm)" })
+  @Column({
+    type: DataType.BIGINT,
+    allowNull: true,
+    get(this: OrderItem) {
+      const v = this.getDataValue('regular_price');
+      return v === null || v === undefined ? null : Number(v);
+    },
+  })
+  regular_price: number | null;
 }
