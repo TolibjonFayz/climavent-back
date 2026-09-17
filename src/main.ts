@@ -9,6 +9,7 @@ import { BadInputFilter } from './common/filters/bad-input.filter';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { stripSensitiveFields } from './common/serialization/sensitive-fields';
 import { SalePresentationInterceptor } from './common/pricing/sale-presentation.interceptor';
+import { responseTime } from './common/middleware/response-time';
 
 const start = async () => {
   try {
@@ -16,6 +17,9 @@ const start = async () => {
 
     const app = await NestFactory.create<NestExpressApplication>(AppModule);
     app.setGlobalPrefix('api');
+
+    // Server ichidagi vaqt har javobda `Server-Timing` da (topshiriq №23)
+    app.use(responseTime());
 
     // Maxfiy maydonlar (refresh_token, unique_id, parol hash'lari) HECH BIR
     // javobda, hech qanday chuqurlikda chiqmasin (topshiriq №13, 2-band).
@@ -74,7 +78,7 @@ const start = async () => {
       optionsSuccessStatus: 200,
       // `users/all` sahifalashda jami sonni shu sarlavhada beradi
       // (topshiriq №13, 1-band). Expose qilinmasa brauzer uni o'qiy olmaydi.
-      exposedHeaders: 'X-Total-Count',
+      exposedHeaders: 'X-Total-Count, Server-Timing',
     });
 
     const config = new DocumentBuilder()
