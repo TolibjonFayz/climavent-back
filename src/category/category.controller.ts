@@ -22,10 +22,12 @@ import {
 import { Category } from './model/category.model';
 import { Product } from 'src/products/model/product.model';
 import { SortbyCategoryIdProductDto } from './dto/sortbycategoryid-product.dto';
-// Do'kon tokeni ham qabul qilinadi (topshiriq №14, 5-band): ilgari
-// `products/create` do'kon tokenini tanirdi-yu, `category/create` yo'q
-// edi — bir xil oqimda ikki xil guvohnoma talab qilinardi.
-import { AdminOrStoreGuard } from 'src/guards/admin_or_store.guard';
+// Kategoriyalar BUTUN maydoncha uchun umumiy, shuning uchun ularni
+// o'zgartirish faqat superadminda (topshiriq №19, 1-band). Ilgari bu yerda
+// `AdminOrStoreGuard` turardi: istalgan do'kon admini umumiy kategoriyani
+// tahrirlashi, nomini almashtirishi va O'CHIRISHI mumkin edi — o'chirilgan
+// kategoriya esa boshqa sotuvchilarning mahsulotlarini ham saytdan yo'qotardi.
+import { BackofficeSuperadminGuard } from 'src/guards/backoffice_superadmin.guard';
 
 @ApiTags('Category')
 @Controller('category')
@@ -47,7 +49,7 @@ export class CategoryController {
       },
     },
   })
-  @UseGuards(AdminOrStoreGuard)
+  @UseGuards(BackofficeSuperadminGuard)
   @Post('create')
   async create(@Body() createCategoryDto: CreateCategoryDto) {
     return this.categoryService.createCategory(createCategoryDto);
@@ -82,7 +84,7 @@ export class CategoryController {
   @ApiOperation({ summary: 'Update category by id' })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
-  @UseGuards(AdminOrStoreGuard)
+  @UseGuards(BackofficeSuperadminGuard)
   @Patch('update/:id')
   async updateOne(
     @Param('id', ParseIntPipe) id: number,
@@ -95,7 +97,7 @@ export class CategoryController {
   @ApiOperation({ summary: 'Delete category by id' })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
-  @UseGuards(AdminOrStoreGuard)
+  @UseGuards(BackofficeSuperadminGuard)
   @Delete('delete/:id')
   async deleteOne(@Param('id', ParseIntPipe) id: number) {
     return this.categoryService.deleteCategoryById(id);

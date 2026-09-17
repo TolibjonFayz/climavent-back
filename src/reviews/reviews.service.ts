@@ -44,8 +44,28 @@ export class ReviewsService {
   // haqorat sharhni hech kim olib tashlay olmasdi. Endi orqa ofis
   // (servis kaliti, sayt admini, do'kon hisobi) ham moderatsiya qila
   // oladi.
-  private ensureOwnerOrBackoffice(review: Review, actor: RequestActor) {
-    if (actor?.kind === 'superadmin' || actor?.kind === 'store_admin') return;
+  private async ensureOwnerOrBackoffice(review: Review, actor: RequestActor) {
+    if (actor?.kind === 'superadmin') return;
+
+    // DO'KON ADMINI — faqat O'Z do'koni mahsulotidagi sharh (topshiriq
+    // №19, 1-band).
+    //
+    // Ilgari `store_admin` shu yerda shartsiz o'tib ketardi: bitta sotuvchi
+    // raqobatchisining mahsulotidagi salbiy sharhni yashirib qo'ya olardi
+    // (oferta 6.5 va 9.3 ga zid).
+    if (actor?.kind === 'store_admin') {
+      const product = await this.productRepository.findByPk(review.product_id, {
+        attributes: ['id', 'store_id'],
+      });
+      // Mahsulot topilmasa ham ruxsat bermaymiz: kimning ekani noma'lum.
+      if (!product || Number(product.store_id) !== Number(actor.store_id)) {
+        throw new ForbiddenException(
+          "Bu sharh boshqa do'kon mahsulotiga tegishli",
+        );
+      }
+      return;
+    }
+
     if (review.user_id !== actor?.user_id && !actor?.is_admin) {
       throw new ForbiddenException('Bu sharh sizga tegishli emas');
     }
@@ -106,7 +126,7 @@ export class ReviewsService {
     if (!existing) {
       throw new NotFoundException('Product review not found or something wrong');
     }
-    this.ensureOwnerOrBackoffice(existing, actor);
+    await this.ensureOwnerOrBackoffice(existing, actor);
 
     // `is_hidden` o'zgarsa — mahsulotning sharh hisoblagichi ham
     // moslashadi: sayt yashirilgan sharhni ko'rsatmaydi, demak son ham
@@ -137,7 +157,7 @@ export class ReviewsService {
     if (!existing) {
       throw new NotFoundException('Product review not found or something wrong');
     }
-    this.ensureOwnerOrBackoffice(existing, actor);
+    await this.ensureOwnerOrBackoffice(existing, actor);
 
     const deleting = await this.ReviewReviewRepository.destroy({
       where: { id: id },

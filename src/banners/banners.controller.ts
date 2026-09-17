@@ -15,6 +15,7 @@ import { UpdateBannerDto } from './dto/update-banner.dto';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Banner } from './model/banner.model';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
+import { Privileged } from 'src/common/decorators/privileged.decorator';
 
 @ApiTags('Banners')
 @Controller('banners')
@@ -31,18 +32,21 @@ export class BannersController {
     return this.bannersService.createBanner(createBannerDto);
   }
 
-  //Get all banners
-  @ApiOperation({ summary: 'Get all banners' })
+  // Mehmonga faqat FAOL bannerlar (topshiriq №19, 5-band), adminkaga hammasi.
+  @ApiOperation({ summary: "Bannerlar (mehmonga faqat faollari)" })
   @Get('all')
-  async getAll(): Promise<Banner[]> {
-    return this.bannersService.getAllBanners();
+  async getAll(@Privileged() privileged: boolean): Promise<Banner[]> {
+    return this.bannersService.getAllBanners(privileged);
   }
 
   //Get banner by id
   @ApiOperation({ summary: 'Get banner by id' })
   @Get('one/:id')
-  async getOne(@Param('id', ParseIntPipe) id: number): Promise<Banner> {
-    return this.bannersService.getBannerById(id);
+  async getOne(
+    @Param('id', ParseIntPipe) id: number,
+    @Privileged() privileged: boolean,
+  ): Promise<Banner> {
+    return this.bannersService.getBannerById(id, privileged);
   }
 
   //Update banner by id

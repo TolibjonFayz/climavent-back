@@ -15,7 +15,10 @@ import { SellerApplicationsService } from './seller-applications.service';
 import { SellerApplicationsController } from './seller-applications.controller';
 import { OffersController } from './offers.controller';
 import { DocumentStorageService } from './document-storage.service';
+import { R2DocumentsStore } from './r2-documents.store';
 import { SellerApplicationsJobs } from './seller-applications.jobs';
+import { SellerNotificationsService } from './seller-notifications.service';
+import { MailModule } from 'src/mail/mail.module';
 
 @Module({
   imports: [
@@ -32,8 +35,16 @@ import { SellerApplicationsJobs } from './seller-applications.jobs';
     ]),
     JwtModule.register({}),
     StoreAuthModule,
+    // Qaror haqida sotuvchiga xabar (№19, 4-band)
+    MailModule,
   ],
   controllers: [SellerApplicationsController, OffersController],
-  providers: [SellerApplicationsService, DocumentStorageService, SellerApplicationsJobs],
+  providers: [
+    SellerApplicationsService,
+    DocumentStorageService,
+    R2DocumentsStore,
+    SellerApplicationsJobs,
+    SellerNotificationsService,
+  ],
 })
 export class SellerApplicationsModule {}

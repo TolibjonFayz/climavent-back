@@ -5,6 +5,7 @@ import * as bcrypt from 'bcrypt';
 import { StoreUser } from 'src/store_users/model/store_user.model';
 import { Store } from 'src/stores/model/store.model';
 import { StoreLoginDto } from './dto/store-login.dto';
+import { ConsentService } from 'src/offers/consent.service';
 
 @Injectable()
 export class StoreAuthService {
@@ -12,6 +13,7 @@ export class StoreAuthService {
     @InjectModel(StoreUser)
     private readonly storeUserRepository: typeof StoreUser,
     private readonly jwtService: JwtService,
+    private readonly consent: ConsentService,
   ) {}
 
   async login(dto: StoreLoginDto) {
@@ -52,6 +54,16 @@ export class StoreAuthService {
       },
     );
 
+    // Oferta yangilangan bo'lsa — adminka kirishdan keyin tasdiqlash oynasini
+    // ochadi (topshiriq №20, 2-band; oferta 12.3). Tasdiqlanmaguncha YOZISH
+    // amallari 409 `offer_acceptance_required` qaytaradi.
+    //
+    // Superadmin sotuvchi emas — undan oferta so'ralmaydi.
+    const offerPending =
+      user.role === 'store_admin'
+        ? await this.consent.pendingForStoreUser(user.id, user.store_id ?? null)
+        : null;
+
     return {
       token,
       role: user.role,
@@ -61,17 +73,26 @@ export class StoreAuthService {
         login: user.login,
         full_name: user.full_name,
       },
+      // `null` — tasdiqlash kerak emas
+      offer_pending: offerPending,
     };
   }
 
   // Joriy hisob + do'koni. Token guard'da tekshirilgan.
-  async me(userId: number) {
+  //
+  // `offer_pending` bu yerda ham qaytadi: adminka sahifani yangilaganda
+  // kirish javobi qo'lda bo'lmaydi (topshiriq №20, 2-band).
+  async me(userId: number): Promise<Record<string, any>> {
     const user = await this.storeUserRepository.findByPk(userId, {
       include: [{ model: Store }],
     });
     if (!user || !user.is_active) {
       throw new UnauthorizedException('Hisob faol emas');
     }
-    return user;
+    const offerPending =
+      user.role === 'store_admin'
+        ? await this.consent.pendingForStoreUser(user.id, user.store_id ?? null)
+        : null;
+    return { ...user.get({ plain: true }), offer_pending: offerPending };
   }
 }

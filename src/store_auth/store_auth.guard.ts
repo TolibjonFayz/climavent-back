@@ -8,6 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { timingSafeEqual } from 'crypto';
 import { resolveStoreSession } from './store-session';
+import { assertOfferAccepted } from 'src/offers/offer-gate';
 
 // So'rov kim tomonidan qilinayotgani. Yozish endpointlari shu asosda
 // cheklanadi (StoreScopeGuard).
@@ -61,6 +62,12 @@ export class StoreAuthGuard implements CanActivate {
       throw new UnauthorizedException("Hisob faol emas yoki sessiya bekor qilingan — qayta kiring");
     }
     req.storeUser = session;
+
+    // Oferta yangilangan bo'lsa — tasdiqlamaguncha YOZISH to'siladi (№20, 2-band).
+    // O'qish ishlayveradi.
+    if (session.role === 'store_admin') {
+      await assertOfferAccepted(req, session.user_id, session.store_id);
+    }
     return true;
   }
 

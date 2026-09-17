@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { Op } from 'sequelize';
 import { InjectModel } from '@nestjs/sequelize';
 import { Transaction } from 'sequelize';
 import { OfferVersion } from './model/offer-version.model';
@@ -59,6 +60,101 @@ export class ConsentService {
       );
     }
     return offer;
+  }
+
+  /**
+   * Shu hisob shu hujjatning JORIY versiyasini qabul qilganmi (topshiriq №20, 2-band).
+   *
+   * Sotuvchi hisobi uchun dalil uch xil bog'lanish bilan yozilgan bo'lishi
+   * mumkin: hisobning o'zi (`store_user_id`), do'kon (`store_id`) yoki ariza
+   * (`application_id`, ariza tasdiqlanishidan oldin). Birinchi ikkitasi
+   * hisobning O'ZI tasdiqlagani demak — ariza dalili boshqa odam (ariza
+   * topshirgan kishi) tomonidan yozilgan bo'lishi mumkin, shuning uchun u
+   * kabinetga kirish uchun yetarli deb hisoblanmaydi.
+   */
+  async storeUserAccepted(kind: OfferKind, version: string, storeUserId: number, storeId?: number | null) {
+    const or: any[] = [{ store_user_id: storeUserId }];
+    if (storeId) or.push({ store_id: storeId });
+    const row = await this.acceptanceRepo.findOne({
+      where: { kind, version, [Op.or]: or },
+      attributes: ['id'],
+    });
+    return !!row;
+  }
+
+  /**
+   * Kabinetga kirishda tasdiqlanishi kerak bo'lgan hujjat (yoki `null`).
+   * Superadmin — sotuvchi emas, undan oferta so'ralmaydi.
+   */
+  async pendingForStoreUser(storeUserId: number, storeId: number | null) {
+    const offer = await this.current('seller');
+    if (!offer) return null;
+    const accepted = await this.storeUserAccepted('seller', offer.version, storeUserId, storeId);
+    if (accepted) return null;
+    return { kind: 'seller' as const, version: offer.version, url: offer.url };
+  }
+
+  /**
+   * Xaridor uchun: qabul qilgan versiyasi eskirgan hujjatlar (topshiriq №20, 2-band).
+   * Ikkalasi ham joyida bo'lsa — `null`.
+   */
+  async pendingForUser(userId: number) {
+    const [buyer, privacy] = await Promise.all([this.current('buyer'), this.current('privacy')]);
+    if (!buyer || !privacy) return null;
+
+    const rows = await this.acceptanceRepo.findAll({
+      where: {
+        user_id: userId,
+        [Op.or]: [
+          { kind: 'buyer', version: buyer.version },
+          { kind: 'privacy', version: privacy.version },
+        ],
+      },
+      attributes: ['kind'],
+    });
+    const bor = new Set(rows.map((r) => r.kind));
+    if (bor.has('buyer') && bor.has('privacy')) return null;
+
+    return {
+      terms: { version: buyer.version, url: buyer.url, effective_at: new Date(buyer.effective_at).toISOString() },
+      privacy: { version: privacy.version, url: privacy.url, effective_at: new Date(privacy.effective_at).toISOString() },
+    };
+  }
+
+  /**
+   * Rozilik yozuvlari ro'yxati (topshiriq №19, 6-band) — nizo chiqqanda dalil.
+   * Faqat O'QISH: jadval trigger bilan himoyalangan, o'zgartirib bo'lmaydi.
+   */
+  async list(q: {
+    kind?: string;
+    user_id?: number;
+    store_id?: number;
+    store_user_id?: number;
+    application_id?: number;
+    version?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const limit = Math.min(q.limit || 50, 200);
+    const page = Math.max(q.page || 1, 1);
+    const where: any = {};
+    for (const [k, v] of Object.entries({
+      kind: q.kind,
+      version: q.version,
+      user_id: q.user_id,
+      store_id: q.store_id,
+      store_user_id: q.store_user_id,
+      application_id: q.application_id,
+    })) {
+      if (v !== undefined && v !== null && v !== '') where[k] = v;
+    }
+    const { rows, count } = await this.acceptanceRepo.findAndCountAll({
+      where,
+      order: [['accepted_at', 'DESC']],
+      limit,
+      offset: (page - 1) * limit,
+    });
+    return { rows, total: count, page, limit };
   }
 
   /**

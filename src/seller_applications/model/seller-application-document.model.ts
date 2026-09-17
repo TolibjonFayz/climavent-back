@@ -11,7 +11,11 @@ export class SellerApplicationDocument extends Model {
   @Column({ type: DataType.INTEGER, allowNull: true }) application_id: number;
   @Column({ type: DataType.TEXT, allowNull: false }) type: string;
   // Tasodifiy kalit. Asl nom faqat `original_name` da.
+  // `db` da — shunchaki tasodifiy satr; `r2` da — obyekt kaliti
+  // (`seller-docs/<uuid>`).
   @Column({ type: DataType.TEXT, allowNull: false }) file_key: string;
+  // Fayl qayerda: 'db' (baza) yoki 'r2' (yopiq bucket) — topshiriq №20, 1-band
+  @Column({ type: DataType.STRING(10), allowNull: false, defaultValue: 'db' }) storage: string;
   @Column({ type: DataType.TEXT, allowNull: false }) original_name: string;
   @Column({ type: DataType.TEXT, allowNull: false }) mime: string;
   @Column({ type: DataType.INTEGER, allowNull: false }) size: number;

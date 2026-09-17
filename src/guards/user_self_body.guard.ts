@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { resolveUserSession, sessionPayload } from 'src/users/user-session';
 
 /**
  * Egalik tekshiruvi: so'rov body'sidagi `user_id` token egasiga tegishli
@@ -40,13 +41,22 @@ export class UserSelfBodyGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
+    // Hisob bazadan (topshiriq №19, 2-band)
+    const session = await resolveUserSession(payload);
+    if (!session) {
+      throw new UnauthorizedException(
+        "Hisob faol emas yoki sessiya bekor qilingan — qayta kiring",
+      );
+    }
+
     const bodyUserId = req.body?.user_id;
     // != (loose) — string/number farqini hisobga oladi
-    if (bodyUserId == null || payload.id != bodyUserId) {
+    if (bodyUserId == null || session.id != bodyUserId) {
       throw new ForbiddenException('You can only modify your own data');
     }
 
-    req.user = payload;
+    req.user = sessionPayload(payload, session);
+    req.userSession = session;
     return true;
   }
 }

@@ -15,6 +15,7 @@ import { MailService } from '../mail/mail.service';
 import { OtpService } from 'src/otp/otp.service';
 import { InjectModel } from '@nestjs/sequelize';
 import { Otp } from 'src/otp/models/otp.model';
+import { hashOtp, otpMatches } from 'src/otp/otp-hash';
 import * as otpGenerator from 'otp-generator';
 import { User } from './model/user.model';
 import { JwtService } from '@nestjs/jwt';
@@ -137,12 +138,21 @@ export class UsersService {
     // yuborilmaydi, yozuv ham yaratilmaydi. Hisobi bor (faol) odamdan so'ralmaydi.
     const versions = await this.checkConsentVersions(loginuserDto);
     const isNew = !user || !user.is_active;
-    if (loginuserDto.check_consent === true && isNew && !versions) {
-      return {
-        consent_required: true,
-        terms: await this.consent.currentPublic('buyer'),
-        privacy: await this.consent.currentPublic('privacy'),
-      };
+    if (loginuserDto.check_consent === true && !versions) {
+      if (isNew) {
+        return {
+          consent_required: true,
+          terms: await this.consent.currentPublic('buyer'),
+          privacy: await this.consent.currentPublic('privacy'),
+        };
+      }
+      // MAVJUD foydalanuvchi: qabul qilgan versiyasi eskirgan bo'lsa ham
+      // so'raladi (topshiriq №20, 2-band). Hujjat yangilanganda eski
+      // foydalanuvchi yangi shartlarni ko'rmay qolmasin.
+      const pending = await this.consent.pendingForUser(user.id);
+      if (pending) {
+        return { consent_required: true, terms: pending.terms, privacy: pending.privacy };
+      }
     }
 
     if (!user) {
@@ -246,13 +256,48 @@ export class UsersService {
     return user;
   }
 
+  // Hisobga EGALIKKA tegadigan maydonlar. O'zgarsa — barcha eski tokenlar
+  // bekor bo'ladi (topshiriq №19, 2-band):
+  //   phone_number — hisob boshqa odamga o'tdi;
+  //   is_admin     — adminlik berildi/olindi;
+  //   is_active    — hisob bloklandi yoki qayta ochildi.
+  // `is_admin`/`is_active` baribir har so'rovda bazadan o'qiladi — bu
+  // qo'shimcha qatlam: o'chirilgan huquq refresh token orqali qaytmasin.
+  private static readonly SESSION_BREAKING_FIELDS = ['phone_number', 'is_admin', 'is_active'];
+
   //Update user by id
   async updateUser(id: number, updateUserDto: UpdateUserDto) {
-    const updating = await this.UsersRepository.update(updateUserDto, {
+    const before = await this.UsersRepository.findByPk(id);
+    if (!before) throw new NotFoundException('User not found');
+
+    const breaks = UsersService.SESSION_BREAKING_FIELDS.some((f) => {
+      const next = (updateUserDto as any)[f];
+      return next !== undefined && next !== (before as any)[f];
+    });
+
+    const payload: any = { ...updateUserDto };
+    if (breaks) {
+      payload.token_version = Number(before.token_version ?? 0) + 1;
+      // Eski refresh token ham ishlamasin
+      payload.refresh_token = null;
+    }
+
+    const updating = await this.UsersRepository.update(payload, {
       where: { id },
       returning: true,
     });
     return updating[1][0].dataValues;
+  }
+
+  /** Foydalanuvchining barcha sessiyalarini bekor qiladi (adminka uchun). */
+  async revokeSessions(id: number) {
+    const user = await this.UsersRepository.findByPk(id);
+    if (!user) throw new NotFoundException('User not found');
+    await this.UsersRepository.update(
+      { token_version: Number(user.token_version ?? 0) + 1, refresh_token: null },
+      { where: { id } },
+    );
+    return { message: 'Sessiyalar bekor qilindi', user_id: id };
   }
 
   //Delete user by id
@@ -268,6 +313,9 @@ export class UsersService {
       id: user.id,
       is_active: user.is_active,
       is_admin: user.is_admin,
+      // Sessiya versiyasi (topshiriq №19, 2-band). Hisobda xavfsizlikka
+      // tegadigan o'zgarish bo'lsa bu son oshadi va eski tokenlar 401 oladi.
+      tv: Number(user.token_version ?? 0),
     };
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtservice.signAsync(JwtPayload, {
@@ -348,7 +396,8 @@ export class UsersService {
     // (verifyOtpClient), shuning uchun eski qatorlar chalkashlik keltirmaydi.
     const newOtp = await this.otpRepo.create({
       unique_id: uuidv4(),
-      otp: otp,
+      // Kodning O'ZI bazaga yozilmaydi — faqat xeshi (topshiriq №19, 8-band)
+      otp_hash: hashOtp(otp, fullPhone),
       expiration_time,
       phone_number: fullPhone,
     });
@@ -408,13 +457,20 @@ export class UsersService {
         "Noto'g'ri urinishlar soni tugadi, yangi kod so'rang",
       );
     }
-    // OTP string sifatida saqlanadi — string bilan solishtiramiz (0 bilan boshlangan kodlar uchun)
-    if (String(otpDB.otp) !== String(otp)) {
+    // Kod endi xesh bilan solishtiriladi (topshiriq №19, 8-band).
+    // `otp_hash` bo'sh bo'lgan qatorlar — deploy paytida yo'lda qolgan eski
+    // kodlar; ular tugaguncha (5 daqiqa) eskicha tekshiriladi.
+    const kodTogri = otpDB.otp_hash
+      ? otpMatches(String(otp), otpDB.phone_number, otpDB.otp_hash)
+      : String(otpDB.otp) === String(otp);
+    if (!kodTogri) {
       await this.otpRepo.increment('attempts', { where: { id: otpDB.id } });
       throw new BadRequestException('Tasdiqlash kodi xato');
     }
 
     // Kod to'g'ri — endi OTP ni ishlatilgan deb belgilaymiz, userni aktivlashtiramiz va token beramiz
+    // Kod (va xeshi) darhol o'chiriladi: qator sutkalik limitni sanash uchun
+    // qoladi, lekin ichida tekshiriladigan hech narsa qolmaydi.
     await this.makeVerifyTrue(otpDB.unique_id);
     await this.UsersRepository.update(
       { is_active: true },
@@ -466,7 +522,7 @@ export class UsersService {
 
   async makeVerifyTrue(otp_id: string) {
     const verified = await this.otpRepo.update(
-      { verified: true },
+      { verified: true, otp: null, otp_hash: null },
       {
         where: {
           unique_id: otp_id,
@@ -503,6 +559,9 @@ export class UsersService {
     }
     const tokenMatch = await bcrypt.compare(refreshToken, worker.refresh_token);
     if (!tokenMatch) throw new ForbiddenException('Forbidden');
+
+    // Bloklangan hisob refresh token orqali qaytib kirmasin (№19, 2-band)
+    if (!worker.is_active) throw new ForbiddenException('Hisob faol emas');
 
     const token = await this.getTokens(worker);
     const hashed_refresh_token = await bcrypt.hash(token.refreshToken, 7);

@@ -79,6 +79,17 @@ export class SellerApplication extends Model {
   sellerAccount: StoreUser;
   @Column({ type: DataType.TEXT, allowNull: true }) store_user_login: string;
 
+  /**
+   * Arxivga olingan vaqti (topshiriq №19, 7-band).
+   *
+   * Qatorning O'ZI o'chirilmaydi: unga bog'langan dalil yozuvlari
+   * (`seller_application_events`, `offer_acceptances`) baza trigger'i bilan
+   * himoyalangan va ularning `application_id` si o'zgarmas. Bu to'ldirilgan
+   * ariza ro'yxatlarda ham, holat sahifasida ham ko'rinmaydi, hujjat
+   * fayllari esa darhol o'chiriladi.
+   */
+  @Column({ type: DataType.DATE, allowNull: true }) deleted_at: Date;
+
   @HasMany(() => SellerApplicationDocument, 'application_id')
   documents: SellerApplicationDocument[];
 

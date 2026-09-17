@@ -4,6 +4,7 @@ import { AdminGuard } from './admin.guard';
 import { ServiceKeyGuard } from './service_key.guard';
 import { JwtOrServiceKeyGuard } from './jwt_or_service_key.guard';
 import { AdminOrStoreGuard } from './admin_or_store.guard';
+import { BackofficeSuperadminGuard } from './backoffice_superadmin.guard';
 import { CustomerOrBackofficeGuard } from './customer_or_backoffice.guard';
 import { UserSelfOrBackofficeGuard } from './user_self_or_backoffice.guard';
 import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
@@ -21,6 +22,7 @@ import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
     JwtOrServiceKeyGuard,
     StoreAuthGuard,
     AdminOrStoreGuard,
+    BackofficeSuperadminGuard,
     CustomerOrBackofficeGuard,
     UserSelfOrBackofficeGuard,
   ],
@@ -30,6 +32,7 @@ import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
     JwtOrServiceKeyGuard,
     StoreAuthGuard,
     AdminOrStoreGuard,
+    BackofficeSuperadminGuard,
     CustomerOrBackofficeGuard,
     UserSelfOrBackofficeGuard,
   ],

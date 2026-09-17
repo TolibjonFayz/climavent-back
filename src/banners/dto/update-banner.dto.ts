@@ -1,71 +1,13 @@
-import { ApiProperty, PartialType } from '@nestjs/swagger';
+import { PartialType } from '@nestjs/swagger';
 import { CreateBannerDto } from './create-banner.dto';
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
 
-export class UpdateBannerDto extends PartialType(CreateBannerDto) {
-  @ApiProperty({
-    example: 'Konditsoner',
-    description: 'Name of the banner in uzb',
-  })
-  @IsString()
-  @IsNotEmpty()
-  title_uz: string;
-
-  @ApiProperty({
-    example: 'Konditsoner',
-    description: 'Name of the banner in russian',
-  })
-  @IsString()
-  @IsNotEmpty()
-  title_ru: string;
-
-  @ApiProperty({
-    example: 'Konditsoner',
-    description: 'Name of the banner in english',
-  })
-  @IsString()
-  @IsNotEmpty()
-  title_en: string;
-
-  @ApiProperty({
-    example: 'Konditsoner',
-    description: 'Name of the banner in uzb',
-  })
-  @IsString()
-  @IsNotEmpty()
-  text_uz: string;
-
-  @ApiProperty({
-    example: 'Konditsoner',
-    description: 'Info of the banner in russian',
-  })
-  @IsString()
-  @IsNotEmpty()
-  text_ru: string;
-
-  @ApiProperty({
-    example: 'Konditsoner',
-    description: 'Info of the banner in english',
-  })
-  @IsString()
-  @IsNotEmpty()
-  text_en: string;
-
-  @ApiProperty({
-    example: 'something.jpg',
-    description: 'URL of image',
-  })
-  @IsString()
-  @IsNotEmpty()
-  img_url: string;
-
-  @ApiProperty({ example: 1, description: 'Product id' })
-  @IsNumber()
-  @IsNotEmpty()
-  product_id: number;
-
-  @ApiProperty({ example: 1, description: 'Order id' })
-  @IsNumber()
-  @IsNotEmpty()
-  orderid: number;
-}
+/**
+ * Qismiy yangilash.
+ *
+ * Ilgari bu sinf `PartialType` dan meros olib, SO'NG hamma maydonni
+ * `@IsNotEmpty()` bilan qayta e'lon qilardi — natijada "qismiy" nomiga
+ * qaramay har bir maydon MAJBURIY edi. Ya'ni bannerni vaqtincha o'chirib
+ * qo'yish uchun ham butun banner qaytadan yuborilishi kerak bo'lardi
+ * (topshiriq №19, 5-band).
+ */
+export class UpdateBannerDto extends PartialType(CreateBannerDto) {}

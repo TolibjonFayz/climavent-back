@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { resolveUserSession, sessionPayload } from 'src/users/user-session';
 
 @Injectable()
 export class AdminGuard implements CanActivate {
@@ -32,11 +33,20 @@ export class AdminGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
-    if (!payload?.is_admin) {
+    // Hisob har so'rovda bazadan tekshiriladi (topshiriq №19, 2-band):
+    // adminlikdan tushirilgan yoki bloklangan hisob tokeni darhol o'ladi.
+    const session = await resolveUserSession(payload);
+    if (!session) {
+      throw new UnauthorizedException(
+        "Hisob faol emas yoki sessiya bekor qilingan — qayta kiring",
+      );
+    }
+    if (!session.is_admin) {
       throw new ForbiddenException('Admin access required');
     }
 
-    req.user = payload;
+    req.user = sessionPayload(payload, session);
+    req.userSession = session;
     return true;
   }
 }

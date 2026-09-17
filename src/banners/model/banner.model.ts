@@ -19,6 +19,9 @@ interface BannerAtr {
   img_url: String;
   product_id: Number;
   orderid: Number;
+  is_active?: Boolean;
+  link?: String;
+  sort_order?: Number;
 }
 
 @Table({ tableName: 'banner' })
@@ -106,7 +109,23 @@ export class Banner extends Model<Banner, BannerAtr> {
     type: DataType.INTEGER,
     allowNull: false,
   })
-  orderid: number;  
+  orderid: number;
+
+  // Topshiriq №19, 5-band. Mavsumiy bannerni o'chirmasdan yashirish,
+  // bosilganda havolaga o'tish va tartibni boshqarish uchun.
+  @ApiProperty({ example: true, description: "Banner saytda ko'rinadimi" })
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })
+  is_active: boolean;
+
+  // Ichki yo'l (`/category/konditsionerlar`) yoki to'liq URL. Bo'sh bo'lsa
+  // sayt eskicha `product_id` bo'yicha mahsulot sahifasiga o'tadi.
+  @ApiProperty({ example: '/category/konditsionerlar', required: false })
+  @Column({ type: DataType.STRING(500), allowNull: true })
+  link: string;
+
+  @ApiProperty({ example: 1, description: 'Tartib (kichigi oldinda)' })
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  sort_order: number;
 
   @ForeignKey(() => Product)
   @ApiProperty({ example: 1, description: 'Product id' })

@@ -134,6 +134,16 @@ export class User extends Model<User, UserAtr> {
   })
   is_admin: boolean;
 
+  // Sessiya versiyasi (topshiriq №19, 2-band). Tokenga `tv` yoziladi; hisob
+  // xavfsizligiga tegadigan o'zgarish (telefon almashishi, bloklash, adminlik
+  // olib tashlanishi) bu sonni oshiradi va eski tokenlar 401 oladi.
+  @Column({
+    type: DataType.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+  })
+  token_version: number;
+
   // Do'kon xodimi qaysi do'konga tegishli (marketplace uchun).
   @ForeignKey(() => Store)
   @ApiProperty({ example: 2, description: "Do'kon id", required: false })

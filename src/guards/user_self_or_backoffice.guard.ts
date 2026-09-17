@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ServiceKeyGuard } from './service_key.guard';
+import { resolveUserSession, sessionPayload } from 'src/users/user-session';
 
 /**
  * Mijozning O'ZI yoki ORQA OFIS (topshiriq №13, 1-band).
@@ -53,11 +54,19 @@ export class UserSelfOrBackofficeGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
-    req.user = payload;
-    if (payload?.is_admin) return true;
+    // Hisob bazadan (topshiriq №19, 2-band) — `is_admin` ham bazadan
+    const session = await resolveUserSession(payload);
+    if (!session) {
+      throw new UnauthorizedException(
+        "Hisob faol emas yoki sessiya bekor qilingan — qayta kiring",
+      );
+    }
+    req.user = sessionPayload(payload, session);
+    req.userSession = session;
+    if (session.is_admin) return true;
 
-    // != (loose) — param satr, payload.id son
-    if (payload?.id == null || payload.id != req.params?.id) {
+    // != (loose) — param satr, id son
+    if (session.id != req.params?.id) {
       throw new ForbiddenException("Faqat o'z ma'lumotingizni ko'ra olasiz");
     }
     return true;

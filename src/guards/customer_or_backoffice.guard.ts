@@ -8,6 +8,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { timingSafeEqual } from 'crypto';
 import { resolveStoreSession } from 'src/store_auth/store-session';
+import { assertOfferAccepted } from 'src/offers/offer-gate';
+import { resolveUserSession, sessionPayload } from 'src/users/user-session';
 
 /**
  * MIJOZ (sayt) yoki ORQA OFIS (adminka) — ikkalasi ham o'tadi
@@ -54,19 +56,32 @@ export class CustomerOrBackofficeGuard implements CanActivate {
     }
 
     // 2) Mijoz (yoki sayt admini) JWT
+    let userPayload: any = null;
     try {
-      const payload: any = await this.jwtService.verifyAsync(token, {
+      userPayload = await this.jwtService.verifyAsync(token, {
         secret: this.config.get<string>('ACCESS_TOKEN_KEY_USER'),
       });
-      req.user = payload; // mavjud kod `req.user` ni kutadi
-      req.actor = {
-        kind: payload?.is_admin ? 'superadmin' : 'customer',
-        user_id: payload?.id,
-        is_admin: payload?.is_admin,
-      } as RequestActor;
-      return true;
     } catch {
       // e'tiborsiz — quyida do'kon tokeni sinaladi
+    }
+    if (userPayload) {
+      // Imzo to'g'ri — endi hisobning O'ZI bazadan tekshiriladi
+      // (topshiriq №19, 2-band). Bu yerda `catch` YO'Q: imzosi to'g'ri,
+      // lekin bekor qilingan token do'kon tokeni sifatida qayta sinalmasin.
+      const userSession = await resolveUserSession(userPayload);
+      if (!userSession) {
+        throw new UnauthorizedException(
+          "Hisob faol emas yoki sessiya bekor qilingan — qayta kiring",
+        );
+      }
+      req.user = sessionPayload(userPayload, userSession); // mavjud kod `req.user` ni kutadi
+      req.userSession = userSession;
+      req.actor = {
+        kind: userSession.is_admin ? 'superadmin' : 'customer',
+        user_id: userSession.id,
+        is_admin: userSession.is_admin,
+      } as RequestActor;
+      return true;
     }
 
     // 3) Do'kon hisobi tokeni — hisob bazadan tekshiriladi (№17, 3-band)
@@ -89,6 +104,12 @@ export class CustomerOrBackofficeGuard implements CanActivate {
       user_id: session.user_id,
       store_id: session.store_id,
     } as RequestActor;
+    req.storeUser = session;
+
+    // Oferta tasdiqlanmagan bo'lsa yozish to'siladi (№20, 2-band)
+    if (session.role === 'store_admin') {
+      await assertOfferAccepted(req, session.user_id, session.store_id);
+    }
     return true;
   }
 

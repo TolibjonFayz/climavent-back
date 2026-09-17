@@ -20,6 +20,7 @@ import { StoreRequisites } from 'src/stores/model/store-requisites.model';
 import { StoreUser } from 'src/store_users/model/store_user.model';
 import { PasswordSetupService, hashToken } from 'src/store_auth/password-setup.service';
 import { DocumentStorageService } from './document-storage.service';
+import { NotifyKind, SellerNotificationsService } from './seller-notifications.service';
 import {
   ApproveApplicationDto,
   CreateSellerApplicationDto,
@@ -75,6 +76,7 @@ export class SellerApplicationsService {
     @InjectModel(StoreUser) private readonly storeUserRepo: typeof StoreUser,
     private readonly storage: DocumentStorageService,
     private readonly passwordSetup: PasswordSetupService,
+    private readonly notifications: SellerNotificationsService,
   ) {}
 
   // ================================================================ OMMAVIY
@@ -167,6 +169,10 @@ export class SellerApplicationsService {
         }
         return created;
       });
+      // Ariza qabul qilingani haqida xabar. Holat havolasi FAQAT shu yerda
+      // mavjud (bazada uning xeshi saqlanadi), shuning uchun sotuvchiga aynan
+      // shu xatda yuboriladi — keyinchalik qayta tiklab bo'lmaydi.
+      await this.notifyAndLog('received', app, { statusToken: rawToken });
       return { id: app.id, status: app.status, public_token: rawToken };
     } catch (e) {
       // Ikki so'rov bir vaqtda kelsa — bazaning qisman unique indeksi to'xtatadi
@@ -243,7 +249,8 @@ export class SellerApplicationsService {
   async list(q: { status?: string; page?: number; limit?: number; search?: string }) {
     const limit = Math.min(q.limit || 50, 200);
     const page = q.page || 1;
-    const where: any = {};
+    // Arxivga olingan arizalar ro'yxatda ko'rinmaydi (topshiriq №19, 7-band)
+    const where: any = { deleted_at: null };
     if (q.status) where.status = q.status;
     const s = (q.search || '').trim();
     if (s) {
@@ -271,6 +278,7 @@ export class SellerApplicationsService {
 
   async getOne(id: number) {
     const app = await this.loadFull(id);
+    if (app.deleted_at) throw new NotFoundException('Ariza topilmadi');
     return toAdminView(app, {
       documentsCount: app.documents.filter((d) => !d.deleted_at).length,
       full: true,
@@ -289,14 +297,18 @@ export class SellerApplicationsService {
   }
 
   async requestInfo(id: number, message: string, actor: Actor) {
-    return this.decide(id, async (app, transaction) => {
+    const result = await this.decide(id, async (app, transaction) => {
       await app.update({ status: 'needs_info', info_request: message.trim() }, { transaction });
       await this.event(app.id, 'info_requested', actor, message.trim(), transaction);
     });
+    // Oferta 3.4 — sotuvchiga xabar (topshiriq №19, 4-band)
+    const app = await this.appRepo.findByPk(id);
+    if (app) await this.notifyAndLog('needs_info', app, { reason: message.trim() });
+    return result;
   }
 
   async reject(id: number, reason: string, actor: Actor) {
-    return this.decide(id, async (app, transaction) => {
+    const result = await this.decide(id, async (app, transaction) => {
       await app.update(
         {
           status: 'rejected',
@@ -309,6 +321,10 @@ export class SellerApplicationsService {
       );
       await this.event(app.id, 'rejected', actor, reason.trim(), transaction);
     });
+    // Oferta 3.4 — sotuvchiga xabar (topshiriq №19, 4-band)
+    const app = await this.appRepo.findByPk(id);
+    if (app) await this.notifyAndLog('rejected', app, { reason: reason.trim() });
+    return result;
   }
 
   async updateNote(id: number, note: string | null, actor: Actor) {
@@ -329,7 +345,7 @@ export class SellerApplicationsService {
    */
   async approve(id: number, dto: ApproveApplicationDto, actor: Actor) {
     try {
-      return await this.appRepo.sequelize.transaction(async (transaction) => {
+      const natija = await this.appRepo.sequelize.transaction(async (transaction) => {
         // Qatorni qulflaymiz: ikki superadmin bir vaqtda bossa ham ikkita
         // do'kon ochilmaydi.
         const app = await this.appRepo.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
@@ -390,6 +406,34 @@ export class SellerApplicationsService {
         );
         const setup = await this.passwordSetup.issue(account.id, transaction);
 
+        // Ariza topshirilganda qabul qilingan oferta dalilini YANGI hisobga
+        // ham bog'laymiz (topshiriq №20, 2-band). Aks holda sotuvchi endigina
+        // tasdiqlangan hisobi bilan birinchi kirishida "ofertani tasdiqlang"
+        // oynasini ko'rardi — holbuki u uni ariza paytida qabul qilgan.
+        //
+        // Dalil jadvali faqat INSERT: mavjud qatorni o'zgartirmaymiz, yangi
+        // qator qo'shamiz va unga asl qabul vaqti/IP sini ko'chiramiz.
+        const arizaDalili = await this.acceptanceRepo.findOne({
+          where: { kind: 'seller', application_id: app.id },
+          order: [['id', 'DESC']],
+          transaction,
+        });
+        if (arizaDalili) {
+          await this.acceptanceRepo.create(
+            {
+              kind: 'seller',
+              version: arizaDalili.version,
+              application_id: app.id,
+              store_id: store.id,
+              store_user_id: account.id,
+              accepted_at: arizaDalili.accepted_at,
+              ip: arizaDalili.ip,
+              user_agent: arizaDalili.user_agent,
+            } as any,
+            { transaction },
+          );
+        }
+
         await app.update(
           {
             status: 'approved',
@@ -417,6 +461,16 @@ export class SellerApplicationsService {
           password_setup_expires_at: setup.expires_at,
         };
       });
+      // Parol o'rnatish havolasi bilan xabar — tranzaksiya MUVAFFAQIYATLI
+      // yopilgandan keyin (topshiriq №19, 4-band). Xat yuborilmasa qaror
+      // bekor bo'lmaydi: token javobda ham qaytadi, superadmin qo'lda yubora oladi.
+      const approved = await this.appRepo.findByPk(id);
+      if (approved) {
+        await this.notifyAndLog('approved', approved, {
+          passwordSetupToken: natija.password_setup_token,
+        });
+      }
+      return natija;
     } catch (e) {
       if (e instanceof UniqueConstraintError) {
         // Tekshiruvdan keyin, tranzaksiya ichida band bo'lib qolgan holat
@@ -429,6 +483,93 @@ export class SellerApplicationsService {
       }
       throw e;
     }
+  }
+
+  /**
+   * Arizani ARXIVGA olish (topshiriq №19, 7-band) — faqat superadmin.
+   *
+   * Nega qator o'chirilmaydi: `seller_application_events` va
+   * `offer_acceptances` — shartnoma DALILI. Ular baza trigger'i bilan
+   * himoyalangan (№16, 3-band; sizning o'z talabingiz) va `application_id`
+   * si o'zgarmas, ya'ni arizani haqiqiy o'chirish uchun himoyani vaqtincha
+   * yechish kerak bo'lardi. Buning o'rniga:
+   *
+   *   - ariza ro'yxatlardan va holat sahifasidan YO'QOLADI;
+   *   - hujjat FAYLLARI (guvohnoma, pasport nusxasi) DARHOL o'chiriladi —
+   *     ya'ni shaxsiy ma'lumot saqlanib qolmaydi;
+   *   - STIR bo'shaydi: shu STIR bilan yangi ariza topshirsa bo'ladi;
+   *   - tarixda `deleted` hodisasi qoladi — kim o'chirganini ko'rsatadi.
+   *
+   * TASDIQLANGAN ariza o'chirilmaydi: u tuzilgan shartnomaning asosi
+   * (do'kon va rekvizitlar shundan yaratilgan). Kerak bo'lsa do'konni
+   * nofaol qilish kerak.
+   */
+  async archive(id: number, actor: Actor) {
+    const app = await this.appRepo.findByPk(id);
+    if (!app || app.deleted_at) throw new NotFoundException('Ariza topilmadi');
+    if (app.status === 'approved') {
+      throw new ConflictException(
+        "Tasdiqlangan arizani o'chirib bo'lmaydi — u do'kon va rekvizitlar asosi. " +
+          "Kerak bo'lsa do'konni nofaol qiling",
+      );
+    }
+
+    const docs = await this.docRepo.findAll({
+      where: { application_id: id },
+      attributes: ['id'],
+    });
+
+    await this.appRepo.sequelize.transaction(async (transaction) => {
+      // Fayllar bilan birga metama'lumot ham ketadi: ariza arxivda,
+      // hujjatlarni ko'rsatadigan joy qolmaydi.
+      for (const d of docs) {
+        await this.storage.purgeBlob(d.id, transaction);
+      }
+      await this.docRepo.destroy({ where: { application_id: id }, transaction });
+      await app.update({ deleted_at: new Date() }, { transaction });
+      await this.event(
+        app.id,
+        'deleted',
+        actor,
+        `Ariza arxivga olindi, ${docs.length} ta hujjat fayli o'chirildi`,
+        transaction,
+      );
+    });
+
+    return {
+      message: 'Ariza arxivga olindi',
+      id,
+      documents_deleted: docs.length,
+    };
+  }
+
+  /**
+   * Xabarni yuboradi va NATIJASINI tarixga yozadi (topshiriq №19, 4-band).
+   *
+   * Tranzaksiyadan TASHQARIDA chaqiriladi: pochta serveri sekin javob bersa
+   * baza tranzaksiyasi ochiq turib qolmasin, xat yuborilmasa esa qaror
+   * bekor bo'lmasin.
+   */
+  private async notifyAndLog(
+    kind: NotifyKind,
+    app: SellerApplication,
+    extra: { passwordSetupToken?: string; statusToken?: string; reason?: string } = {},
+  ) {
+    let res: { sent: boolean; channel: string | null; target: string | null; error?: string };
+    try {
+      res = await this.notifications.notify(kind, app as any, extra);
+    } catch (e) {
+      res = { sent: false, channel: null, target: null, error: (e as Error).message };
+    }
+    const matn = res.sent
+      ? `${kind}: ${res.channel} → ${res.target}`
+      : `${kind}: yuborilmadi (${res.error || "noma'lum sabab"})`;
+    try {
+      await this.event(app.id, res.sent ? 'notified' : 'notify_failed', NO_ACTOR, matn);
+    } catch (e) {
+      this.logger.error(`Xabar hodisasini yozib bo'lmadi: ${(e as Error).message}`);
+    }
+    return res;
   }
 
   // ============================================================ FON ISHLARI
@@ -546,6 +687,8 @@ export class SellerApplicationsService {
       where: {
         tin,
         status: { [Op.in]: ['pending', 'needs_info', 'approved'] },
+        // Arxivga olingan ariza STIR ni band qilib turmasin (№19, 7-band)
+        deleted_at: null,
         ...(exceptId ? { id: { [Op.ne]: exceptId } } : {}),
       },
       attributes: ['id'],
@@ -578,7 +721,7 @@ export class SellerApplicationsService {
       throw new NotFoundException('Ariza topilmadi');
     }
     const app = await this.appRepo.findOne({ where: { public_token_hash: hashToken(token) } });
-    if (!app) throw new NotFoundException('Ariza topilmadi');
+    if (!app || app.deleted_at) throw new NotFoundException('Ariza topilmadi');
     return app;
   }
 
@@ -647,7 +790,9 @@ export class SellerApplicationsService {
     type: string,
     actor: Actor,
     message: string | null,
-    transaction: Transaction,
+    // Tranzaksiyasiz ham chaqiriladi: xabarnoma natijasi qaror
+    // tranzaksiyasi YOPILGANDAN keyin yoziladi (topshiriq №19, 4-band).
+    transaction?: Transaction,
   ) {
     return this.eventRepo.create(
       { application_id: applicationId, type, actor_id: actor.id, actor_login: actor.login, message },

@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { NextFunction, Request, Response } from 'express';
 import { timingSafeEqual } from 'crypto';
 import { resolveStoreSession } from 'src/store_auth/store-session';
+import { resolveUserSession } from 'src/users/user-session';
 
 /**
  * So'rov egasi. `isPrivileged` ko'rinuvchanlik uchun yetarli, lekin do'kon
@@ -62,12 +63,15 @@ export class ViewerScopeMiddleware implements NestMiddleware {
     const [bearer, token] = authHeader.split(' ');
     if (bearer !== 'Bearer' || !token) return guest;
 
-    // Sayt admini
+    // Sayt admini — imzo yetarli emas, `is_admin` bazadan (№19, 2-band).
     try {
       const payload: any = await this.jwtService.verifyAsync(token, {
         secret: this.config.get<string>('ACCESS_TOKEN_KEY_USER'),
       });
-      if (payload?.is_admin) return { kind: 'site_admin', store_id: null };
+      const userSession = await resolveUserSession(payload);
+      if (userSession?.is_admin) return { kind: 'site_admin', store_id: null };
+      // Imzosi to'g'ri mijoz tokeni — bu do'kon tokeni emas, qidirishni to'xtatamiz
+      if (userSession) return guest;
     } catch {
       // e'tiborsiz — quyida do'kon tokeni sinaladi
     }

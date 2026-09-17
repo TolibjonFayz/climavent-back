@@ -10,9 +10,31 @@ export class BannersService {
     @InjectModel(Banner) private readonly bannerRepository: typeof Banner,
   ) {}
 
+  /**
+   * `orderid` (eski) va `sort_order` (yangi) — bitta ma'no, ikkita nom.
+   * Adminkaning eski versiyasi birinchisini, yangisi ikkinchisini yuboradi;
+   * qaysi biri kelsa ham ikkalasi bir xil qiymatga tushadi, ya'ni saytdagi
+   * tartib qaysi adminkadan yozilganiga bog'liq bo'lib qolmaydi.
+   */
+  private syncOrder<T extends { orderid?: number; sort_order?: number }>(dto: T): T {
+    const payload: any = { ...dto };
+    const berilgan = payload.sort_order ?? payload.orderid;
+    if (berilgan !== undefined && berilgan !== null) {
+      payload.sort_order = berilgan;
+      payload.orderid = berilgan;
+    }
+    return payload;
+  }
+
   //Create banner
   async createBanner(createBannerDto: CreateBannerDto) {
-    const newBaner = await this.bannerRepository.create(createBannerDto);
+    const payload = this.syncOrder(createBannerDto);
+    // `orderid` bazada NOT NULL, standart qiymatsiz
+    if (payload.orderid === undefined || payload.orderid === null) {
+      payload.orderid = 0;
+      payload.sort_order = 0;
+    }
+    const newBaner = await this.bannerRepository.create(payload);
 
     const response = {
       message: 'Banner successfully created',
@@ -21,34 +43,45 @@ export class BannersService {
     return response;
   }
 
-  //Get all banners
-  async getAllBanners() {
+  /**
+   * Bannerlar ro'yxati.
+   *
+   * MEHMON faqat faollarini ko'radi (topshiriq №19, 5-band): mavsumiy
+   * bannerni o'chirmasdan yashirish mumkin bo'lsin. Adminka/bot hammasini
+   * ko'radi — aks holda o'chirilgan bannerni qayta yoqib bo'lmasdi.
+   */
+  async getAllBanners(privileged = false) {
     const banners = await this.bannerRepository.findAll({
+      ...(privileged ? {} : { where: { is_active: true } }),
       include: { all: true },
-      order: [['orderid', 'ASC']],
+      order: [
+        ['sort_order', 'ASC'],
+        ['id', 'ASC'],
+      ],
     });
     return banners;
   }
 
-  //Get banner by id
-  async getBannerById(id: number) {
+  //Get banner by id — nofaol banner to'g'ridan-to'g'ri havolada ham chiqmasin
+  async getBannerById(id: number, privileged = false) {
     const banner = await this.bannerRepository.findOne({
       where: { id: id },
       include: { all: true },
     });
-    if (banner) return banner;
-    else
+    if (!banner || (!privileged && !banner.is_active)) {
       throw new NotFoundException('Product not found or product id is invalid');
+    }
+    return banner;
   }
 
   //Update banner by id
   async updateBannerById(id: number, updateBannerDto: UpdateBannerDto) {
-    const updated = await this.bannerRepository.update(updateBannerDto, {
-      where: { id: id },
-      returning: true,
-    });
+    const updated = await this.bannerRepository.update(
+      this.syncOrder(updateBannerDto),
+      { where: { id: id }, returning: true },
+    );
     if (updated[1][0]?.dataValues) return updated[1][0].dataValues;
-    else return new NotFoundException('Banner not found or something wrong');
+    else throw new NotFoundException('Banner not found or something wrong');
   }
 
   //Delete banner by id

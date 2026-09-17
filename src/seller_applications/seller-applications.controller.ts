@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -291,5 +292,21 @@ export class SellerApplicationsController {
     @Req() req: any,
   ) {
     return this.service.updateNote(id, dto.admin_note ?? null, actorOf(req));
+  }
+
+  /**
+   * Arizani arxivga olish (topshiriq №19, 7-band) — sinov va spam arizalari.
+   *
+   * Qator o'chirilmaydi, lekin ro'yxatdan ham, holat sahifasidan ham
+   * yo'qoladi va HUJJAT FAYLLARI darhol o'chiriladi. Sabab servisda:
+   * dalil yozuvlari baza trigger'i bilan himoyalangan.
+   */
+  @ApiOperation({ summary: 'Arizani arxivga olish (superadmin)' })
+  @ApiResponse({ status: 200, schema: { example: { message: 'Ariza arxivga olindi', id: 19, documents_deleted: 3 } } })
+  @ApiResponse({ status: 409, description: "Tasdiqlangan ariza — o'chirilmaydi" })
+  @UseGuards(StoreAuthGuard, SuperadminGuard)
+  @Delete(':id')
+  async remove(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.service.archive(id, actorOf(req));
   }
 }

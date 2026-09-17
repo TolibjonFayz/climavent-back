@@ -11,6 +11,7 @@ import { MailerModule } from '@nestjs-modules/mailer';
       useFactory: async (config: ConfigService) => ({
         transport: {
           host: config.get<string>('MAILER_HOST'),
+          port: Number(config.get<string>('MAILER_PORT')) || 587,
           secure: false,
           auth: {
             user: config.get<string>('MAILDEV_USER'),
@@ -33,6 +34,7 @@ import { MailerModule } from '@nestjs-modules/mailer';
     }),
   ],
   providers: [MailService],
-  exports: [MailService],
+  // `MailerService` — sotuvchi xabarnomalari uchun (№19, 4-band)
+  exports: [MailService, MailerModule],
 })
 export class MailModule {}
