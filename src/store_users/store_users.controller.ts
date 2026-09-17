@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -23,6 +24,7 @@ import { UpdateStoreUserDto } from './dto/update-store-user.dto';
 import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
 import { SuperadminGuard } from 'src/store_auth/superadmin.guard';
 import { PasswordSetupService } from 'src/store_auth/password-setup.service';
+import { listLogins } from 'src/store_auth/login-journal';
 
 // DIQQAT: hech bir javobda `password_hash` qaytmaydi — StoreUser
 // modelidagi `toJSON` uni chiqarib tashlaydi.
@@ -50,6 +52,14 @@ export class StoreUsersController {
   @Post(':id/password-setup')
   async passwordSetupToken(@Param('id', ParseIntPipe) id: number) {
     return this.passwordSetup.issue(id);
+  }
+
+  // Istalgan hisobning kirishlar jurnali — faqat superadmin (№21, 2-band)
+  @ApiOperation({ summary: 'Hisob kirishlar jurnali (superadmin)' })
+  @UseGuards(SuperadminGuard)
+  @Get(':id/logins')
+  async logins(@Param('id', ParseIntPipe) id: number, @Query('limit') limit?: string) {
+    return listLogins(id, limit ? Number(limit) : undefined);
   }
 
   @ApiOperation({ summary: "Hisoblar ro'yxati (o'z do'koni yoki hammasi)" })

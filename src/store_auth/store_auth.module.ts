@@ -7,16 +7,18 @@ import { StoreAuthService } from './store_auth.service';
 import { StoreAuthController } from './store_auth.controller';
 import { PasswordSetupService } from './password-setup.service';
 import { OffersModule } from 'src/offers/offers.module';
+import { StoreUserLogin } from './model/store-user-login.model';
+import { StoreAuthJobs } from './store-auth.jobs';
 
 @Module({
   imports: [
-    SequelizeModule.forFeature([StoreUser, Store]),
+    SequelizeModule.forFeature([StoreUser, Store, StoreUserLogin]),
     JwtModule.register({}),
     // Kirishda "yangi versiyani tasdiqlang" signali uchun (№20, 2-band)
     OffersModule,
   ],
   controllers: [StoreAuthController],
-  providers: [StoreAuthService, PasswordSetupService],
+  providers: [StoreAuthService, PasswordSetupService, StoreAuthJobs],
   exports: [StoreAuthService, PasswordSetupService],
 })
 export class StoreAuthModule {}

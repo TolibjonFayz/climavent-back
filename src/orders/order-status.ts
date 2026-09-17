@@ -8,6 +8,7 @@
 // (uz/ru/en). Bu yerda faqat kod qiymati turadi.
 export const ORDER_STATUSES = [
   'new', // yaratildi, to'lanmagan
+  'quote_sent', // faqat KP so'rovida: sotuvchi KP yubordi (№21, 3-band)
   'paid', // to'landi, hali jo'natilmagan
   'shipping', // yetkazilyapti
   'done', // xaridorga topshirildi
@@ -43,3 +44,8 @@ export function normalizeOrderStatus(value: unknown): OrderStatus | undefined {
 export const ORDER_STATUS_MESSAGE = `status faqat quyidagilardan biri bo'lishi mumkin: ${ORDER_STATUSES.join(
   ', ',
 )}`;
+
+// Buyurtma turi (topshiriq №21, 3-band). `quote` — narx so'rovi (KP): mijoz
+// narxsiz mahsulot uchun tijorat taklifi so'raydi.
+export const ORDER_KINDS = ['order', 'quote'] as const;
+export type OrderKind = (typeof ORDER_KINDS)[number];

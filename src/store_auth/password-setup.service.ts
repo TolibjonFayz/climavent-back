@@ -10,6 +10,7 @@ import { createHash, randomBytes } from 'crypto';
 import { Transaction } from 'sequelize';
 import { StoreUser } from 'src/store_users/model/store_user.model';
 import { PASSWORD_SETUP_TTL_MS } from 'src/seller_applications/constants';
+import { journal, RequestMeta } from './login-journal';
 
 const SALT_ROUNDS = 10;
 
@@ -44,7 +45,7 @@ export class PasswordSetupService {
     return { password_setup_token: raw, expires_at: expiresAt.toISOString() };
   }
 
-  async setPassword(token: string, password: string) {
+  async setPassword(token: string, password: string, meta: RequestMeta = {}) {
     if (typeof password !== 'string' || password.length < 8) {
       throw new BadRequestException("Parol kamida 8 belgi bo'lsin");
     }
@@ -53,7 +54,7 @@ export class PasswordSetupService {
     const gone = new GoneException("Havola yaroqsiz yoki muddati o'tgan");
     if (typeof token !== 'string' || token.length < 32) throw gone;
 
-    return this.storeUserRepo.sequelize.transaction(async (transaction) => {
+    const set = await this.storeUserRepo.sequelize.transaction(async (transaction) => {
       const user = await this.storeUserRepo.findOne({
         where: { password_setup_token_hash: hashToken(token) } as any,
         transaction,
@@ -73,7 +74,10 @@ export class PasswordSetupService {
         } as any,
         { transaction },
       );
-      return { login: user.login };
+      return { id: user.id, login: user.login };
     });
+    // Jurnal (№21, 2-band) — tranzaksiya yopilgandan keyin
+    await journal('password_set', { store_user_id: set.id, login: set.login }, meta);
+    return { login: set.login };
   }
 }

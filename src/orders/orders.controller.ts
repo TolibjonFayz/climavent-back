@@ -8,6 +8,7 @@ import {
   ParseIntPipe,
   Delete,
   UseGuards,
+  Query,
   Req,
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
@@ -32,8 +33,8 @@ export class OrdersController {
   @ApiOperation({ summary: 'Creating order' })
   @UseGuards(UserGuard)
   @Post('create')
-  async create(@Body() createOrderDto: CreateOrderDto) {
-    return this.ordersService.createOrder(createOrderDto);
+  async create(@Body() createOrderDto: CreateOrderDto, @Req() req: any) {
+    return this.ordersService.createOrder(createOrderDto, req.user);
   }
 
   //Get all orders — admin JWT yoki servis kaliti (X-API-Key).
@@ -48,8 +49,9 @@ export class OrdersController {
   @ApiSecurity('service-key')
   @UseGuards(AdminOrStoreGuard)
   @Get('all')
-  async getAll(@Req() req: any): Promise<Order[]> {
-    return this.ordersService.getAllOrders(scopedStoreId(req));
+  async getAll(@Req() req: any, @Query('kind') kind?: string): Promise<Order[]> {
+    // `?kind=quote` — faqat KP so'rovlari, `?kind=order` — oddiy buyurtmalar (№21)
+    return this.ordersService.getAllOrders(scopedStoreId(req), kind);
   }
 
   //Get order by id
@@ -57,8 +59,8 @@ export class OrdersController {
   @ApiBearerAuth()
   @UseGuards(UserGuard)
   @Get('one/:id')
-  async getOne(@Param('id', ParseIntPipe) id: number): Promise<Order> {
-    return this.ordersService.getOrderById(id);
+  async getOne(@Param('id', ParseIntPipe) id: number, @Req() req: any): Promise<Order> {
+    return this.ordersService.getOrderById(id, req.user);
   }
 
   //Get order by user id — foydalanuvchi faqat o'zinikini ko'radi

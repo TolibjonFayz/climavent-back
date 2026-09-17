@@ -16,6 +16,10 @@ interface OrderAtr {
   totalAmount: number | null;
   status: string;
   location: string;
+  kind?: string;
+  comment?: string | null;
+  company_name?: string | null;
+  company_tin?: string | null;
 }
 
 @Table({ tableName: 'orders' })
@@ -75,6 +79,23 @@ export class Order extends Model<Order, OrderAtr> {
     allowNull: false,
   })
   location: string;
+
+  // KP so'rovi (topshiriq №21, 3-band)
+  @ApiProperty({ example: 'order', enum: ['order', 'quote'] })
+  @Column({ type: DataType.STRING(10), allowNull: false, defaultValue: 'order' })
+  kind: string;
+
+  @ApiProperty({ required: false, example: 'Montaj bilan' })
+  @Column({ type: DataType.TEXT, allowNull: true })
+  comment: string;
+
+  @ApiProperty({ required: false, example: '"AIRCOOL" MChJ' })
+  @Column({ type: DataType.STRING(255), allowNull: true })
+  company_name: string;
+
+  @ApiProperty({ required: false, example: '301234567' })
+  @Column({ type: DataType.STRING(9), allowNull: true })
+  company_tin: string;
 
   @HasMany(() => OrderItem)
   orderItems: OrderItem;

@@ -31,11 +31,27 @@ export class OrdersService {
   ) {}
 
   //Creating a order
-  async createOrder(createOrderDto: CreateOrderDto) {
+  //
+  // `requester` — token egasi. Ilgari `user_id` tanadan TEKSHIRUVSIZ olinardi:
+  // istalgan mijoz boshqa odam nomidan buyurtma (va №21 dan keyin KP so'rovi)
+  // yarata olardi. Endi faqat o'z nomidan; sayt admini — istalgan.
+  async createOrder(createOrderDto: CreateOrderDto, requester?: { id?: number; is_admin?: boolean }) {
+    if (requester && !requester.is_admin && Number(createOrderDto.user_id) !== Number(requester.id)) {
+      throw new ForbiddenException("Faqat o'z nomingizdan buyurtma bera olasiz");
+    }
     const status = normalizeOrderStatus(createOrderDto.status);
     if (!status) throw new BadRequestException(ORDER_STATUS_MESSAGE);
+    const kind = createOrderDto.kind || 'order';
+    if (status === 'quote_sent' && kind !== 'quote') {
+      throw new BadRequestException("quote_sent holati faqat KP so'rovi (kind: quote) uchun");
+    }
+    const clean = (v?: string | null) => (typeof v === 'string' && v.trim() ? v.trim() : null);
     const newOrder = await this.OrderRepository.create({
       ...createOrderDto,
+      kind,
+      comment: clean(createOrderDto.comment),
+      company_name: clean(createOrderDto.company_name),
+      company_tin: clean(createOrderDto.company_tin),
       status,
       // Summani mijoz emas, SERVER hisoblaydi — qatorlar qo'shilganda
       // `OrderPricingService.recomputeOrderTotal` yozadi (topshiriq №13,
@@ -56,13 +72,16 @@ export class OrdersService {
   // `totalAmount` esa BUTUN buyurtmaniki bo'lib qoladi (qayta hisoblanmaydi)
   // — hozir bitta ham aralash buyurtma yo'q; bo'lganda do'kon ulushini
   // qatorlardan hisoblash kerak bo'ladi.
-  async getAllOrders(storeId?: number | null) {
+  async getAllOrders(storeId?: number | null, kind?: string) {
+    // `?kind=quote` — faqat KP so'rovlari (№21, 3-band)
+    const kindWhere = kind === 'order' || kind === 'quote' ? { kind } : {};
     if (!storeId) {
-      return this.OrderRepository.findAll({ include: { all: true } });
+      return this.OrderRepository.findAll({ where: kindWhere, include: { all: true } });
     }
 
     const orders = await this.OrderRepository.findAll({
       where: {
+        ...kindWhere,
         id: {
           [Op.in]: Sequelize.literal(
             `(SELECT DISTINCT order_id FROM "order-items" WHERE product_id IN ` +
@@ -89,13 +108,19 @@ export class OrdersService {
   }
 
   //Get order by id
-  async getOrderById(id: number) {
+  //
+  // Ilgari istalgan tizimga kirgan mijoz BOSHQA odamning buyurtmasini (manzil,
+  // summa, mahsulotlar) id bo'yicha ocha olardi. Endi faqat egasi yoki sayt admini;
+  // begona buyurtma — 404 (borligini ham bildirmaymiz).
+  async getOrderById(id: number, requester?: { id?: number; is_admin?: boolean }) {
     const order = await this.OrderRepository.findOne({
       where: { id: id },
       include: { all: true },
     });
-    if (order) return order;
-    else throw new NotFoundException('Order not found or id is invalid');
+    if (!order || (requester && !requester.is_admin && Number(order.user_id) !== Number(requester.id))) {
+      throw new NotFoundException('Order not found or id is invalid');
+    }
+    return order;
   }
 
   //Get order by userid
@@ -184,17 +209,31 @@ export class OrdersService {
     updateOrderDto: UpdateOrderDto,
     actor: RequestActor,
   ) {
-    await this.ensureCanWrite(id, actor);
+    const existing = await this.ensureCanWrite(id, actor);
 
     const payload: any = { ...updateOrderDto };
     // Summa qatorlardan hisoblanadi — to'g'ridan-to'g'ri yozib bo'lmaydi.
     delete payload.totalAmount;
+    // Buyurtma turi va egasi yaratilgandan keyin o'zgarmaydi.
+    delete payload.kind;
+
+    // MIJOZ: faqat bekor qila oladi. Ilgari mijoz o'z buyurtmasini `paid` yoki
+    // `done` qilib qo'ya olardi (soxta to'lov sahifasi shunga tayanardi).
+    if (actor?.kind === 'customer' && !actor?.is_admin) {
+      delete payload.user_id;
+      if (payload.status !== undefined && normalizeOrderStatus(payload.status) !== 'cancelled') {
+        throw new ForbiddenException("Mijoz buyurtmani faqat bekor qila oladi (status: cancelled)");
+      }
+    }
     // Holat qat'iy ro'yxatdan (topshiriq №14, 4-band). Eski o'zbekcha
     // nomlar hozircha qabul qilinadi va yangisiga aylantiriladi —
     // migratsiyagacha yozilgan mijozlar buzilmasin.
     if (payload.status !== undefined) {
       const normalized = normalizeOrderStatus(payload.status);
       if (!normalized) throw new BadRequestException(ORDER_STATUS_MESSAGE);
+      if (normalized === 'quote_sent' && existing.kind !== 'quote') {
+        throw new BadRequestException("quote_sent holati faqat KP so'rovi (kind: quote) uchun");
+      }
       payload.status = normalized;
     }
 

@@ -1,9 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  ORDER_KINDS,
   ORDER_STATUSES,
   ORDER_STATUS_MESSAGE,
 } from '../order-status';
-import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class CreateOrderDto {
   @ApiProperty({ example: 1, description: 'User id' })
@@ -44,4 +45,28 @@ export class CreateOrderDto {
   @IsString()
   @IsNotEmpty()
   location: string;
+
+  // ——— KP so'rovi (topshiriq №21, 3-band) ———
+
+  @ApiProperty({ example: 'quote', enum: ORDER_KINDS, required: false, description: "Standart 'order'" })
+  @IsOptional()
+  @IsIn(ORDER_KINDS as unknown as string[], { message: `kind: ${ORDER_KINDS.join(', ')}` })
+  kind?: string;
+
+  @ApiProperty({ example: 'Montaj bilan, Toshkentga yetkazish', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  comment?: string;
+
+  @ApiProperty({ example: '"AIRCOOL" MChJ', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  company_name?: string;
+
+  @ApiProperty({ example: '301234567', required: false, description: 'STIR, 9 raqam' })
+  @IsOptional()
+  @Matches(/^\d{9}$/, { message: "company_tin 9 raqamdan iborat bo'lsin" })
+  company_tin?: string;
 }
