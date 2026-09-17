@@ -19,6 +19,8 @@ import {
 } from './order-status';
 import { BadRequestException } from '@nestjs/common';
 import Sequelize, { Op } from 'sequelize';
+import { cancelDeliveriesForOrder } from 'src/deliveries/deliveries.service';
+import { Delivery } from 'src/deliveries/model/models';
 
 @Injectable()
 export class OrdersService {
@@ -241,8 +243,40 @@ export class OrdersService {
       where: { id: id },
       returning: true,
     });
-    if (updated[1][0]?.dataValues) return updated[1][0].dataValues;
-    else throw new NotFoundException('Order not found or something wrong');
+    if (!updated[1][0]?.dataValues) throw new NotFoundException('Order not found or something wrong');
+
+    // Buyurtma bekor qilindi — faol yetkazishlar ham bekor, kuryerga push (№22, 3-band)
+    if (payload.status === 'cancelled' && existing.status !== 'cancelled') {
+      await cancelDeliveriesForOrder(id, {
+        type: actor?.kind === 'store_admin' ? 'store' : actor?.kind === 'customer' ? 'system' : 'superadmin',
+        id: actor?.user_id ?? null,
+      });
+    }
+    return updated[1][0].dataValues;
+  }
+
+  /**
+   * Adminka: bitta buyurtma + yetkazishlari (topshiriq №22, 4-band).
+   * Do'kon admini — faqat o'z mahsuloti bor buyurtma, qatorlar va yetkazishlar
+   * ham faqat o'ziniki (aralash buyurtmada boshqa do'kon qismi ko'rinmaydi).
+   */
+  async getOrderForBackoffice(id: number, storeId: number | null) {
+    const order = await this.OrderRepository.findOne({ where: { id }, include: { all: true } });
+    if (!order) throw new NotFoundException('Buyurtma topilmadi');
+    const plain: any = order.get({ plain: true });
+    if (storeId) {
+      const mahsulotlar = await this.productRepository.findAll({ where: { store_id: storeId }, attributes: ['id'] });
+      const meniki = new Set(mahsulotlar.map((p) => p.id));
+      plain.orderItems = (plain.orderItems || []).filter((i: any) => meniki.has(i.product_id));
+      if (!plain.orderItems.length) throw new NotFoundException('Buyurtma topilmadi');
+    }
+    const deliveries = await Delivery.findAll({
+      where: { order_id: id, ...(storeId ? { store_id: storeId } : {}) },
+      attributes: { exclude: ['proof_code_hash'] },
+      order: [['id', 'ASC']],
+    });
+    plain.deliveries = deliveries.map((d) => d.get({ plain: true }));
+    return plain;
   }
 
   //Delete order by id — faqat egasi yoki admin

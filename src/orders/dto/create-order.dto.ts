@@ -4,7 +4,7 @@ import {
   ORDER_STATUSES,
   ORDER_STATUS_MESSAGE,
 } from '../order-status';
-import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsIn, IsLatitude, IsLongitude, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class CreateOrderDto {
   @ApiProperty({ example: 1, description: 'User id' })
@@ -69,4 +69,33 @@ export class CreateOrderDto {
   @IsOptional()
   @Matches(/^\d{9}$/, { message: "company_tin 9 raqamdan iborat bo'lsin" })
   company_tin?: string;
+
+  // ——— Yetkazish uchun (topshiriq №22, 2-band). Eski buyurtmalarda null ———
+
+  @ApiProperty({ example: 'Aziz Karimov', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  recipient_name?: string;
+
+  @ApiProperty({ example: '+998901234567', required: false })
+  @IsOptional()
+  @Matches(/^\+998\d{9}$/, { message: "recipient_phone +998XXXXXXXXX ko'rinishida bo'lsin" })
+  recipient_phone?: string;
+
+  @ApiProperty({ example: "2-kirish, 5-qavat, 18-xonadon, mo'ljal: maktab", required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  address_details?: string;
+
+  @ApiProperty({ example: 41.311081, required: false })
+  @IsOptional()
+  @IsLatitude()
+  lat?: number;
+
+  @ApiProperty({ example: 69.240562, required: false })
+  @IsOptional()
+  @IsLongitude()
+  lng?: number;
 }

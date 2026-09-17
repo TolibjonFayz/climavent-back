@@ -8,11 +8,19 @@ import {
 import { InjectModel } from '@nestjs/sequelize';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { QueryTypes } from 'sequelize';
 import { StoreUser } from 'src/store_users/model/store_user.model';
 import { Store } from 'src/stores/model/store.model';
 import { StoreLoginDto } from './dto/store-login.dto';
 import { ConsentService } from 'src/offers/consent.service';
 import { journal, recentFailures, RequestMeta } from './login-journal';
+import {
+  findRefreshToken,
+  issueRefreshToken,
+  MOBILE_ACCESS_TTL,
+  revokeAllRefreshTokens,
+  revokeRefreshToken,
+} from './mobile-session';
 
 /** Parol almashtirishda noto'g'ri joriy parol: shuncha urinish ... */
 const CHANGE_PW_MAX_FAILS = 5;
@@ -57,7 +65,9 @@ export class StoreAuthService {
       { where: { id: user.id }, silent: true },
     );
 
-    const token = await this.signToken(user);
+    const mobile = dto.client === 'mobile';
+    const token = await this.signToken(user, mobile ? MOBILE_ACCESS_TTL : undefined);
+    const refresh = mobile ? await issueRefreshToken(user.id, user.token_version ?? 0, meta) : null;
     await journal('login_success', { store_user_id: user.id, login: user.login }, meta);
 
     // Oferta yangilangan bo'lsa — adminka kirishdan keyin tasdiqlash oynasini
@@ -81,11 +91,73 @@ export class StoreAuthService {
       },
       // `null` — tasdiqlash kerak emas
       offer_pending: offerPending,
+      // Faqat `client: "mobile"` (№22, 8-band). Nomi `refreshToken`: `refresh_token`
+      // kaliti global maxfiylik filtrida (mijozning xeshini himoya qiladi) — javobdan
+      // olib tashlanardi. Mijoz API'sidagi `tokens.refreshToken` bilan bir xil.
+      ...(refresh
+        ? { refreshToken: refresh.raw, refresh_expires_at: refresh.row.expires_at, expires_in: MOBILE_ACCESS_TTL }
+        : {}),
     };
   }
 
+  /**
+   * Mobil ilova: refresh token bilan yangi juftlik (№22, 8-band).
+   * Har chaqiruvda refresh ALMASHADI; eskisi qayta kelsa — hisobning barcha
+   * refresh tokenlari bekor va 401.
+   */
+  async refresh(raw: string, meta: RequestMeta = {}) {
+    const found = await findRefreshToken(raw);
+    const denied = new UnauthorizedException('Sessiya tugagan yoki bekor qilingan — qayta kiring');
+    if (found.ok === false) throw denied;
+    const row = found.row;
+
+    const user = await this.storeUserRepository.findByPk(row.store_user_id);
+    if (!user || !user.is_active || Number(user.token_version ?? 0) !== Number(row.token_version)) {
+      await revokeAllRefreshTokens(row.store_user_id);
+      throw denied;
+    }
+    if (user.role === 'courier') {
+      const rows: any[] = await this.storeUserRepository.sequelize.query(
+        'SELECT is_active FROM couriers WHERE store_user_id = :id',
+        { replacements: { id: user.id }, type: QueryTypes.SELECT },
+      );
+      if (!rows[0]?.is_active) {
+        await revokeAllRefreshTokens(user.id);
+        throw denied;
+      }
+    }
+
+    // Shartli almashtirish: bir token bilan ikki so'rov bir vaqtda kelsa,
+    // faqat bittasi o'tadi — ikkinchisi "qayta ishlatish" deb hisoblanadi.
+    const [, affected]: any = await this.storeUserRepository.sequelize.query(
+      'UPDATE store_refresh_tokens SET revoked_at = now() WHERE id = :id AND revoked_at IS NULL',
+      { replacements: { id: row.id }, type: QueryTypes.UPDATE },
+    );
+    if (!affected) {
+      await revokeAllRefreshTokens(user.id);
+      throw denied;
+    }
+    const next = await issueRefreshToken(user.id, user.token_version ?? 0, meta);
+    await this.storeUserRepository.sequelize.query(
+      'UPDATE store_refresh_tokens SET replaced_by_id = :next WHERE id = :id',
+      { replacements: { id: row.id, next: next.row.id }, type: QueryTypes.UPDATE },
+    );
+
+    return {
+      token: await this.signToken(user, MOBILE_ACCESS_TTL),
+      refreshToken: next.raw,
+      refresh_expires_at: next.row.expires_at,
+      expires_in: MOBILE_ACCESS_TTL,
+    };
+  }
+
+  /** Joriy qurilmadan chiqish: refresh token bekor qilinadi. */
+  async revokeDevice(raw?: string) {
+    if (raw) await revokeRefreshToken(raw);
+  }
+
   /** Panel tokeni. `tv` — parol versiyasi: parol almashsa eski tokenlar yaroqsiz (№17). */
-  private signToken(user: StoreUser) {
+  private signToken(user: StoreUser, expiresIn?: string) {
     return this.jwtService.signAsync(
       {
         user_id: user.id,
@@ -96,7 +168,7 @@ export class StoreAuthService {
       },
       {
         secret: process.env.STORE_TOKEN_KEY || process.env.ACCESS_TOKEN_KEY,
-        expiresIn: process.env.STORE_TOKEN_TIME || '12h',
+        expiresIn: expiresIn || process.env.STORE_TOKEN_TIME || '12h',
       },
     );
   }
@@ -151,6 +223,8 @@ export class StoreAuthService {
       token_version: (user.token_version ?? 0) + 1,
     } as any);
     await journal('password_changed', { store_user_id: user.id, login: user.login }, meta);
+    // Mobil qurilmalar ham chiqib ketsin (token_version bilan ham o'ladi — aniq bo'lsin)
+    await revokeAllRefreshTokens(user.id);
 
     return { token: await this.signToken(user) };
   }

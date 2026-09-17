@@ -29,10 +29,19 @@ export async function resolveStoreSession(payload: any): Promise<StoreRequester 
   });
   if (!user || !user.is_active) return null;
   if (Number(payload?.tv ?? 0) !== Number(user.token_version ?? 0)) return null;
-  if (user.role !== 'superadmin' && user.role !== 'store_admin') return null;
+  if (user.role !== 'superadmin' && user.role !== 'store_admin' && user.role !== 'courier') return null;
+
+  // Kuryer (topshiriq №22): profili o'chirilgan bo'lsa token ham o'lik.
+  if (user.role === 'courier') {
+    const [row] = (await StoreUser.sequelize.query(
+      'SELECT is_active FROM couriers WHERE store_user_id = :id',
+      { replacements: { id: user.id }, type: 'SELECT' as any },
+    )) as any[];
+    if (!row?.is_active) return null;
+  }
 
   return {
-    role: user.role,
+    role: user.role as StoreRequester['role'],
     store_id: user.role === 'superadmin' ? null : user.store_id ?? null,
     user_id: user.id,
     login: user.login,

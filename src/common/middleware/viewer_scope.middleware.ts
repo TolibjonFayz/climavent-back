@@ -1,9 +1,10 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
+import { ForbiddenException, Injectable, NestMiddleware } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { NextFunction, Request, Response } from 'express';
 import { timingSafeEqual } from 'crypto';
 import { resolveStoreSession } from 'src/store_auth/store-session';
+import { isCourierAllowedPath } from 'src/store_auth/store_auth.guard';
 import { resolveUserSession } from 'src/users/user-session';
 
 /**
@@ -91,6 +92,15 @@ export class ViewerScopeMiddleware implements NestMiddleware {
     }
     const session = await resolveStoreSession(payload);
     if (!session) return guest;
+    // Kuryer tokeni FAQAT o'z endpointlariga kiradi (№22, 1-band) — ochiq GET
+    // endpointlar (katalog, do'konlar) ham bundan mustasno emas: token egasi
+    // mehmon sifatida ham o'qiy olmasin, aks holda cheklov ma'nosiz.
+    if (session.role === 'courier') {
+      if (!isCourierAllowedPath(req)) {
+        throw new ForbiddenException('Kuryer tokeni faqat /api/courier/* uchun');
+      }
+      return guest;
+    }
     return session.role === 'superadmin'
       ? { kind: 'superadmin', store_id: null }
       : { kind: 'store_admin', store_id: session.store_id };

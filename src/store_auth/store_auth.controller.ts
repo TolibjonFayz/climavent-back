@@ -8,7 +8,7 @@ import {
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { StoreAuthService } from './store_auth.service';
-import { StoreLoginDto } from './dto/store-login.dto';
+import { LogoutDto, RefreshTokenDto, StoreLoginDto } from './dto/store-login.dto';
 import { StoreAuthGuard } from './store_auth.guard';
 import { PasswordSetupService } from './password-setup.service';
 import { SetPasswordDto } from './dto/set-password.dto';
@@ -68,7 +68,9 @@ export class StoreAuthController {
   // Token yuborilsa va yaroqli bo'lsa — jurnalga `logout` yoziladi (№21, 2-band).
   // Tokensiz yoki yaroqsiz token bilan ham 201: chiqish hech qachon xato bermasin.
   @Post('logout')
-  async logout(@Req() req: any) {
+  async logout(@Req() req: any, @Body() body: LogoutDto) {
+    // Mobil ilova: shu qurilmaning refresh tokeni bekor (№22, 8-band)
+    await this.storeAuthService.revokeDevice(body?.refresh_token);
     const [bearer, token] = String(req.headers?.authorization || '').split(' ');
     if (bearer === 'Bearer' && token) {
       try {
@@ -84,6 +86,17 @@ export class StoreAuthController {
       }
     }
     return { message: 'Chiqildi' };
+  }
+
+  /** Mobil ilova sessiyasini yangilash (№22, 8-band). */
+  @ApiOperation({ summary: 'Mobil: refresh token bilan yangi token (rotatsiya)' })
+  @ApiResponse({ status: 200, schema: { example: { token: 'eyJ…', refreshToken: '…', refresh_expires_at: '2026-11-16T05:00:00Z', expires_in: '15m' } } })
+  @ApiResponse({ status: 401, description: "Yaroqsiz, muddati o'tgan yoki qayta ishlatilgan (hamma refresh tokenlar bekor)" })
+  @Throttle({ default: { limit: 60, ttl: 60 * 1000 } })
+  @HttpCode(200)
+  @Post('refresh')
+  async refresh(@Body() dto: RefreshTokenDto, @Req() req: any) {
+    return this.storeAuthService.refresh(dto.refresh_token, metaOf(req));
   }
 
   /**

@@ -30,6 +30,7 @@ import { StoreUsersModule } from './store_users/store_users.module';
 import { StoreAuthModule } from './store_auth/store_auth.module';
 import { StoreScopeModule } from './store_auth/store_scope.module';
 import { SellerApplicationsModule } from './seller_applications/seller-applications.module';
+import { DeliveriesModule } from './deliveries/deliveries.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
@@ -104,6 +105,7 @@ import { ViewerScopeMiddleware } from './common/middleware/viewer_scope.middlewa
     StoreAuthModule,
     StoreScopeModule,
     SellerApplicationsModule,
+    DeliveriesModule,
   ],
   controllers: [],
   providers: [

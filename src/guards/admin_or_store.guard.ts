@@ -1,5 +1,5 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
-import { UnauthorizedException } from '@nestjs/common';
+import { HttpException, UnauthorizedException } from '@nestjs/common';
 import { JwtOrServiceKeyGuard } from './jwt_or_service_key.guard';
 import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
 
@@ -35,7 +35,9 @@ export class AdminOrStoreGuard implements CanActivate {
 
     try {
       return await this.storeAuthGuard.canActivate(context);
-    } catch {
+    } catch (e) {
+      // Token yaroqli, lekin huquq yo'q (kuryer tokeni, oferta tasdig'i) — 403/409 o'zgarishsiz
+      if (e instanceof HttpException && [403, 409].includes(e.getStatus())) throw e;
       // Uchala usul ham ishlamadi. Xabar umumiy: qaysi usul qabul
       // qilinishini aytamiz, lekin qaysi biri qayerda yiqilganini emas.
       throw new UnauthorizedException(

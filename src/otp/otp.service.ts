@@ -53,7 +53,18 @@ export class OtpService {
     }
   }
 
-  async sendOtp(phone: number, otp: string, isRetry = false) {
+  async sendOtp(phone: number, otp: string) {
+    return this.sendSms(phone, `Climavent.uz saytiga ro‘yxatdan o‘tish uchun tasdiqlash kodi: ${otp}`);
+  }
+
+  /**
+   * Istalgan SMS (topshiriq №22, 5-band — yetkazish kodi).
+   *
+   * DIQQAT: Eskiz har bir yangi matnni oldindan moderatsiyadan o'tgan SHABLON
+   * sifatida talab qiladi. Tasdiqlanmagan matn rad etiladi — xato qaytadi va
+   * logga yoziladi, chaqiruvchi amal buzilmaydi.
+   */
+  async sendSms(phone: number | string, message: string, isRetry = false) {
     try {
       const token = await this.auth();
 
@@ -64,8 +75,8 @@ export class OtpService {
           Authorization: `Bearer ${token}`,
         },
         data: {
-          mobile_phone: phone,
-          message: `Climavent.uz saytiga ro‘yxatdan o‘tish uchun tasdiqlash kodi: ${otp}`,
+          mobile_phone: Number(String(phone).replace(/\D/g, '')),
+          message,
           from: 4546,
           callback_url: this.webhookurl,
         },
@@ -81,7 +92,7 @@ export class OtpService {
         (error.response.status === 401 || error.response.status === 403)
       ) {
         await this.login_and_save();
-        return this.sendOtp(phone, otp, true);
+        return this.sendSms(phone, message, true);
       }
       console.error('SMS send error:', error?.response?.data || error.message);
       return {

@@ -34,7 +34,8 @@ export class BackofficeSuperadminGuard implements CanActivate {
     let ok = false;
     try {
       ok = await this.storeAuthGuard.canActivate(context);
-    } catch {
+    } catch (e: any) {
+      if (typeof e?.getStatus === 'function' && [403, 409].includes(e.getStatus())) throw e;
       throw new UnauthorizedException(
         "Kirish talab qilinadi: servis kaliti, sayt admini yoki superadmin tokeni",
       );

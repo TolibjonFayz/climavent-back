@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -13,7 +14,7 @@ import { assertOfferAccepted } from 'src/offers/offer-gate';
 // So'rov kim tomonidan qilinayotgani. Yozish endpointlari shu asosda
 // cheklanadi (StoreScopeGuard).
 export interface StoreRequester {
-  role: 'superadmin' | 'store_admin';
+  role: 'superadmin' | 'store_admin' | 'courier';
   store_id: number | null;
   user_id?: number;
   login?: string;
@@ -61,6 +62,11 @@ export class StoreAuthGuard implements CanActivate {
     if (!session) {
       throw new UnauthorizedException("Hisob faol emas yoki sessiya bekor qilingan — qayta kiring");
     }
+    // Kuryer tokeni — faqat o'z endpointlari (topshiriq №22, 1-band). Kirish,
+    // parolni almashtirish va jurnal (`/store-auth/*`) unga ham ochiq.
+    if (session.role === 'courier' && !isCourierAllowedPath(req)) {
+      throw new ForbiddenException("Kuryer tokeni faqat /api/courier/* uchun");
+    }
     req.storeUser = session;
 
     // Oferta yangilangan bo'lsa — tasdiqlamaguncha YOZISH to'siladi (№20, 2-band).
@@ -79,4 +85,10 @@ export class StoreAuthGuard implements CanActivate {
     const b = Buffer.from(expected);
     return a.length === b.length && timingSafeEqual(a, b);
   }
+}
+
+/** Kuryer tokeni kira oladigan yo'llar (№22). */
+export function isCourierAllowedPath(req: any): boolean {
+  const path = String(req?.originalUrl || req?.url || '').split('?')[0];
+  return /^\/api\/(courier|store-auth|devices)(\/|$)/.test(path);
 }

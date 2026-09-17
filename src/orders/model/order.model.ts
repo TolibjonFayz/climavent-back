@@ -97,6 +97,41 @@ export class Order extends Model<Order, OrderAtr> {
   @Column({ type: DataType.STRING(9), allowNull: true })
   company_tin: string;
 
+  // Yetkazish uchun (topshiriq №22, 2-band)
+  @ApiProperty({ required: false, example: 'Aziz Karimov' })
+  @Column({ type: DataType.STRING(150), allowNull: true })
+  recipient_name: string;
+
+  @ApiProperty({ required: false, example: '+998901234567' })
+  @Column({ type: DataType.STRING(13), allowNull: true })
+  recipient_phone: string;
+
+  @ApiProperty({ required: false, example: "2-kirish, 5-qavat" })
+  @Column({ type: DataType.STRING(500), allowNull: true })
+  address_details: string;
+
+  @ApiProperty({ required: false, example: 41.311081 })
+  @Column({
+    type: DataType.DECIMAL(9, 6),
+    allowNull: true,
+    get(this: Order) {
+      const v = this.getDataValue('lat');
+      return v === null || v === undefined ? null : Number(v);
+    },
+  })
+  lat: number;
+
+  @ApiProperty({ required: false, example: 69.240562 })
+  @Column({
+    type: DataType.DECIMAL(9, 6),
+    allowNull: true,
+    get(this: Order) {
+      const v = this.getDataValue('lng');
+      return v === null || v === undefined ? null : Number(v);
+    },
+  })
+  lng: number;
+
   @HasMany(() => OrderItem)
   orderItems: OrderItem;
 }

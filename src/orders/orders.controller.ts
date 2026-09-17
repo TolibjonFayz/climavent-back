@@ -108,4 +108,15 @@ export class OrdersController {
   async deleteOne(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     return this.ordersService.deleteOrderById(id, req.actor);
   }
+
+  // Adminka: buyurtma + yetkazishlari (topshiriq №22, 4-band). Mijoz uchun `one/:id`.
+  // DIQQAT: bu marshrut ENG OXIRIDA turadi — aks holda `all` ham `:id` deb o'qilardi.
+  @ApiOperation({ summary: "Buyurtma va yetkazishlari (servis kaliti, admin yoki do'kon tokeni)" })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(AdminOrStoreGuard)
+  @Get(':id')
+  async getForBackoffice(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.ordersService.getOrderForBackoffice(id, scopedStoreId(req));
+  }
 }

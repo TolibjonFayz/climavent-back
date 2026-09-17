@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -98,6 +99,9 @@ export class CustomerOrBackofficeGuard implements CanActivate {
     const session = await resolveStoreSession(payload);
     if (!session) {
       throw new UnauthorizedException("Hisob faol emas yoki sessiya bekor qilingan — qayta kiring");
+    }
+    if (session.role === 'courier') {
+      throw new ForbiddenException("Kuryer tokeni faqat /api/courier/* uchun");
     }
     req.actor = {
       kind: session.role,

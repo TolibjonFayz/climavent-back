@@ -1,3 +1,5 @@
+import { pushToStoreAdmins } from 'src/deliveries/push';
+import { QueryTypes } from 'sequelize';
 import {
   ForbiddenException,
   Injectable,
@@ -72,6 +74,7 @@ export class OrderItemsService {
     });
 
     await this.pricing.recomputeOrderTotal(createOrderItemDto.order_id);
+    await this.notifyStoreOfNewOrder(createOrderItemDto.order_id, createOrderItemDto.product_id, newOrderItem.id);
 
     // "kopbuyurtirilgan" sort uchun mahsulotning sotilgan sonini oshiramiz
     await this.productRepository.increment('sold_count', {
@@ -203,4 +206,32 @@ export class OrderItemsService {
     await this.pricing.recomputeOrderTotal(existing.order_id);
     return deleting;
   }
+
+  /**
+   * Do'kon adminlariga "yangi buyurtma / KP so'rovi" push (topshiriq №22, 7-band).
+   * Buyurtmada shu do'konning BIRINCHI qatori qo'shilganda bir marta yuboriladi
+   * (buyurtma qatorsiz yaratiladi, do'kon esa qatordan ma'lum bo'ladi).
+   * Push yuborilmasa asosiy amal buzilmaydi.
+   */
+  private async notifyStoreOfNewOrder(orderId: number, productId: number, itemId: number) {
+    try {
+      const [row]: any[] = await this.OrderItemRepository.sequelize.query(
+        `SELECT p.store_id, o.kind,
+                (SELECT COUNT(*)::int FROM "order-items" i JOIN products p2 ON p2.id = i.product_id
+                  WHERE i.order_id = :order AND p2.store_id = p.store_id AND i.id <> :item) AS before
+           FROM products p, orders o WHERE p.id = :product AND o.id = :order`,
+        { replacements: { order: orderId, product: productId, item: itemId }, type: QueryTypes.SELECT },
+      );
+      if (!row?.store_id || row.before > 0) return;
+      const quote = row.kind === 'quote';
+      await pushToStoreAdmins([row.store_id], {
+        title: quote ? "Yangi KP so'rovi" : 'Yangi buyurtma',
+        body: `#${orderId}`,
+        data: { type: quote ? 'new_quote' : 'new_order', order_id: orderId },
+      });
+    } catch {
+      // push ixtiyoriy
+    }
+  }
+
 }

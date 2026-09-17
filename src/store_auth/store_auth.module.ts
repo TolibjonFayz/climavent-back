@@ -8,11 +8,12 @@ import { StoreAuthController } from './store_auth.controller';
 import { PasswordSetupService } from './password-setup.service';
 import { OffersModule } from 'src/offers/offers.module';
 import { StoreUserLogin } from './model/store-user-login.model';
+import { StoreRefreshToken } from './model/store-refresh-token.model';
 import { StoreAuthJobs } from './store-auth.jobs';
 
 @Module({
   imports: [
-    SequelizeModule.forFeature([StoreUser, Store, StoreUserLogin]),
+    SequelizeModule.forFeature([StoreUser, Store, StoreUserLogin, StoreRefreshToken]),
     JwtModule.register({}),
     // Kirishda "yangi versiyani tasdiqlang" signali uchun (№20, 2-band)
     OffersModule,

@@ -82,6 +82,7 @@ export class StoreUsersService {
   async update(id: number, dto: UpdateStoreUserDto, requester: Requester) {
     const user = await this.getOneOrFail(id);
     this.ensureCanTouch(user, requester);
+    this.ensureNotCourier(user);
 
     const payload: any = { ...dto };
     delete payload.password;
@@ -119,9 +120,18 @@ export class StoreUsersService {
     return this.getOneOrFail(id);
   }
 
+  // Kuryer hisobi profil bilan birga boshqariladi (№22): bu yerdan o'zgartirilsa
+  // yoki o'chirilsa profil va yetkazishlar tarixi bilan nomuvofiqlik chiqadi.
+  private ensureNotCourier(user: StoreUser) {
+    if (user.role === 'courier') {
+      throw new ConflictException('Kuryer hisobi /api/couriers orqali boshqariladi');
+    }
+  }
+
   async remove(id: number, requester: Requester) {
     const user = await this.getOneOrFail(id);
     this.ensureCanTouch(user, requester);
+    this.ensureNotCourier(user);
     try {
       await this.storeUserRepository.destroy({ where: { id } });
     } catch (e) {
