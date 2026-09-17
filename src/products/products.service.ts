@@ -27,6 +27,21 @@ import { ON_SALE_PRODUCT_IDS_SQL, sortPrice } from 'src/common/pricing/sale';
 const SALE_ATTRS = ['sale_price', 'sale_starts_at', 'sale_ends_at'];
 
 const { Op } = Sequelize;
+/** `?view=card` — mahsulotning o'z maydonlari (topshiriq №23). */
+const CARD_PRODUCT_ATTRIBUTES = [
+  'id',
+  'name_uz',
+  'name_ru',
+  'name_en',
+  'category_id',
+  'store_id',
+  'producer',
+  'quantity',
+  'is_active',
+  'createdAt',
+  'updatedAt',
+];
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -128,6 +143,7 @@ export class ProductsService {
     storeId?: number,
     privileged = false,
     onSale = false,
+    view: 'full' | 'card' = 'full',
   ) {
     const effectiveLimit = limit || 20;
     const effectivePage = page || 1;
@@ -139,7 +155,9 @@ export class ProductsService {
         ...this.saleWhere(onSale),
       },
       // Katalog kartochkalari narxni insides[].price dan oladi
-      include: this.catalogInclude(),
+      ...(view === 'card'
+        ? { attributes: CARD_PRODUCT_ATTRIBUTES, include: this.cardInclude() }
+        : { include: this.catalogInclude() }),
       order: [['id', 'ASC']],
       limit: effectiveLimit,
       offset,
@@ -265,6 +283,30 @@ export class ProductsService {
   // SAP variantlari (insides). Narx insides[].price da (USD), shuning
   // uchun ro'yxatda narx ko'rsatish uchun bu nested bog'lanish kerak.
   // { all: true } faqat 1-darajani oladi, shuning uchun alohida yoziladi.
+  /**
+   * Yengil ro'yxat (`?view=card`, topshiriq №23): kartochka va ro'yxat sahifasi
+   * uchun kerakli maydonlargina. To'liq variantda har mahsulotda do'konning
+   * butun profili (uch tildagi tavsifi bilan ~2 KB), modellarning tavsif fayl
+   * havolalari, sharhlarning matni takrorlanadi — 500 ta mahsulotda 1,3 MB.
+   *
+   * Aksiya maydonlari (`sale_*`) ATAYLAB bor: `on_sale`, `min_price`,
+   * `min_sale_price` ni global interceptor shulardan hisoblaydi.
+   */
+  private cardInclude(): any[] {
+    const sale = ['price', 'sale_price', 'sale_starts_at', 'sale_ends_at'];
+    return [
+      {
+        model: Characteristic,
+        attributes: ['id', 'title', 'product_id', ...sale],
+        include: [{ model: ProductModelInside, attributes: ['id', 'product_model_id', ...sale] }],
+      },
+      { model: Store, attributes: ['id', 'name', 'slug', 'logo_url', 'phone', 'telegram', 'is_active'] },
+      { model: Category, attributes: ['id', 'name_uz', 'name_ru', 'name_en', 'category_id'] },
+      { model: ProductImages, attributes: ['id', 'image_link', 'product_id'] },
+      { model: Review, attributes: ['id', 'stars', 'product_id'] },
+    ];
+  }
+
   private catalogInclude(): any[] {
     return [
       { model: Characteristic, include: [{ model: ProductModelInside }] },

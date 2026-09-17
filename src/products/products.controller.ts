@@ -121,6 +121,12 @@ export class ProductsController {
     description: "`true` — faqat kamida bitta varianti FAOL aksiyadagi mahsulotlar",
     example: 'true',
   })
+  @ApiQuery({
+    name: 'view',
+    required: false,
+    description: "`card` — yengil ro'yxat: kartochka uchun maydonlar (nom, narx/aksiya, rasmlar, do'kon nomi/aloqasi, reyting). Standart — to'liq",
+    example: 'card',
+  })
   @ApiResponse({ status: 200, description: 'Mahsulotlar', type: [Product] })
   @Get('all')
   async getAll(
@@ -129,6 +135,7 @@ export class ProductsController {
     @Query('store_id') storeId?: string,
     @Privileged() privileged?: boolean,
     @Query('on_sale') onSale?: string,
+    @Query('view') view?: string,
   ): Promise<Product[]> {
     // Satr sifatida solishtiriladi: `Boolean("false")` true bo'lardi
     return this.productsService.getAllProducts(
@@ -137,6 +144,7 @@ export class ProductsController {
       parsePositiveIntParam(storeId, 'store_id'),
       privileged,
       onSale === 'true',
+      view === 'card' ? 'card' : 'full',
     );
   }
 
