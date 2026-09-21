@@ -4,7 +4,62 @@ import {
   ORDER_STATUSES,
   ORDER_STATUS_MESSAGE,
 } from '../order-status';
-import { IsIn, IsLatitude, IsLongitude, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsIn,
+  IsInt,
+  IsLatitude,
+  IsLongitude,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+
+/**
+ * Buyurtma qatori — `POST /orders/create` ichida (topshiriq №28).
+ *
+ * Nega kerak: savatdan KP olishda sayt buyurtmani va qatorlarni BITTA
+ * so'rovda yuborishi, javobda esa tayyor KP ni olishi kerak. Ilgari
+ * qatorlar alohida `order-items/create` bilan qo'shilardi va KP ni qachon
+ * yaratishni server bilmasdi.
+ *
+ * Narx bu yerda YO'Q — uni server aniqlaydi (`OrderPricingService`).
+ */
+export class OrderLineDto {
+  @ApiProperty({ example: 225 })
+  @IsInt()
+  product_id: number;
+
+  @ApiProperty({ example: 'ВНВ243.1-078', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  product_model?: string;
+
+  @ApiProperty({ example: 305, required: false, description: 'Model (characteristic) id' })
+  @IsOptional()
+  @IsInt()
+  product_model_id?: number;
+
+  @ApiProperty({ example: 981, required: false, description: 'SAP varianti id' })
+  @IsOptional()
+  @IsInt()
+  product_model_inside_id?: number;
+
+  @ApiProperty({ example: 2 })
+  @IsInt()
+  @Min(1)
+  @Max(100000)
+  quantity: number;
+}
 
 export class CreateOrderDto {
   @ApiProperty({ example: 1, description: 'User id' })
@@ -52,6 +107,33 @@ export class CreateOrderDto {
   @IsOptional()
   @IsIn(ORDER_KINDS as unknown as string[], { message: `kind: ${ORDER_KINDS.join(', ')}` })
   kind?: string;
+
+  /**
+   * Topshiriq №28. `site_kp` + `kind: quote` bo'lsa server KP ning
+   * **v1 versiyasini darhol** yaratadi va javobda qaytaradi — mijoz
+   * sotuvchini kutmaydi.
+   */
+  @ApiProperty({
+    example: 'site_kp',
+    enum: ['site_kp', 'manual'],
+    required: false,
+    description: "site_kp — mijoz savatdan KP oldi (v1 darhol yaratiladi)",
+  })
+  @IsOptional()
+  @IsIn(['site_kp', 'manual'], { message: 'source: site_kp yoki manual' })
+  source?: string;
+
+  @ApiProperty({
+    type: [OrderLineDto],
+    required: false,
+    description: "Qatorlar — berilsa shu yerda yaratiladi (narxni server aniqlaydi)",
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => OrderLineDto)
+  items?: OrderLineDto[];
 
   @ApiProperty({ example: 'Montaj bilan, Toshkentga yetkazish', required: false })
   @IsOptional()

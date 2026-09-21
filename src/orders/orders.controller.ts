@@ -16,7 +16,7 @@ import {
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
-import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Order } from './model/order.model';
 import { AdminOrStoreGuard } from 'src/guards/admin_or_store.guard';
 import { scopedStoreId } from 'src/common/helpers/store-scope';
@@ -56,9 +56,14 @@ export class OrdersController {
   @ApiSecurity('service-key')
   @UseGuards(AdminOrStoreGuard)
   @Get('all')
-  async getAll(@Req() req: any, @Query('kind') kind?: string): Promise<Order[]> {
+  async getAll(
+    @Req() req: any,
+    @Query('kind') kind?: string,
+    @Query('source') source?: string,
+  ): Promise<Order[]> {
     // `?kind=quote` — faqat KP so'rovlari, `?kind=order` — oddiy buyurtmalar (№21)
-    return this.ordersService.getAllOrders(scopedStoreId(req), kind);
+    // `?source=site_kp` — faqat saytda chiqarilgan KP lar (№28)
+    return this.ordersService.getAllOrders(scopedStoreId(req), kind, source);
   }
 
   //Get order by id
@@ -140,6 +145,25 @@ export class OrdersController {
     return this.quotes.send(id, dto, quoteSender(req));
   }
 
+  /**
+   * Savatdan olingan KP ning v1 versiyasi (topshiriq №28).
+   *
+   * Odatda `POST /orders/create` da `source: "site_kp"` va `items` bilan
+   * avtomatik yaratiladi. Bu endpoint — qatorlar alohida
+   * (`order-items/create`) qo'shilgan holat uchun zaxira yo'l.
+   */
+  @ApiOperation({ summary: 'Saytdagi KP ni darhol chiqarish (v1)' })
+  @ApiResponse({ status: 409, description: 'KP allaqachon yaratilgan yoki holat mos emas' })
+  @ApiBearerAuth()
+  @UseGuards(UserGuard)
+  @HttpCode(200)
+  @Post(':id/quote/issue')
+  async issueQuote(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    // Egalik tekshiruvi: begona buyurtma — 404
+    await this.ordersService.getOrderById(id, req.user);
+    return this.quotes.issueSiteQuote(id, req.user);
+  }
+
   /** Mijoz KP ni qabul qiladi — so'rov oddiy buyurtmaga aylanadi (3-band). */
   @ApiOperation({ summary: 'KP ni qabul qilish (buyurtma egasi)' })
   @ApiBearerAuth()
@@ -178,6 +202,17 @@ export class OrdersController {
 
   // Adminka: buyurtma + yetkazishlari (topshiriq №22, 4-band). Mijoz uchun `one/:id`.
   // DIQQAT: bu marshrut ENG OXIRIDA turadi — aks holda `all` ham `:id` deb o'qilardi.
+  @ApiOperation({
+    summary: "Narxsiz modellarga talab: qaysi modelga necha marta KP olingan (№28)",
+  })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(AdminOrStoreGuard)
+  @Get('quote-stats/unpriced')
+  async unpricedDemand(@Req() req: any) {
+    return this.quotes.unpricedDemand(scopedStoreId(req));
+  }
+
   @ApiOperation({ summary: "KP hisoboti: javob vaqti, KP -> buyurtma ulushi, do'konlar kesimi" })
   @ApiBearerAuth()
   @ApiSecurity('service-key')

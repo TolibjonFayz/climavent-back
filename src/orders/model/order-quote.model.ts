@@ -6,8 +6,12 @@ export interface QuoteItem {
   name: string | null;
   model: string | null;
   quantity: number;
-  /** So'mda, bir dona uchun. */
-  price: number;
+  /**
+   * So'mda, bir dona uchun. **`null`** — narxni sotuvchi hali bermagan
+   * (topshiriq №28: saytda darhol chiqqan v1 da narxsiz qatorlar shunday
+   * turadi va jamiga qo'shilmaydi).
+   */
+  price: number | null;
 }
 
 /**

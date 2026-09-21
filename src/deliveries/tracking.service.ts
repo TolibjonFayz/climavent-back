@@ -12,9 +12,16 @@ import {
 } from './constants';
 import { Courier, CourierVehicle, Delivery, DeliveryEvent } from './model/models';
 
-/** Havola kaliti: 32 bayt tasodifiy, base64url (43 belgi). */
+/**
+ * Havola kaliti: **16 bayt tasodifiy -> 32 ta hex belgi** (`0-9a-f`).
+ *
+ * Nega base64url emas (avval 32 bayt / 43 belgi edi): Eskiz shablonidagi
+ * `%w` bitta "so'z" ni kutadi va `-` / `_` belgilari unga mos kelmasligi
+ * mumkin; uzun token esa SMS'ni 160 belgidan oshirib, narxini ikkilantiradi.
+ * 16 bayt = 128 bit — taxmin qilib topish imkonsiz.
+ */
 export function newTrackingToken(): { raw: string; hash: string } {
-  const raw = randomBytes(32).toString('base64url');
+  const raw = randomBytes(16).toString('hex');
   return { raw, hash: hashToken(raw) };
 }
 
@@ -23,8 +30,21 @@ export function hashToken(raw: string): string {
   return createHash('sha256').update(raw).digest('hex');
 }
 
-export const trackingUrl = (raw: string) =>
-  `${TRACKING_BASE_URL}${TRACKING_LINK_PATH.startsWith('/') ? '' : '/'}${TRACKING_LINK_PATH}${TRACKING_LINK_PATH.endsWith('/') ? '' : '/'}${raw}`;
+const linkPath = (raw: string) => {
+  const p = TRACKING_LINK_PATH.startsWith('/') ? TRACKING_LINK_PATH : `/${TRACKING_LINK_PATH}`;
+  return `${p.endsWith('/') ? p : `${p}/`}${raw}`;
+};
+
+/** To'liq havola — adminka javobi uchun. */
+export const trackingUrl = (raw: string) => `${TRACKING_BASE_URL}${linkPath(raw)}`;
+
+/**
+ * SMS uchun havola — **protokolsiz** (`climavent.uz/k/<token>`).
+ * Eskiz shabloni #90539 aynan shunday topshirilgan; `https://` qo'shilsa
+ * matn shablonga mos kelmaydi va SMS rad etiladi.
+ */
+export const trackingSmsLink = (raw: string) =>
+  `${TRACKING_BASE_URL.replace(/^https?:\/\//, '')}${linkPath(raw)}`;
 
 /** Koordinata ~11 metrgacha yumaloqlanadi — mijozga aniq uy kerak emas. */
 const round4 = (v: unknown) => (v === null || v === undefined ? null : Number(Number(v).toFixed(4)));
@@ -71,7 +91,9 @@ export class TrackingService {
     // doim hisoblanadi, bazaga doim boriladi (timing orqali tokenning
     // borligini bilib bo'lmasin).
     const hash = hashToken(raw);
-    const d = raw.length >= 20 ? await Delivery.findOne({ where: { tracking_token_hash: hash } }) : null;
+    const d = /^[0-9a-f]{32}$/.test(raw)
+      ? await Delivery.findOne({ where: { tracking_token_hash: hash } })
+      : null;
     if (!d) throw new NotFoundException('Topilmadi');
 
     // Yakunlangandan keyin havola 24 soat yashaydi — mijoz "topshirildi"
@@ -94,11 +116,14 @@ export class TrackingService {
       order: [['id', 'ASC']],
     });
     // Har holat — BIRINCHI marta kirilgan vaqti bilan. Tahrir yozuvlari
-    // (from === to) va `pending` qadam sifatida ko'rsatilmaydi.
+    // (from === to) ko'rsatilmaydi; `pending` va `assigned` ham — ular
+    // ICHKI qadamlar (operator kuryer izlayapti), mijoz uchun qadam
+    // "Qabul qilindi" dan boshlanadi (topshiriq №24, 2-band namunasi).
+    const HIDDEN: string[] = ['pending', 'assigned'];
     const seen = new Set<string>();
     const steps: { status: string; at: Date }[] = [];
     for (const e of events) {
-      if (e.from_status === e.to_status || e.to_status === 'pending') continue;
+      if (e.from_status === e.to_status || HIDDEN.includes(e.to_status)) continue;
       if (seen.has(e.to_status)) continue;
       seen.add(e.to_status);
       steps.push({ status: e.to_status, at: e.created_at });

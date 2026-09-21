@@ -21,6 +21,8 @@ import { BadRequestException } from '@nestjs/common';
 import Sequelize, { Op } from 'sequelize';
 import { cancelDeliveriesForOrder } from 'src/deliveries/deliveries.service';
 import { Delivery } from 'src/deliveries/model/models';
+import { OrderItemsService } from 'src/order_items/order_items.service';
+import { QuotesService } from './quotes.service';
 import { OrderQuote } from './model/order-quote.model';
 import { OrderEvent, publicOrderEvent, recordOrderEvent } from './order-events';
 import { quoteDueAt } from './quote-sla';
@@ -33,6 +35,8 @@ export class OrdersService {
     private readonly OrderItemsRepository: typeof OrderItem,
     @InjectModel(Product)
     private readonly productRepository: typeof Product,
+    private readonly orderItems: OrderItemsService,
+    private readonly quotes: QuotesService,
   ) {}
 
   /**
@@ -66,9 +70,13 @@ export class OrdersService {
       throw new BadRequestException("quote_sent holati faqat KP so'rovi (kind: quote) uchun");
     }
     const clean = (v?: string | null) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    // Qatorlar buyurtma yozuvining maydoni emas — ular alohida yaratiladi
+    const { items: lines, ...orderFields } = createOrderDto as any;
     const newOrder = await this.OrderRepository.create({
-      ...createOrderDto,
+      ...orderFields,
       kind,
+      // Topshiriq №28: KP qayerdan kelgani (`site_kp` — savatdan)
+      source: createOrderDto.source ?? null,
       comment: clean(createOrderDto.comment),
       company_name: clean(createOrderDto.company_name),
       company_tin: clean(createOrderDto.company_tin),
@@ -86,7 +94,30 @@ export class OrdersService {
       actor_id: requester?.id ?? null,
       note: kind === 'quote' ? "KP so'rovi" : null,
     });
-    const response = { message: 'Order successfully created', newOrder };
+
+    // Qatorlar shu yerda yaratiladi (topshiriq №28): sayt savatdan KP
+    // olishda buyurtmani va qatorlarni BITTA so'rovda yuboradi va javobda
+    // tayyor KP ni oladi. Narxni server aniqlaydi.
+    if (Array.isArray(lines) && lines.length) {
+      for (const line of lines) {
+        await this.orderItems.createOrderItem({ ...line, order_id: newOrder.id }, requester ?? {});
+      }
+      await newOrder.reload();
+    }
+
+    // Saytda chiqarilgan KP — v1 DARHOL yaratiladi, sotuvchi kutilmaydi.
+    let quote: any = null;
+    if (newOrder.kind === 'quote' && newOrder.source === 'site_kp' && Array.isArray(lines) && lines.length) {
+      quote = await this.quotes.issueSiteQuote(newOrder.id, requester ?? {});
+      await newOrder.reload();
+    }
+
+    const response: any = { message: 'Order successfully created', newOrder };
+    if (quote) {
+      // Sayt KP sahifasini shundan chizadi
+      response.quotes = quote.quotes;
+      response.all_priced = quote.all_priced;
+    }
     return response;
   }
 
@@ -100,9 +131,11 @@ export class OrdersService {
   // `totalAmount` esa BUTUN buyurtmaniki bo'lib qoladi (qayta hisoblanmaydi)
   // — hozir bitta ham aralash buyurtma yo'q; bo'lganda do'kon ulushini
   // qatorlardan hisoblash kerak bo'ladi.
-  async getAllOrders(storeId?: number | null, kind?: string) {
+  async getAllOrders(storeId?: number | null, kind?: string, source?: string) {
     // `?kind=quote` — faqat KP so'rovlari (№21, 3-band)
-    const kindWhere = kind === 'order' || kind === 'quote' ? { kind } : {};
+    // `?source=site_kp` — faqat saytda chiqarilgan KP lar (№28, 2-band)
+    const kindWhere: any = kind === 'order' || kind === 'quote' ? { kind } : {};
+    if (source === 'site_kp' || source === 'manual') kindWhere.source = source;
     // KP so'roviga "1 ish kuni ichida javob bering" sanog'i (№25, 5-band).
     const withDue = (o: any) => {
       const plain = typeof o.get === 'function' ? o.get({ plain: true }) : o;

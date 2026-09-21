@@ -17,6 +17,7 @@ interface OrderAtr {
   status: string;
   location: string;
   kind?: string;
+  source?: string | null;
   comment?: string | null;
   company_name?: string | null;
   company_tin?: string | null;
@@ -131,6 +132,14 @@ export class Order extends Model<Order, OrderAtr> {
     },
   })
   lng: number;
+
+  /**
+   * KP qayerdan kelgani (topshiriq №28): `site_kp` — mijoz savatdan o'zi
+   * chiqargan, `manual` — adminka/bot, `null` — eski yozuvlar.
+   */
+  @ApiProperty({ required: false, nullable: true, example: 'site_kp', enum: ['site_kp', 'manual'] })
+  @Column({ type: DataType.STRING(20), allowNull: true })
+  source: string;
 
   // ——— KP oqimi (topshiriq №25, 3-band) ———
   // DIQQAT: bu ustunlar modelda e'lon qilinmasa, Sequelize `update()` da

@@ -48,7 +48,7 @@ import { CourierVehiclesService } from './courier-vehicles.service';
 import { CourierWorkService } from './courier-work.service';
 import { recordOrderEvent, OrderEventName } from 'src/orders/order-events';
 import { ProofStorageService } from './proof-storage.service';
-import { newTrackingToken, trackingUrl } from './tracking.service';
+import { newTrackingToken, trackingSmsLink, trackingUrl } from './tracking.service';
 import { pushToCourier, pushToStoreAdmins } from './push';
 
 export interface Actor {
@@ -93,6 +93,17 @@ const codeHash = (deliveryId: number, code: string) =>
   createHmac('sha256', `delivery-code:${process.env.OTP_HASH_SECRET || process.env.ACCESS_TOKEN_KEY || ''}`)
     .update(`${deliveryId}:${code}`)
     .digest('hex');
+
+/**
+ * SMS uchun ism: bitta so'z (familiyasiz) va FAQAT oddiy apostrof
+ * (U+0027). Eskiz shablonidagi `%w` bitta so'zni kutadi; `\u2018` /
+ * `\u02bb` kabi belgilar moderatsiyadan o'tmaydi.
+ */
+export const firstName = (fullName?: string | null) =>
+  String(fullName || '')
+    .replace(/[\u2018\u2019\u02bb\u02bc\u0060\u00b4]/g, "'")
+    .trim()
+    .split(/\s+/)[0] || '';
 
 /** +998 90 *** ** 96 */
 export const maskPhone = (phone?: string | null) => {
@@ -673,7 +684,7 @@ export class DeliveriesService {
         // Qayta `start` (retry'dan keyin) — yangi token, eskisi bekor.
         const token = newTrackingToken();
         extra.tracking_token_hash = token.hash;
-        track = trackingUrl(token.raw);
+        track = trackingSmsLink(token.raw);
       }
       await this.apply(d, action, actor, extra, body, body.comment || null, t);
       return d;
@@ -791,9 +802,9 @@ export class DeliveriesService {
     });
     await this.touchCourier(courier, dto);
     await this.syncOrderAfterDelivered(d.order_id);
-    if (d.recipient_phone) {
-      await this.sendSms(d.recipient_phone, `Buyurtmangiz #${d.order_id} topshirildi. Xaridingiz uchun rahmat! Climavent.uz`);
-    }
+    // "Topshirildi" SMS'i ATAYLAB YUBORILMAYDI (tekshiruv 21.09): mijozga
+    // faqat "yo'lda" SMS'i ketadi. Eskizda bunday shablon yo'q va har bir
+    // ortiqcha SMS — pul. Mijoz topshirilganini kuzatish sahifasida ko'radi.
     return this.present(d, { forCourier: true });
   }
 
@@ -1010,17 +1021,15 @@ export class DeliveriesService {
     } catch (e) {
       this.logger.error(`Buyurtma holati (shipping) yozilmadi: ${(e as Error).message}`);
     }
-    if (d.recipient_phone && code) {
-      // Eskiz shabloni (topshiriq №24, 4-band):
-      //   "Buyurtmangiz #%w yo'lda. Kuryer: %w. Kuzatish: %w Topshirish kodi: %w"
-      // Kuryer telefoni SMS'dan olib tashlandi — u kuzatish sahifasida
-      // (`on_the_way` da) chiqadi va matn 160 belgidan oshmaydi.
-      const first = String(courier.full_name || '').trim().split(/\s+/)[0] || courier.full_name;
+    if (d.recipient_phone && code && track) {
+      // Eskiz shabloni **#90539** (17.09 da topshirilgan) — matn HARFMA-HARF
+      // shunday bo'lishi shart, aks holda SMS rad etiladi:
+      //   Climavent: buyurtma #%d yo'lda. Kuryer: %w. Kuzatish: climavent.uz/k/%w Kod: %d
+      // `%w` bitta so'zni kutadi: kuryerning ISMI (familiyasiz) va token.
       await this.sendSms(
         d.recipient_phone,
-        track
-          ? `Buyurtmangiz #${d.order_id} yo'lda. Kuryer: ${first}. Kuzatish: ${track} Topshirish kodi: ${code}`
-          : `Buyurtmangiz #${d.order_id} yo'lda. Kuryer: ${first}. Topshirish kodi: ${code}`,
+        `Climavent: buyurtma #${d.order_id} yo'lda. Kuryer: ${firstName(courier.full_name)}. ` +
+          `Kuzatish: ${track} Kod: ${code}`,
       );
     }
   }

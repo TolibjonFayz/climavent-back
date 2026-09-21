@@ -67,12 +67,11 @@ export const PROOF_MAX_BYTES = 8 * 1024 * 1024;
 /** Mijoz kuzatish sahifasining manzili (SMS'dagi havola shundan yig'iladi). */
 export const TRACKING_BASE_URL = (process.env.PUBLIC_SITE_URL || 'https://climavent.uz').replace(/\/+$/, '');
 /**
- * Havola yo'li. SMS 160 belgidan oshsa ikki bo'lakka bo'linadi va narxi
- * ikki barobar bo'ladi (token o'zi 43 belgi). Sayt `/k/<token>` ni 301
- * bilan `/kuzatish/` ga yo'naltirsa, `TRACKING_LINK_PATH=/k/` qo'yib
- * SMS'ni 8 belgiga qisqartirish mumkin — standart holida to'liq yo'l.
+ * Havola yo'li — standart **`/k/`**: sayt uni server tomonida
+ * `/kuzatish/<token>` ga 301 bilan yo'naltiradi (tasdiqlangan 21.09).
+ * SMS shabloni #90539 aynan shu qisqa yo'l bilan topshirilgan.
  */
-export const TRACKING_LINK_PATH = process.env.TRACKING_LINK_PATH || '/kuzatish/';
+export const TRACKING_LINK_PATH = process.env.TRACKING_LINK_PATH || '/k/';
 /** Yetkazish yakunlangandan keyin havola shuncha vaqt yashaydi, keyin 410. */
 export const TRACKING_AFTER_FINISH_MS = 24 * 60 * 60 * 1000;
 /** Kuryer joylashuvi shundan eski bo'lsa — `stale: true` va ETA yo'q. */

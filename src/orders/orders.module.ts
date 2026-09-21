@@ -10,6 +10,7 @@ import { OrderQuote } from './model/order-quote.model';
 import { OrderEvent } from './order-events';
 import { QuotesService } from './quotes.service';
 import { OtpModule } from 'src/otp/otp.module';
+import { OrderItemsModule } from 'src/order_items/order_items.module';
 
 @Module({
   imports: [
@@ -17,6 +18,9 @@ import { OtpModule } from 'src/otp/otp.module';
     JwtModule.register({}),
     // KP tayyor bo'lganda mijozga SMS (topshiriq №25, 2-band)
     OtpModule,
+    // Buyurtma bilan birga qator yaratish (topshiriq №28, 1-band).
+    // Aylanma bog'liqlik yo'q: OrderItemsModule OrdersModule ni import qilmaydi.
+    OrderItemsModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService, QuotesService],

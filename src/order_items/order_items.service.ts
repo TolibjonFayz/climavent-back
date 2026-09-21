@@ -60,10 +60,18 @@ export class OrderItemsService {
       product_model_inside_id: createOrderItemDto.product_model_inside_id,
     });
 
+    // `product_model` — NOT NULL ustun. Sayt savatdan KP olishda (№28) faqat
+    // `product_model_id` yuborishi mumkin, shuning uchun nom modelning
+    // o'zidan to'ldiriladi.
+    const modelName =
+      createOrderItemDto.product_model?.trim() ||
+      (priced.product_model_id ? await this.modelTitle(priced.product_model_id) : null) ||
+      '-';
+
     const newOrderItem = await this.OrderItemRepository.create({
       order_id: createOrderItemDto.order_id,
       product_id: createOrderItemDto.product_id,
-      product_model: createOrderItemDto.product_model,
+      product_model: modelName,
       quantity: createOrderItemDto.quantity,
       price: priced.price,
       // Aksiyasiz narx — "aksiyada qancha chegirma berildi" hisoboti uchun (№15)
@@ -91,6 +99,15 @@ export class OrderItemsService {
 
     const response = { message: 'Order successfully created', newOrderItem, kind };
     return response;
+  }
+
+  /** Model (characteristic) nomi — `product_model` bo'sh kelganda. */
+  private async modelTitle(characteristicId: number): Promise<string | null> {
+    const [row]: any[] = await this.OrderItemRepository.sequelize.query(
+      'SELECT title FROM characteristics WHERE id = :id',
+      { replacements: { id: characteristicId }, type: QueryTypes.SELECT },
+    );
+    return row?.title ? String(row.title) : null;
   }
 
   /**
@@ -249,13 +266,16 @@ export class OrderItemsService {
   private async notifyStoreOfNewOrder(orderId: number, productId: number, itemId: number) {
     try {
       const [row]: any[] = await this.OrderItemRepository.sequelize.query(
-        `SELECT p.store_id, o.kind,
+        `SELECT p.store_id, o.kind, o.source,
                 (SELECT COUNT(*)::int FROM "order-items" i JOIN products p2 ON p2.id = i.product_id
                   WHERE i.order_id = :order AND p2.store_id = p.store_id AND i.id <> :item) AS before
            FROM products p, orders o WHERE p.id = :product AND o.id = :order`,
         { replacements: { order: orderId, product: productId, item: itemId }, type: QueryTypes.SELECT },
       );
       if (!row?.store_id || row.before > 0) return;
+      // Saytda chiqarilgan KP (№28) o'z push'ini yuboradi ("N ta qatorga
+      // narx kerak") — sotuvchini ikki marta bezovta qilmaymiz.
+      if (row.source === 'site_kp') return;
       const quote = row.kind === 'quote';
       await pushToStoreAdmins([row.store_id], {
         title: quote ? "Yangi KP so'rovi" : 'Yangi buyurtma',
