@@ -42,6 +42,12 @@ export class UsdRateJobs implements OnApplicationBootstrap, OnModuleDestroy {
 
   private async tick() {
     try {
+      // Topshiriq №27: avtomatik yangilash galochkasi o'chiq bo'lsa — JIM
+      // turamiz (logga ham yozmaymiz). Kurs faqat qo'lda yoki adminkadagi
+      // "Bank kursini qo'yish" tugmasi bilan o'zgaradi.
+      const auto = await this.settings.getAutoUpdate();
+      if (!auto.enabled) return;
+
       const res = await this.settings.refreshUsdRateFromCbu({ source: 'auto', actor: 'cron' });
       if (res.changed) {
         this.logger.log(`Dollar kursi yangilandi: ${res.rate}`);

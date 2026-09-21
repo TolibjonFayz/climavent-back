@@ -138,4 +138,32 @@ export class Characteristic extends Model<Characteristic, CharasteristicAtr> {
   // shuning uchun mahsulot sahifasiga narx shu bog'lanish orqali keladi.
   @HasMany(() => ProductModelInside)
   insides: ProductModelInside[];
+
+  // ---- Og'irlik va o'lcham (topshiriq №26, 7-band).
+  // HVAC uskunasining ko'pi yengil mashinaga sig'maydi: yetkazish
+  // yaratilganda jami og'irlik va hajm shulardan hisoblanib, kerakli
+  // transport (`required_vehicle`) TAKLIF qilinadi. Bo'sh bo'lsa taxmin
+  // qilinmaydi — operator o'zi tanlaydi.
+  @ApiProperty({ example: 42.5, required: false, nullable: true, description: "Og'irlik, kg" })
+  @Column({
+    type: DataType.DECIMAL(10, 2),
+    allowNull: true,
+    get(this: any) {
+      const raw = this.getDataValue('weight_kg');
+      return raw === null || raw === undefined ? null : Number(raw);
+    },
+  })
+  weight_kg: number;
+
+  @ApiProperty({ example: 120, required: false, nullable: true, description: "Uzunlik, sm" })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  length_cm: number;
+
+  @ApiProperty({ example: 80, required: false, nullable: true, description: "Eni, sm" })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  width_cm: number;
+
+  @ApiProperty({ example: 60, required: false, nullable: true, description: "Balandlik, sm" })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  height_cm: number;
 }

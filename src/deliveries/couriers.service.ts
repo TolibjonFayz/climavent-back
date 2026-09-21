@@ -11,7 +11,7 @@ import { PasswordSetupService } from 'src/store_auth/password-setup.service';
 import type { StoreRequester } from 'src/store_auth/store_auth.guard';
 import { revokeAllRefreshTokens } from 'src/store_auth/mobile-session';
 import { ACTIVE_STATUSES } from './constants';
-import { CashHandover, Courier, Delivery } from './model/models';
+import { CashHandover, Courier, CourierVehicle, CourierVehicleEvent, Delivery } from './model/models';
 import { CashHandoverDto, CreateCourierDto, UpdateCourierDto } from './dto/dto';
 import { pushToStoreAdmins } from './push';
 
@@ -47,7 +47,19 @@ export class CouriersService {
     if (q.is_online === 'true' || q.is_online === 'false') where.is_online = q.is_online === 'true';
     const rows = await Courier.findAll({ where, order: [['is_active', 'DESC'], ['full_name', 'ASC']] });
     const logins = await this.loginsOf(rows.map((c) => c.store_user_id));
-    return rows.map((c) => ({ ...c.get({ plain: true }), login: logins.get(c.store_user_id) ?? null }));
+    // Faol transport ro'yxatda ham ko'rinsin (topshiriq №26, 1a-band):
+    // adminka "kim nima bilan yurayapti" ni bitta so'rovda ko'rsatadi.
+    const vehicleIds = rows.map((c) => c.active_vehicle_id).filter(Boolean) as number[];
+    const vehicles = vehicleIds.length
+      ? await CourierVehicle.findAll({ where: { id: { [Op.in]: vehicleIds } } })
+      : [];
+    const byId = new Map(vehicles.map((v) => [v.id, v.get({ plain: true })]));
+    return rows.map((c) => ({
+      ...c.get({ plain: true }),
+      login: logins.get(c.store_user_id) ?? null,
+      active_vehicle: c.active_vehicle_id ? byId.get(c.active_vehicle_id) ?? null : null,
+      documents_ok: !!c.documents_verified_at,
+    }));
   }
 
   async create(dto: CreateCourierDto, r: StoreRequester) {
@@ -89,9 +101,42 @@ export class CouriersService {
             full_name: dto.full_name,
             phone: dto.phone,
             vehicle_type: dto.vehicle_type,
+            // Topshiriq №26, 1-band: bandlik turi va STIR soliq uchun,
+            // guvohnoma toifasi — transportni faollashtirishda tekshiriladi
+            employment_type: dto.employment_type ?? null,
+            tin: dto.tin ?? null,
+            license_categories: (dto.license_categories || []).map((c) => c.toUpperCase()),
           } as any,
           { transaction },
         );
+        // Kuryer bo'sh ro'yxat bilan qolmasin: yaratishda ko'rsatilgan
+        // transport darhol tasdiqlangan holda qo'shiladi va faol bo'ladi
+        // (admin uni allaqachon bilib turibdi — 1a-band).
+        const vehicle = await CourierVehicle.create(
+          {
+            courier_id: courier.id,
+            vehicle_type: dto.vehicle_type,
+            owner: 'own',
+            status: 'approved',
+            verified_at: new Date(),
+            verified_by: r?.user_id ?? null,
+          } as any,
+          { transaction },
+        );
+        await CourierVehicleEvent.create(
+          {
+            vehicle_id: vehicle.id,
+            courier_id: courier.id,
+            from_status: null,
+            to_status: 'approved',
+            actor_type: this.isSuper(r) ? 'superadmin' : 'store',
+            actor_id: r?.user_id ?? null,
+            comment: 'Kuryer yaratilganda',
+            created_at: new Date(),
+          } as any,
+          { transaction },
+        );
+        await courier.update({ active_vehicle_id: vehicle.id } as any, { transaction });
         const setup = await this.setupLinks.issue(account.id, transaction);
         return {
           courier: { ...courier.get({ plain: true }), login },
@@ -112,7 +157,12 @@ export class CouriersService {
   async update(id: number, dto: UpdateCourierDto, r: StoreRequester) {
     const courier = await this.getOwned(id, r);
     const payload: any = {};
-    for (const k of ['full_name', 'phone', 'vehicle_type'] as const) if (dto[k] !== undefined) payload[k] = dto[k];
+    for (const k of ['full_name', 'phone', 'vehicle_type', 'employment_type', 'tin'] as const) {
+      if (dto[k] !== undefined) payload[k] = dto[k];
+    }
+    if (dto.license_categories !== undefined) {
+      payload.license_categories = (dto.license_categories || []).map((c) => c.toUpperCase());
+    }
 
     if (dto.store_id !== undefined && dto.store_id !== courier.store_id) {
       if (!this.isSuper(r)) throw new ForbiddenException("Kuryerni boshqa do'konga faqat superadmin o'tkaza oladi");

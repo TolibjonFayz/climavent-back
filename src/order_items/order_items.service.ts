@@ -15,6 +15,7 @@ import { Order } from 'src/orders/model/order.model';
 import { OrderPricingService } from './order-pricing.service';
 import { RequestActor } from 'src/guards/customer_or_backoffice.guard';
 import { storeProductIds } from 'src/common/helpers/store-scope';
+import { recordOrderEvent } from 'src/orders/order-events';
 
 @Injectable()
 export class OrderItemsService {
@@ -74,6 +75,12 @@ export class OrderItemsService {
     });
 
     await this.pricing.recomputeOrderTotal(createOrderItemDto.order_id);
+    // Narxsiz qator qo'shilgan bo'lsa buyurtma AVTOMATIK KP so'roviga
+    // aylanadi (topshiriq №25, 1-band): mijoz "Buyurtma berish" bosgan
+    // bo'lsa ham, narxi yo'q mahsulotni sotib olib bo'lmaydi — avval
+    // sotuvchi narx berishi kerak. Qatorlar buyurtma yaratilgandan KEYIN
+    // qo'shilgani uchun tekshiruv aynan shu yerda.
+    const kind = await this.ensureQuoteKind(createOrderItemDto.order_id, priced.price, requester);
     await this.notifyStoreOfNewOrder(createOrderItemDto.order_id, createOrderItemDto.product_id, newOrderItem.id);
 
     // "kopbuyurtirilgan" sort uchun mahsulotning sotilgan sonini oshiramiz
@@ -82,8 +89,34 @@ export class OrderItemsService {
       where: { id: createOrderItemDto.product_id },
     });
 
-    const response = { message: 'Order successfully created', newOrderItem };
+    const response = { message: 'Order successfully created', newOrderItem, kind };
     return response;
+  }
+
+  /**
+   * Narxsiz qator buyurtmani KP so'roviga aylantiradi (topshiriq №25, 1-band).
+   * Javobda `kind` qaytadi — sayt "so'rov yuborildi" yoki "buyurtma qabul
+   * qilindi" deb TO'G'RI yozishi uchun.
+   */
+  private async ensureQuoteKind(
+    orderId: number,
+    price: number | null,
+    requester: { id?: number; is_admin?: boolean },
+  ): Promise<string> {
+    const order = await this.orderRepository.findByPk(orderId, { attributes: ['id', 'kind', 'status'] });
+    if (!order) return 'order';
+    if (order.kind === 'quote' || price !== null) return order.kind;
+    await this.orderRepository.update({ kind: 'quote' } as any, { where: { id: orderId }, silent: true });
+    await recordOrderEvent({
+      order_id: orderId,
+      event: 'status_changed',
+      from_status: order.status,
+      to_status: order.status,
+      actor_type: requester?.is_admin ? 'superadmin' : 'customer',
+      actor_id: requester?.id ?? null,
+      note: "Narxsiz qator qo'shildi — buyurtma KP so'roviga aylandi",
+    });
+    return 'quote';
   }
 
   // Get all order items.

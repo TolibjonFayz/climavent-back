@@ -17,7 +17,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { SettingsService } from './settings.service';
-import { UpdateUsdRateDto } from './dto/update-usd-rate.dto';
+import { UpdateUsdRateDto, UpdateUsdRateAutoDto } from './dto/update-usd-rate.dto';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 import { BackofficeSuperadminGuard } from 'src/guards/backoffice_superadmin.guard';
 
@@ -68,6 +68,37 @@ export class SettingsController {
   async refreshUsdRate(@Req() req: any) {
     return this.settingsService.refreshUsdRateFromCbu({
       source: 'manual',
+      actor: this.actor(req),
+      ip: req.ip,
+    });
+  }
+
+  /**
+   * Kursni har kuni avtomatik yangilash galochkasi (topshiriq №27).
+   *
+   * O'qish — servis kaliti yoki superadmin (adminka Sozlamalar kartasi);
+   * yozish — FAQAT superadmin: kurs butun maydoncha narxiga ta'sir qiladi,
+   * do'kon admini uni yoqib qo'ya olmaydi (403).
+   */
+  @ApiOperation({ summary: "Avtomatik yangilash yoqilganmi (superadmin)" })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @ApiResponse({ status: 200, schema: { example: { enabled: false, updated_at: '2026-09-21T10:00:00.000Z', updated_by: 'superadmin' } } })
+  @UseGuards(BackofficeSuperadminGuard)
+  @Get('usd-rate/auto')
+  async getAutoUpdate() {
+    return this.settingsService.getAutoUpdate();
+  }
+
+  @ApiOperation({ summary: "Avtomatik yangilashni yoqish/o'chirish (superadmin)" })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @ApiResponse({ status: 200, schema: { example: { enabled: true, updated_at: '2026-09-21T10:00:00.000Z', updated_by: 'superadmin' } } })
+  @ApiResponse({ status: 403, description: "Do'kon admini yoqa olmaydi" })
+  @UseGuards(BackofficeSuperadminGuard)
+  @Patch('usd-rate/auto')
+  async setAutoUpdate(@Body() dto: UpdateUsdRateAutoDto, @Req() req: any) {
+    return this.settingsService.setAutoUpdate(dto.enabled, {
       actor: this.actor(req),
       ip: req.ip,
     });

@@ -8,7 +8,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { createHmac, randomInt, timingSafeEqual, randomBytes, createHash } from 'crypto';
+import { createHmac, randomInt, timingSafeEqual } from 'crypto';
 import { Op, QueryTypes, Transaction, UniqueConstraintError } from 'sequelize';
 import type { StoreRequester } from 'src/store_auth/store_auth.guard';
 import { OtpService } from 'src/otp/otp.service';
@@ -18,19 +18,37 @@ import {
   DeliveryStatus,
   HISTORY_MASK_AFTER_MS,
   HISTORY_STATUSES,
+  LOCATION_HISTORY_MIN_MS,
+  PICKUP_PHOTO_REQUIRED_FOR,
   PROOF_CODE_MAX_ATTEMPTS,
+  TRACKING_LINK_STATUSES,
   TRANSITIONS,
   vehicleFits,
 } from './constants';
-import { Courier, CourierLocation, Delivery, DeliveryEvent, DeliveryProof } from './model/models';
 import {
+  Courier,
+  CourierLocation,
+  CourierVehicle,
+  Delivery,
+  DeliveryEvent,
+  DeliveryIncident,
+  DeliveryProof,
+} from './model/models';
+import {
+  ArrivedDto,
   CourierDeliverDto,
   CourierFailDto,
+  CourierPickupDto,
   CreateDeliveryDto,
+  IncidentDto,
   LocationDto,
   UpdateDeliveryDto,
 } from './dto/dto';
+import { CourierVehiclesService } from './courier-vehicles.service';
+import { CourierWorkService } from './courier-work.service';
+import { recordOrderEvent, OrderEventName } from 'src/orders/order-events';
 import { ProofStorageService } from './proof-storage.service';
+import { newTrackingToken, trackingUrl } from './tracking.service';
 import { pushToCourier, pushToStoreAdmins } from './push';
 
 export interface Actor {
@@ -41,6 +59,18 @@ interface Geo {
   lat?: number | null;
   lng?: number | null;
 }
+
+/**
+ * Yetkazish amali buyurtma tarixida qanday ko'rinadi (topshiriq №25, 4-band).
+ * Mijoz profilida "buyurtma qayerda" savoliga javob shu yozuvlardan yig'iladi.
+ */
+const ORDER_EVENT_OF: Partial<Record<string, OrderEventName>> = {
+  assign: 'delivery_assigned',
+  start: 'delivery_started',
+  deliver: 'delivery_delivered',
+  fail: 'delivery_failed',
+  cancel: 'delivery_cancelled',
+};
 
 const STATUS_TIME: Partial<Record<DeliveryStatus, keyof Delivery>> = {
   assigned: 'assigned_at',
@@ -91,6 +121,8 @@ export class DeliveriesService {
   constructor(
     private readonly proofs: ProofStorageService,
     private readonly sms: OtpService,
+    private readonly vehicles: CourierVehiclesService,
+    private readonly work: CourierWorkService,
   ) {}
 
   // ============================================================ ADMINKA
@@ -138,6 +170,14 @@ export class DeliveriesService {
     }
     this.validateWindow(dto.window_from, dto.window_to);
 
+    // Og'irlik va hajm (topshiriq №26, 7-band): HVAC uskunasining ko'pi
+    // yengil mashinaga sig'maydi. Jami og'irlik/hajmdan kerakli transport
+    // TAKLIF qilinadi — operator adminkada o'zgartira oladi.
+    const load = await this.loadOf(items);
+    const requiredVehicle = dto.required_vehicle || this.suggestVehicle(load) || 'car';
+    const floor = dto.floor ?? null;
+    const hasElevator = dto.has_elevator ?? null;
+
     const recipientPhone = dto.recipient_phone ?? order.recipient_phone ?? (/^\+998\d{9}$/.test(order.user_phone || '') ? order.user_phone : null);
     try {
       return await Delivery.sequelize.transaction(async (t) => {
@@ -147,7 +187,7 @@ export class DeliveriesService {
             store_id: dto.store_id,
             status: 'pending',
             provider: 'own',
-            required_vehicle: dto.required_vehicle || 'car',
+            required_vehicle: requiredVehicle,
             // Manzil berilmasa — do'kondan (olish) va buyurtmadan (topshirish)
             pickup_address: dto.pickup_address ?? store.address ?? null,
             pickup_lat: dto.pickup_lat ?? null,
@@ -162,11 +202,36 @@ export class DeliveriesService {
             window_to: dto.window_to ?? null,
             items,
             cod_amount: dto.cod_amount ?? 0,
-            delivery_fee: dto.delivery_fee ?? null,
+            // Tarifdan taklif (6-band); adminkada qo'lda o'zgartiriladi
+            delivery_fee:
+              dto.delivery_fee ??
+              (await this.work.suggestFee({
+                store_id: dto.store_id,
+                vehicle_type: requiredVehicle,
+                pickup_lat: dto.pickup_lat ?? null,
+                pickup_lng: dto.pickup_lng ?? null,
+                dropoff_lat: dto.dropoff_lat ?? order.lat ?? null,
+                dropoff_lng: dto.dropoff_lng ?? order.lng ?? null,
+                floor,
+                has_elevator: hasElevator,
+              })),
+            loaders_needed: dto.loaders_needed ?? 0,
+            floor,
+            has_elevator: hasElevator,
+            total_weight_kg: load.weight_kg,
+            total_volume_m3: load.volume_m3,
           } as any,
           { transaction: t },
         );
         await this.event(d.id, null, 'pending', backofficeActor(r), {}, 'Yaratildi', t);
+        await recordOrderEvent({
+          order_id: d.order_id,
+          event: 'delivery_created',
+          actor_type: this.isSuper(r) ? 'superadmin' : 'store',
+          actor_id: r?.user_id ?? null,
+          note: `Yetkazish #${d.id} yaratildi`,
+          transaction: t,
+        });
         return d;
       });
     } catch (e) {
@@ -256,12 +321,28 @@ export class DeliveriesService {
         throw new ForbiddenException("Do'kon kuryeri faqat o'z do'koni yetkazishiga biriktiriladi");
       }
       if (!courier.is_active) throw new ConflictException('Kuryer faol emas');
-      if (!vehicleFits(courier.vehicle_type, d.required_vehicle)) {
-        throw new ConflictException(`Kuryer transporti (${courier.vehicle_type}) ${d.required_vehicle} talabiga mos emas`);
+      // Hujjatlari tasdiqlanmagan kuryer ishga chiqmaydi (topshiriq №26, 1-band)
+      if (!courier.documents_verified_at) {
+        throw new ConflictException('Kuryerning hujjatlari tasdiqlanmagan');
       }
+      // Transport endi FAOL transportdan olinadi (1a-band), `couriers.vehicle_type` dan emas
+      const vehicle = courier.active_vehicle_id
+        ? await CourierVehicle.findByPk(courier.active_vehicle_id, { transaction: t })
+        : null;
+      if (!vehicle || vehicle.status !== 'approved') {
+        throw new ConflictException('Kuryerda faol (tasdiqlangan) transport yo\'q');
+      }
+      if (!vehicleFits(vehicle.vehicle_type, d.required_vehicle)) {
+        throw new ConflictException(
+          `Kuryer transporti (${vehicle.vehicle_type}) ${d.required_vehicle} talabiga mos emas`,
+        );
+      }
+      // Sig'im — OGOHLANTIRISH, 409 emas: bir necha qatnovda olib ketish
+      // mumkin (7-band).
+      const warnings = this.capacityWarnings(d, vehicle);
       const previous = d.courier_id;
       await this.apply(d, 'assign', backofficeActor(r), { courier_id: courier.id }, {}, `Kuryer: ${courier.full_name}`, t);
-      return Object.assign(d, { _previous: previous });
+      return Object.assign(d, { _previous: previous, _warnings: warnings });
     });
     const previous = (d as any)._previous;
     if (previous && previous !== d.courier_id) {
@@ -272,7 +353,10 @@ export class DeliveriesService {
       body: `#${d.id}: ${d.pickup_address || ''} → ${d.dropoff_address || ''}`.slice(0, 180),
       data: { type: 'delivery_assigned', delivery_id: d.id },
     });
-    return this.present(d, { full: false });
+    const warnings = (d as any)._warnings as string[];
+    const out = await this.present(d, { full: false });
+    if (warnings?.length) out.warnings = warnings;
+    return out;
   }
 
   async cancel(id: number, comment: string | undefined, r: StoreRequester) {
@@ -301,8 +385,16 @@ export class DeliveriesService {
         d,
         'retry',
         backofficeActor(r),
-        // Qayta yetkazish — yangi kuryer, yangi kod
-        { courier_id: null, proof_code_hash: null, proof_code_attempts: 0, failure_reason: null, failure_comment: null },
+        // Qayta yetkazish — yangi kuryer, yangi kod va YANGI kuzatish havolasi:
+        // eski havola shu zahoti 404 bo'ladi (topshiriq №24, 1-band).
+        {
+          courier_id: null,
+          proof_code_hash: null,
+          proof_code_attempts: 0,
+          failure_reason: null,
+          failure_comment: null,
+          tracking_token_hash: null,
+        },
         {},
         'Qayta yetkazish',
         t,
@@ -312,97 +404,29 @@ export class DeliveriesService {
     return this.present(d, { full: false });
   }
 
+  /**
+   * Adminka uchun kuzatish havolasi (topshiriq №24, 1-band).
+   *
+   * SMS shabloni Eskizda tasdiqlanmaguncha havolani operator qo'lda
+   * yuboradi. Ochiq token bazada SAQLANMAYDI (faqat SHA-256 xeshi),
+   * shuning uchun "mavjud havolani ko'rsatish" mumkin emas — har
+   * chaqiruvda YANGI havola yaratiladi va eskisi bekor bo'ladi.
+   */
   async trackingLink(id: number, r: StoreRequester) {
     const d = await this.loadScoped(id, r);
-    const trackToken = randomBytes(32).toString('base64url');
-    const hash = createHash('sha256').update(trackToken).digest('hex');
-    await d.update({ tracking_token_hash: hash });
-    return { url: `https://climavent.uz/kuzatish/${trackToken}` };
-  }
-
-  async trackByToken(token: string) {
-    const hash = createHash('sha256').update(token).digest('hex');
-    const d = await Delivery.findOne({ where: { tracking_token_hash: hash } });
-    if (!d) {
-      await new Promise((resolve) => setTimeout(resolve, 50)); // Prevent timing attacks
-      throw new NotFoundException('Topilmadi');
+    if (!TRACKING_LINK_STATUSES.includes(d.status as DeliveryStatus)) {
+      throw new ConflictException(
+        `Kuzatish havolasi faqat ${TRACKING_LINK_STATUSES.join(', ')} holatida olinadi (hozir: ${d.status})`,
+      );
     }
-
-    const terminal = ['delivered', 'failed', 'cancelled', 'returned'];
-    if (terminal.includes(d.status)) {
-      const stamp = STATUS_TIME[d.status as DeliveryStatus];
-      const time = d[stamp as keyof Delivery] as Date;
-      if (time && Date.now() - new Date(time).getTime() > 24 * 3600 * 1000) {
-        throw new HttpException('Kuzatish havolasi eskirgan (24 soat o\'tgan)', 410);
-      }
-    }
-
-    let courierData = null;
-    let courierLocation = null;
-    let eta = null;
-
-    if (d.courier_id) {
-      const c = await Courier.findByPk(d.courier_id);
-      if (c) {
-        courierData = {
-          first_name: c.full_name.split(' ')[0],
-          phone: d.status === 'on_the_way' ? c.phone : undefined,
-          vehicle: c.vehicle_type,
-        };
-
-        if (d.status === 'picked_up' || d.status === 'on_the_way') {
-          if (c.last_lat && c.last_lng && c.last_seen_at) {
-            courierLocation = {
-              lat: Number(Number(c.last_lat).toFixed(4)),
-              lng: Number(Number(c.last_lng).toFixed(4)),
-              stale: Date.now() - new Date(c.last_seen_at).getTime() > 5 * 60 * 1000,
-            };
-
-            if (d.dropoff_lat && d.dropoff_lng) {
-              const dist = this.haversine(Number(c.last_lat), Number(c.last_lng), Number(d.dropoff_lat), Number(d.dropoff_lng));
-              const etaMins = Math.max(3, Math.round((dist * 1.4) / 25 * 60));
-              eta = etaMins;
-            }
-          }
-        }
-      }
-    }
-
-    const events = await DeliveryEvent.findAll({
-      where: { delivery_id: d.id },
-      order: [['created_at', 'ASC']],
-      attributes: ['to_status', 'created_at'],
+    const token = newTrackingToken();
+    await Delivery.sequelize.transaction(async (t) => {
+      await d.update({ tracking_token_hash: token.hash }, { transaction: t });
+      await this.event(d.id, d.status, d.status, backofficeActor(r), {}, 'Kuzatish havolasi yaratildi', t, 'tracking_link_created');
     });
-
-    return {
-      id: d.id,
-      order_id: d.order_id,
-      status: d.status,
-      window_from: d.window_from,
-      window_to: d.window_to,
-      cod_amount: d.cod_amount,
-      pickup_address: d.pickup_address,
-      pickup_lat: d.pickup_lat,
-      pickup_lng: d.pickup_lng,
-      dropoff_address: d.dropoff_address ? d.dropoff_address.split(',')[0] : null,
-      dropoff_lat: d.dropoff_lat,
-      dropoff_lng: d.dropoff_lng,
-      courier: courierData,
-      courier_location: courierLocation,
-      eta,
-      events,
-    };
-  }
-
-  private haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
-    const R = 6371; // km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
+    // `expires_at: null` — havola yetkazish yakunlanmaguncha amal qiladi,
+    // yakunlangandan keyin 24 soat (mijoz sahifasi 410 oladi).
+    return { url: trackingUrl(token.raw), expires_at: null };
   }
 
   async proofFile(id: number, proofId: number, r: StoreRequester) {
@@ -501,17 +525,155 @@ export class DeliveriesService {
     return this.present(await this.courierGet(courier, id), { forCourier: true, full: true });
   }
 
-  async courierAction(courier: Courier, id: number, action: 'accept' | 'pickup' | 'start' | 'reject', body: { comment?: string } & Geo) {
+  /**
+   * Olib ketish (topshiriq №26, 2-band).
+   *
+   * Nizo chiqqanda ("tovar shikastlangan yetib keldi") kim javobgarligini
+   * aynan shu rasm hal qiladi, shuning uchun `van` / `truck` da rasm
+   * MAJBURIY. Kuryer har qatorni "oldim" deb belgilaydi — hammasi
+   * belgilanmasa 400.
+   */
+  async courierPickup(courier: Courier, id: number, dto: CourierPickupDto, photo?: Express.Multer.File) {
+    const pre = await this.courierGet(courier, id);
+    if (!TRANSITIONS.pickup.from.includes(pre.status as DeliveryStatus)) {
+      throw new ConflictException(`${pre.status} dan picked_up ga o'tib bo'lmaydi`);
+    }
+    const hasPhoto = !!photo?.buffer?.length;
+    if (!hasPhoto && PICKUP_PHOTO_REQUIRED_FOR.includes(pre.required_vehicle)) {
+      throw new BadRequestException(`${pre.required_vehicle} yetkazishda yuklangan tovar rasmi majburiy`);
+    }
+    const expected = [...new Set((pre.items || []).map(Number))];
+    const checked = [...new Set((dto.items_checked || []).map(Number))];
+    const foreign = checked.filter((x) => !expected.includes(x));
+    if (foreign.length) {
+      throw new BadRequestException(`items_checked: begona qatorlar — ${foreign.join(', ')}`);
+    }
+    const missing = expected.filter((x) => !checked.includes(x));
+    if (missing.length) {
+      throw new BadRequestException(
+        `Hamma qatorni belgilang — qolgani: ${missing.join(', ')}`,
+      );
+    }
+
+    const proof = hasPhoto ? await this.proofs.save(id, 'pickup', photo) : null;
+    const d = await Delivery.sequelize.transaction(async (t) => {
+      const d = await this.courierGet(courier, id, t, true);
+      await this.apply(
+        d,
+        'pickup',
+        { type: 'courier', id: courier.store_user_id },
+        { items_checked: checked, pickup_comment: dto.comment?.trim() || null },
+        dto,
+        [`${checked.length} ta qator tekshirildi`, dto.comment?.trim()].filter(Boolean).join(': '),
+        t,
+      );
+      return d;
+    });
+    await this.touchCourier(courier, dto);
+    return { ...(await this.present(d, { forCourier: true })), pickup_proof_id: proof?.id ?? null };
+  }
+
+  /**
+   * "Yetib keldim" (topshiriq №26, 4-band).
+   *
+   * Holat `on_the_way` da QOLADI va mijozga SMS YUBORILMAYDI (narxni
+   * tejash — foydalanuvchi qarori, 17.09). Kuryer qo'ng'iroq qiladi;
+   * kuzatish sahifasi (№24) `arrived_at` bo'yicha "Kuryer yetib keldi"
+   * deb ko'rsatadi. Kutish vaqti shu paytdan sanaladi.
+   */
+  async courierArrived(courier: Courier, id: number, dto: ArrivedDto) {
+    const d = await Delivery.sequelize.transaction(async (t) => {
+      const d = await this.courierGet(courier, id, t, true);
+      if (d.status !== 'on_the_way') {
+        throw new ConflictException(`${d.status} holatida "yetib keldim" belgilanmaydi`);
+      }
+      if (!d.arrived_at) {
+        await d.update({ arrived_at: new Date() }, { transaction: t });
+        await this.event(d.id, d.status, d.status, { type: 'courier', id: courier.store_user_id }, dto, 'Manzilga yetib keldi', t, 'arrived');
+      }
+      return d;
+    });
+    await this.touchCourier(courier, dto);
+    return { id: d.id, status: d.status, arrived_at: d.arrived_at };
+  }
+
+  /** Qo'ng'iroq urinishi (4-band) — `client_unreachable` ga dalil. */
+  async courierCallAttempt(courier: Courier, id: number) {
+    const d = await Delivery.sequelize.transaction(async (t) => {
+      const d = await this.courierGet(courier, id, t, true);
+      await d.update(
+        { call_attempts: Number(d.call_attempts || 0) + 1, last_call_at: new Date() },
+        { transaction: t },
+      );
+      await this.event(
+        d.id, d.status, d.status,
+        { type: 'courier', id: courier.store_user_id }, {},
+        `Qo'ng'iroq urinishi #${d.call_attempts}`, t, 'call_attempt',
+      );
+      return d;
+    });
+    return { id: d.id, call_attempts: d.call_attempts, last_call_at: d.last_call_at };
+  }
+
+  /**
+   * Hodisa: shikast, avariya, o'g'irlik (topshiriq №26, 9-band).
+   * Yetkazish HOLATI o'zgarmaydi — do'kon `cancel` yoki `retry` qiladi.
+   */
+  async courierIncident(courier: Courier, id: number, dto: IncidentDto, photos: Express.Multer.File[] = []) {
+    const d = await this.courierGet(courier, id);
+    const proofIds: number[] = [];
+    for (const photo of photos.slice(0, 5)) {
+      const saved = await this.proofs.save(id, 'incident', photo);
+      if (saved) proofIds.push(saved.id);
+    }
+    const incident = await DeliveryIncident.create({
+      delivery_id: d.id,
+      courier_id: courier.id,
+      type: dto.type,
+      comment: dto.comment?.trim() || null,
+      proof_ids: proofIds,
+    } as any);
+    await this.event(
+      d.id, d.status, d.status,
+      { type: 'courier', id: courier.store_user_id }, {},
+      `Hodisa: ${dto.type}${dto.comment ? ` — ${dto.comment}` : ''}`, undefined, 'incident',
+    );
+    await pushToStoreAdmins([d.store_id], {
+      title: 'Yetkazishda hodisa',
+      body: `#${d.id}: ${dto.type}${dto.comment ? ` — ${dto.comment}` : ''}`.slice(0, 180),
+      data: { type: 'delivery_incident', delivery_id: d.id, incident_id: incident.id },
+    });
+    return incident;
+  }
+
+  /** Yetkazishning hodisalari (adminka). */
+  async incidents(id: number, r: StoreRequester) {
+    await this.loadScoped(id, r);
+    return DeliveryIncident.findAll({ where: { delivery_id: id }, order: [['id', 'ASC']] });
+  }
+
+  async courierAction(courier: Courier, id: number, action: 'accept' | 'start' | 'reject', body: { comment?: string } & Geo) {
     const actor: Actor = { type: 'courier', id: courier.store_user_id };
     let code: string | null = null;
+    let track: string | null = null;
     const d = await Delivery.sequelize.transaction(async (t) => {
       const d = await this.courierGet(courier, id, t, true);
       const extra: any = {};
-      if (action === 'reject') extra.courier_id = null;
+      if (action === 'reject') {
+        extra.courier_id = null;
+        // Kuryer rad etdi — eski havola boshqa kuryerni ko'rsatmasin
+        extra.tracking_token_hash = null;
+      }
       if (action === 'start') {
         code = String(randomInt(0, 10000)).padStart(4, '0');
         extra.proof_code_hash = codeHash(d.id, code);
         extra.proof_code_attempts = 0;
+        // Kuzatish havolasi shu yerda tug'iladi (topshiriq №24, 1-band):
+        // mijoz aynan "yo'lda" dan boshlab kuryerni ko'rishi kerak.
+        // Qayta `start` (retry'dan keyin) — yangi token, eskisi bekor.
+        const token = newTrackingToken();
+        extra.tracking_token_hash = token.hash;
+        track = trackingUrl(token.raw);
       }
       await this.apply(d, action, actor, extra, body, body.comment || null, t);
       return d;
@@ -519,7 +681,7 @@ export class DeliveriesService {
     await this.touchCourier(courier, body);
 
     if (action === 'start') {
-      await this.onTheWay(d, courier, code);
+      await this.onTheWay(d, courier, code, track);
     } else if (action === 'reject') {
       await pushToStoreAdmins([d.store_id], {
         title: 'Kuryer rad etdi',
@@ -530,7 +692,13 @@ export class DeliveriesService {
     return this.present(d, { forCourier: true });
   }
 
-  async courierDeliver(courier: Courier, id: number, dto: CourierDeliverDto, photo?: Express.Multer.File) {
+  async courierDeliver(
+    courier: Courier,
+    id: number,
+    dto: CourierDeliverDto,
+    photo?: Express.Multer.File,
+    signature?: Express.Multer.File,
+  ) {
     const actor: Actor = { type: 'courier', id: courier.store_user_id };
     // Oldindan (qulfsiz) tekshiruvlar — rasm saqlashdan oldin
     const pre = await this.courierGet(courier, id);
@@ -539,11 +707,22 @@ export class DeliveriesService {
       throw new ConflictException(`${pre.status} dan delivered ga o'tib bo'lmaydi`);
     }
     const hasPhoto = !!photo?.buffer?.length;
-    if (!dto.code && !hasPhoto) {
-      throw new BadRequestException("Topshirish kodi yoki rasm (izoh bilan) majburiy");
-    }
-    if (!dto.code && hasPhoto && !dto.comment?.trim()) {
-      throw new BadRequestException('Kodsiz topshirishda rasm bilan birga izoh majburiy');
+    const hasSignature = !!signature?.buffer?.length;
+    const hasName = !!dto.received_by_name?.trim();
+    // Topshirish qoidasi (topshiriq №26, 3-band):
+    //   kod bo'lsa — yetadi;
+    //   kod bo'lmasa — rasm + (imzo YOKI ism + izoh).
+    // B2B da mijoz kompaniyasi tovarni xodimi orqali oladi va SMS kodi
+    // qo'lida bo'lmaydi — shuning uchun imzo yoki ism kerak.
+    if (!dto.code) {
+      if (!hasPhoto) {
+        throw new BadRequestException('Topshirish kodi yoki rasm majburiy');
+      }
+      if (!hasSignature && !(hasName && dto.comment?.trim())) {
+        throw new BadRequestException(
+          "Kodsiz topshirishda rasm bilan birga imzo YOKI qabul qiluvchi ismi va izoh majburiy",
+        );
+      }
     }
     if (pre.cod_amount > 0) {
       if (dto.cash_collected === undefined || dto.cash_collected === null) {
@@ -580,7 +759,8 @@ export class DeliveriesService {
       if (res !== 'ok') throw new BadRequestException(`Topshirish kodi xato (qolgan urinish: ${res.split(':')[1]})`);
     }
 
-    const proof = hasPhoto ? await this.proofs.save(id, 'delivered', photo) : null;
+    const proof = hasPhoto ? await this.proofs.save(id, 'delivery', photo) : null;
+    const signProof = hasSignature ? await this.proofs.save(id, 'signature', signature) : null;
     const d = await Delivery.sequelize.transaction(async (t) => {
       const d = await this.courierGet(courier, id, t, true);
       await this.apply(
@@ -590,10 +770,21 @@ export class DeliveriesService {
         {
           cash_collected: d.cod_amount > 0 ? Number(dto.cash_collected) : dto.cash_collected ?? null,
           proof_comment: dto.comment?.trim() || null,
+          received_by_name: dto.received_by_name?.trim() || null,
+          // 10-band: fiskal chek hozircha faqat SAQLANADI
+          payment_method: dto.payment_method ?? (d.cod_amount > 0 ? 'cash' : null),
+          fiscal_receipt_url: dto.fiscal_receipt_url?.trim() || null,
+          fiscal_sign: dto.fiscal_sign?.trim() || null,
           ...(proof ? { proof_photo_url: `/api/deliveries/${d.id}/proofs/${proof.id}` } : {}),
         },
         dto,
-        [dto.code ? 'Kod bilan' : 'Rasm bilan', dto.comment?.trim()].filter(Boolean).join(': '),
+        [
+          dto.code ? 'Kod bilan' : signProof ? 'Imzo bilan' : 'Rasm bilan',
+          dto.received_by_name?.trim(),
+          dto.comment?.trim(),
+        ]
+          .filter(Boolean)
+          .join(': '),
         t,
       );
       return d;
@@ -611,7 +802,7 @@ export class DeliveriesService {
     if (!TRANSITIONS.fail.from.includes(pre.status as DeliveryStatus)) {
       throw new ConflictException(`${pre.status} dan failed ga o'tib bo'lmaydi`);
     }
-    const proof = photo?.buffer?.length ? await this.proofs.save(id, 'failed', photo) : null;
+    const proof = photo?.buffer?.length ? await this.proofs.save(id, 'failure', photo) : null;
     const d = await Delivery.sequelize.transaction(async (t) => {
       const d = await this.courierGet(courier, id, t, true);
       await this.apply(
@@ -624,7 +815,18 @@ export class DeliveriesService {
           ...(proof ? { proof_photo_url: `/api/deliveries/${d.id}/proofs/${proof.id}` } : {}),
         },
         dto,
-        [dto.failure_reason, dto.failure_comment?.trim()].filter(Boolean).join(': '),
+        [
+          dto.failure_reason,
+          // Kutish daqiqalari tarixda qolsin: "mijoz javob bermadi" degan
+          // sabab nizoda aynan shu bilan isbotlanadi (topshiriq №26, 4-band).
+          pre.arrived_at
+            ? `${Math.round((Date.now() - new Date(pre.arrived_at).getTime()) / 60000)} daqiqa kutildi`
+            : null,
+          pre.call_attempts ? `${pre.call_attempts} marta qo'ng'iroq` : null,
+          dto.failure_comment?.trim(),
+        ]
+          .filter(Boolean)
+          .join(': '),
         t,
       );
       return d;
@@ -653,7 +855,10 @@ export class DeliveriesService {
         where: { courier_id: courier.id, delivery_id: active.id },
         order: [['created_at', 'DESC']],
       });
-      const tooSoon = lastLoc && (Date.now() - new Date(lastLoc.created_at).getTime() < 30 * 1000);
+      // Kuzatish sahifasi ochiq bo'lsa kuryer 15 soniyada bir yuboradi
+      // (topshiriq №24, 3-band) — `couriers.last_*` har safar yangilanadi,
+      // yo'l tarixiga esa bundan tez kelgan nuqta yozilmaydi.
+      const tooSoon = lastLoc && Date.now() - new Date(lastLoc.created_at).getTime() < LOCATION_HISTORY_MIN_MS;
       if (!tooSoon) {
         await CourierLocation.create({ courier_id: courier.id, delivery_id: active.id, lat: dto.lat, lng: dto.lng, accuracy: dto.accuracy ?? null } as any);
       }
@@ -681,9 +886,30 @@ export class DeliveriesService {
     }
     await d.update(payload, { transaction: t });
     await this.event(d.id, from, rule.to, actor, geo, comment, t);
+
+    const orderEvent = ORDER_EVENT_OF[action];
+    if (orderEvent) {
+      await recordOrderEvent({
+        order_id: d.order_id,
+        event: orderEvent,
+        actor_type: actor.type === 'courier' ? 'system' : actor.type === 'store' ? 'store' : actor.type === 'superadmin' ? 'superadmin' : 'system',
+        actor_id: actor.id,
+        note: `Yetkazish #${d.id}${comment ? `: ${comment}` : ''}`,
+        transaction: t,
+      });
+    }
   }
 
-  private event(deliveryId: number, from: string | null, to: string, actor: Actor, geo: Geo, comment: string | null, t?: Transaction) {
+  private event(
+    deliveryId: number,
+    from: string | null,
+    to: string,
+    actor: Actor,
+    geo: Geo,
+    comment: string | null,
+    t?: Transaction,
+    event: string | null = null,
+  ) {
     return DeliveryEvent.create(
       {
         delivery_id: deliveryId,
@@ -694,22 +920,88 @@ export class DeliveriesService {
         lat: geo?.lat ?? null,
         lng: geo?.lng ?? null,
         comment: comment ? String(comment).slice(0, 1000) : null,
+        // Holat o'zgarishi bo'lmagan hodisalar (№24): mijoz sahifasi
+        // qadamlarni faqat `event IS NULL` yozuvlardan yig'adi.
+        event,
         created_at: new Date(),
       } as any,
       { transaction: t },
     );
   }
 
-  private async touchCourier(courier: Courier, geo: Geo) {
+  private async touchCourier(courier: Courier, geo: Geo & { heading?: number; speed?: number }) {
     if (geo?.lat == null || geo?.lng == null) return;
     await Courier.update(
-      { last_lat: geo.lat, last_lng: geo.lng, last_seen_at: new Date() } as any,
+      {
+        last_lat: geo.lat,
+        last_lng: geo.lng,
+        last_seen_at: new Date(),
+        // GPS'dan kelgan yo'nalish ikki nuqtadan hisoblanganidan aniqroq
+        // (topshiriq №26, 5-band) — kelmasa eskisi qoladi.
+        ...(geo.heading !== undefined ? { last_heading: Math.round(geo.heading) % 360 } : {}),
+        ...(geo.speed !== undefined ? { last_speed: geo.speed } : {}),
+      } as any,
       { where: { id: courier.id } },
     );
   }
 
-  /** Yo'lga chiqdi: mijozga kod bilan SMS, buyurtma — shipping (3-band). */
-  private async onTheWay(d: Delivery, courier: Courier, code: string | null) {
+  /**
+   * Yetkazish qatorlarining jami og'irligi va hajmi (topshiriq №26, 7-band).
+   * Variantda qiymat bo'lsa u ustun, bo'lmasa modelniki. Bittasi ham
+   * to'ldirilmagan bo'lsa `null` — taxmin qilmaymiz.
+   */
+  private async loadOf(itemIds: number[]): Promise<{ weight_kg: number | null; volume_m3: number | null }> {
+    if (!itemIds?.length) return { weight_kg: null, volume_m3: null };
+    const [row]: any[] = await Delivery.sequelize.query(
+      `SELECT
+         SUM(i.quantity * COALESCE(v.weight_kg, c.weight_kg)) FILTER
+           (WHERE COALESCE(v.weight_kg, c.weight_kg) IS NOT NULL) AS weight_kg,
+         SUM(i.quantity * COALESCE(v.length_cm, c.length_cm) * COALESCE(v.width_cm, c.width_cm)
+               * COALESCE(v.height_cm, c.height_cm) / 1000000.0) FILTER
+           (WHERE COALESCE(v.length_cm, c.length_cm) IS NOT NULL
+              AND COALESCE(v.width_cm, c.width_cm) IS NOT NULL
+              AND COALESCE(v.height_cm, c.height_cm) IS NOT NULL) AS volume_m3
+         FROM "order-items" i
+         LEFT JOIN characteristics c ON c.id = i.product_model_id
+         LEFT JOIN "product-model-inside" v ON v.id = i.product_model_inside_id
+        WHERE i.id IN (:ids)`,
+      { replacements: { ids: itemIds }, type: QueryTypes.SELECT },
+    );
+    return {
+      weight_kg: row?.weight_kg === null || row?.weight_kg === undefined ? null : Number(row.weight_kg),
+      volume_m3: row?.volume_m3 === null || row?.volume_m3 === undefined ? null : Number(row.volume_m3),
+    };
+  }
+
+  /** Og'irlik/hajmdan kerakli transportni TAKLIF qiladi (7-band). */
+  private suggestVehicle(load: { weight_kg: number | null; volume_m3: number | null }): string | null {
+    const kg = load.weight_kg;
+    const m3 = load.volume_m3;
+    if (kg === null && m3 === null) return null;
+    if ((kg ?? 0) > 1500 || (m3 ?? 0) > 8) return 'truck';
+    if ((kg ?? 0) > 500 || (m3 ?? 0) > 2) return 'van';
+    if ((kg ?? 0) > 15 || (m3 ?? 0) > 0.2) return 'car';
+    return 'bike';
+  }
+
+  /** Sig'im oshsa OGOHLANTIRISH (409 emas — bir necha qatnov mumkin). */
+  private capacityWarnings(d: Delivery, v: CourierVehicle): string[] {
+    const out: string[] = [];
+    if (v.capacity_kg && d.total_weight_kg && Number(d.total_weight_kg) > Number(v.capacity_kg)) {
+      out.push(
+        `Yuk ${d.total_weight_kg} kg — transport sig'imi ${v.capacity_kg} kg; bir necha qatnov kerak bo'lishi mumkin`,
+      );
+    }
+    if (v.capacity_m3 && d.total_volume_m3 && Number(d.total_volume_m3) > Number(v.capacity_m3)) {
+      out.push(
+        `Hajm ${d.total_volume_m3} m3 — transport sig'imi ${v.capacity_m3} m3; bir necha qatnov kerak bo'lishi mumkin`,
+      );
+    }
+    return out;
+  }
+
+  /** Yo'lga chiqdi: mijozga kuzatish havolasi va kod bilan SMS, buyurtma — shipping (3-band). */
+  private async onTheWay(d: Delivery, courier: Courier, code: string | null, track: string | null) {
     try {
       await Delivery.sequelize.query(
         `UPDATE orders SET status = 'shipping', "updatedAt" = now() WHERE id = :id AND status IN ('new', 'paid', 'quote_sent')`,
@@ -719,9 +1011,16 @@ export class DeliveriesService {
       this.logger.error(`Buyurtma holati (shipping) yozilmadi: ${(e as Error).message}`);
     }
     if (d.recipient_phone && code) {
+      // Eskiz shabloni (topshiriq №24, 4-band):
+      //   "Buyurtmangiz #%w yo'lda. Kuryer: %w. Kuzatish: %w Topshirish kodi: %w"
+      // Kuryer telefoni SMS'dan olib tashlandi — u kuzatish sahifasida
+      // (`on_the_way` da) chiqadi va matn 160 belgidan oshmaydi.
+      const first = String(courier.full_name || '').trim().split(/\s+/)[0] || courier.full_name;
       await this.sendSms(
         d.recipient_phone,
-        `Buyurtmangiz yo'lda. Kuryer: ${courier.full_name}, ${courier.phone}. Topshirish kodi: ${code}`,
+        track
+          ? `Buyurtmangiz #${d.order_id} yo'lda. Kuryer: ${first}. Kuzatish: ${track} Topshirish kodi: ${code}`
+          : `Buyurtmangiz #${d.order_id} yo'lda. Kuryer: ${first}. Topshirish kodi: ${code}`,
       );
     }
   }
@@ -804,19 +1103,30 @@ export class DeliveriesService {
       plain.order_items = await this.itemsOf(plain.items);
       if (d.courier_id) {
         const c = await Courier.findByPk(d.courier_id);
+        const v = c?.active_vehicle_id ? await CourierVehicle.findByPk(c.active_vehicle_id) : null;
         plain.courier = c
           ? {
               id: c.id,
               full_name: c.full_name,
               phone: c.phone,
               vehicle_type: c.vehicle_type,
+              // Faol transport (topshiriq №26, 1a-band)
+              vehicle: v
+                ? { id: v.id, type: v.vehicle_type, model: v.model, color: v.color, plate: v.plate }
+                : null,
               is_online: c.is_online,
               last_lat: c.last_lat,
               last_lng: c.last_lng,
+              last_heading: c.last_heading,
+              last_speed: c.last_speed,
               last_seen_at: c.last_seen_at,
             }
           : null;
       }
+      plain.incidents = await DeliveryIncident.findAll({
+        where: { delivery_id: d.id },
+        order: [['id', 'ASC']],
+      });
     }
     return plain;
   }

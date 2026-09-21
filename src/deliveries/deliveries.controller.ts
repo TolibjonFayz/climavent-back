@@ -159,6 +159,28 @@ export class DeliveriesController {
     return this.deliveries.retry(id, req.storeUser);
   }
 
+  /**
+   * Mijozga yuboriladigan kuzatish havolasi (topshiriq №24, 1-band).
+   *
+   * SMS shabloni Eskizda tasdiqlanmaguncha operator havolani qo'lda
+   * yuboradi. Ochiq token bazada saqlanmagani uchun har chaqiruvda YANGI
+   * havola yaratiladi va eskisi bekor bo'ladi.
+   */
+  @ApiOperation({ summary: "Kuzatish havolasi (accepted/picked_up/on_the_way; eskisi bekor bo'ladi)" })
+  @ApiResponse({ status: 200, schema: { example: { url: 'https://climavent.uz/kuzatish/…', expires_at: null } } })
+  @ApiResponse({ status: 409, description: 'Bu holatda havola berilmaydi' })
+  @HttpCode(200)
+  @Post(':id/tracking-link')
+  trackingLink(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.deliveries.trackingLink(id, req.storeUser);
+  }
+
+  @ApiOperation({ summary: "Yetkazishdagi hodisalar (shikast, avariya, o'g'irlik)" })
+  @Get(':id/incidents')
+  incidents(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.deliveries.incidents(id, req.storeUser);
+  }
+
   @ApiOperation({ summary: 'Isbot rasmi (guvohnoma bilan; ochiq URL yo\'q)' })
   @Get(':id/proofs/:proofId')
   async proof(

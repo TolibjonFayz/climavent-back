@@ -17,7 +17,7 @@ interface CartItemAtr {
   product_id: number;
   product_model: string;
   quantity: number;
-  price: number;
+  price: number | null;
   characteristic_id: number;
   product_model_inside_id: number;
 }
@@ -42,12 +42,14 @@ export class CartItem extends Model<CartItem, CartItemAtr> {
   })
   product_model: string;
 
-  @ApiProperty({ example: 543000, description: 'Product price' })
+  // NULL — narxi katalogda yo'q ("Narxi kelishiladi"). Topshiriq №25, 1-band:
+  // narxsiz mahsulot ham savatga tushadi, narxni sotuvchi KP bilan beradi.
+  @ApiProperty({ example: 543000, nullable: true, description: "Narx (so'm); null — narxi kelishiladi" })
   @Column({
     type: DataType.INTEGER,
-    allowNull: false,
+    allowNull: true,
   })
-  price: number;
+  price: number | null;
 
   @ForeignKey(() => Cart)
   @ApiProperty({ example: 1, description: 'Cart id' })

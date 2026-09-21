@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { R2DocumentsStore } from 'src/seller_applications/r2-documents.store';
 import { DeliveryProof } from './model/models';
-import { PROOF_MAX_BYTES } from './constants';
+import { PROOF_MAX_BYTES, ProofKind, SIGNATURE_MAX_BYTES } from './constants';
 
 const TYPES = [
   { mime: 'image/jpeg', test: (b: Buffer) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
@@ -27,11 +27,24 @@ const TYPES = [
 export class ProofStorageService {
   constructor(private readonly r2: R2DocumentsStore) {}
 
-  async save(deliveryId: number, kind: 'delivered' | 'failed', file?: Express.Multer.File) {
+  /**
+   * `kind` (topshiriq №26, 2-, 3-, 9-band):
+   *   pickup — tovar yuklangan holatda, delivery — topshirilganda,
+   *   failure — amalga oshmaganda, signature — telefonda barmoq bilan
+   *   chizilgan imzo (faqat PNG), incident — hodisa rasmi.
+   */
+  async save(deliveryId: number, kind: ProofKind, file?: Express.Multer.File) {
     if (!file?.buffer?.length) return null;
-    if (file.size > PROOF_MAX_BYTES) throw new BadRequestException("Rasm 8 MB dan katta bo'lmasin");
+    const limit = kind === 'signature' ? SIGNATURE_MAX_BYTES : PROOF_MAX_BYTES;
+    if (file.size > limit) {
+      throw new BadRequestException(`Fayl ${Math.round(limit / 1024 / 1024)} MB dan katta bo'lmasin`);
+    }
     const type = TYPES.find((t) => t.test(file.buffer));
     if (!type) throw new BadRequestException('Faqat JPG, PNG yoki WebP rasm');
+    // Imzo — telefonda chizilgan vektor emas, oddiy PNG (shaffof fon bilan)
+    if (kind === 'signature' && type.mime !== 'image/png') {
+      throw new BadRequestException("Imzo PNG bo'lsin");
+    }
 
     if (this.r2.enabled) {
       const key = `delivery-proofs/${this.r2.newKey().split('/').pop()}`;

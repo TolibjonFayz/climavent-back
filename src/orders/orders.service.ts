@@ -21,6 +21,9 @@ import { BadRequestException } from '@nestjs/common';
 import Sequelize, { Op } from 'sequelize';
 import { cancelDeliveriesForOrder } from 'src/deliveries/deliveries.service';
 import { Delivery } from 'src/deliveries/model/models';
+import { OrderQuote } from './model/order-quote.model';
+import { OrderEvent, publicOrderEvent, recordOrderEvent } from './order-events';
+import { quoteDueAt } from './quote-sla';
 
 @Injectable()
 export class OrdersService {
@@ -31,6 +34,21 @@ export class OrdersService {
     @InjectModel(Product)
     private readonly productRepository: typeof Product,
   ) {}
+
+  /**
+   * KP so'rovi uchun javob muddati va KP versiyalari (topshiriq №25).
+   * Har javobga bir xil qo'shiladi — adminka ham, sayt ham shu maydonlarni kutadi.
+   */
+  private async withQuoteInfo(plain: any, opts: { forCustomer?: boolean } = {}) {
+    if (!plain) return plain;
+    const quotes = await OrderQuote.findAll({ where: { order_id: plain.id }, order: [['id', 'ASC']] });
+    plain.quotes = quotes.map((q) => q.get({ plain: true }));
+    const events = await OrderEvent.findAll({ where: { order_id: plain.id }, order: [['id', 'ASC']] });
+    // Mijozga `actor_id` berilmaydi — kim ishlaganini bilishi shart emas.
+    plain.events = opts.forCustomer ? events.map(publicOrderEvent) : events.map((e) => e.get({ plain: true }));
+    if (plain.kind === 'quote') plain.quote_due_at = quoteDueAt(plain.createdAt);
+    return plain;
+  }
 
   //Creating a order
   //
@@ -60,6 +78,14 @@ export class OrdersService {
       // 4-band). Qatorsiz buyurtmaning summasi noma'lum.
       totalAmount: null,
     });
+    await recordOrderEvent({
+      order_id: newOrder.id,
+      event: 'created',
+      to_status: status,
+      actor_type: requester?.is_admin ? 'superadmin' : 'customer',
+      actor_id: requester?.id ?? null,
+      note: kind === 'quote' ? "KP so'rovi" : null,
+    });
     const response = { message: 'Order successfully created', newOrder };
     return response;
   }
@@ -77,8 +103,15 @@ export class OrdersService {
   async getAllOrders(storeId?: number | null, kind?: string) {
     // `?kind=quote` — faqat KP so'rovlari (№21, 3-band)
     const kindWhere = kind === 'order' || kind === 'quote' ? { kind } : {};
+    // KP so'roviga "1 ish kuni ichida javob bering" sanog'i (№25, 5-band).
+    const withDue = (o: any) => {
+      const plain = typeof o.get === 'function' ? o.get({ plain: true }) : o;
+      if (plain.kind === 'quote') plain.quote_due_at = quoteDueAt(plain.createdAt);
+      return plain;
+    };
     if (!storeId) {
-      return this.OrderRepository.findAll({ where: kindWhere, include: { all: true } });
+      const rows = await this.OrderRepository.findAll({ where: kindWhere, include: { all: true } });
+      return rows.map(withDue) as any;
     }
 
     const orders = await this.OrderRepository.findAll({
@@ -101,7 +134,7 @@ export class OrdersService {
     });
     const meniki = new Set(mahsulotlar.map((p) => p.id));
     return orders.map((o) => {
-      const plain: any = o.get({ plain: true });
+      const plain: any = withDue(o);
       plain.orderItems = (plain.orderItems || []).filter((i: any) =>
         meniki.has(i.product_id),
       );
@@ -122,7 +155,10 @@ export class OrdersService {
     if (!order || (requester && !requester.is_admin && Number(order.user_id) !== Number(requester.id))) {
       throw new NotFoundException('Order not found or id is invalid');
     }
-    return order;
+    // KP versiyalari va yo'l tarixi (topshiriq №25, 2- va 4-band)
+    return this.withQuoteInfo(order.get({ plain: true }), {
+      forCustomer: !requester?.is_admin,
+    });
   }
 
   //Get order by userid
@@ -153,7 +189,10 @@ export class OrdersService {
       ],
       order: [['updatedAt', 'DESC']],
     });
-    return userOrder;
+    // Profildagi "Buyurtmalarim": KP kartochkasi uchun versiyalar va tarix
+    return Promise.all(
+      userOrder.map((o) => this.withQuoteInfo(o.get({ plain: true }), { forCustomer: true })),
+    );
   }
 
   // Buyurtma egasini (yoki admin ekanini) tekshiradi
@@ -245,6 +284,18 @@ export class OrdersService {
     });
     if (!updated[1][0]?.dataValues) throw new NotFoundException('Order not found or something wrong');
 
+    if (payload.status !== undefined && payload.status !== existing.status) {
+      await recordOrderEvent({
+        order_id: id,
+        event: 'status_changed',
+        from_status: existing.status,
+        to_status: payload.status,
+        actor_type:
+          actor?.kind === 'store_admin' ? 'store' : actor?.kind === 'customer' ? 'customer' : 'superadmin',
+        actor_id: actor?.user_id ?? null,
+      });
+    }
+
     // Buyurtma bekor qilindi — faol yetkazishlar ham bekor, kuryerga push (№22, 3-band)
     if (payload.status === 'cancelled' && existing.status !== 'cancelled') {
       await cancelDeliveriesForOrder(id, {
@@ -276,7 +327,7 @@ export class OrdersService {
       order: [['id', 'ASC']],
     });
     plain.deliveries = deliveries.map((d) => d.get({ plain: true }));
-    return plain;
+    return this.withQuoteInfo(plain);
   }
 
   //Delete order by id — faqat egasi yoki admin

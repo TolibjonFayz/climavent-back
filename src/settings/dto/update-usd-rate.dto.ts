@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNumber, IsPositive, Max } from 'class-validator';
+import { IsBoolean, IsNumber, IsPositive, Max } from 'class-validator';
 
 export class UpdateUsdRateDto {
   @ApiProperty({
@@ -12,4 +12,15 @@ export class UpdateUsdRateDto {
   // Kurs bir necha barobar oshsa ham bu chegaraga yetmaydi.
   @Max(1_000_000)
   rate: number;
+}
+
+/** Kursni har kuni avtomatik yangilash galochkasi (topshiriq №27). */
+export class UpdateUsdRateAutoDto {
+  @ApiProperty({
+    example: true,
+    description:
+      "true — kunlik cron kursni Markaziy bankdan olib qo'yadi; false — kurs faqat qo'lda o'zgaradi",
+  })
+  @IsBoolean()
+  enabled: boolean;
 }

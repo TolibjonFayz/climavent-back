@@ -5,6 +5,12 @@ import { OfferAcceptance } from './model/offer-acceptance.model';
 
 /** Tasdiqlashning O'ZI va kirish/chiqish — hech qachon to'silmaydi. */
 const ALWAYS_ALLOWED = [/^\/api\/offers\/accept$/, /^\/api\/store-auth\//];
+/**
+ * Kuryer uchun O'QISH ochiq qoladi (`me`, ro'yxat), YOZISH esa to'siladi
+ * (topshiriq №26, 1-band). Qurilma tokenini ro'yxatdan o'tkazish ham
+ * to'silmaydi: aks holda kuryer ofertani tasdiqlash haqida push ololmasdi.
+ */
+const COURIER_ALWAYS_ALLOWED = [/^\/api\/devices/];
 
 const WRITE_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
@@ -30,6 +36,7 @@ export async function assertOfferAccepted(
   req: any,
   storeUserId?: number | null,
   storeId?: number | null,
+  kind: 'seller' | 'courier' = 'seller',
 ): Promise<void> {
   // Favqulodda o'chirish: adminkadagi tasdiqlash oynasi ishlamay qolsa
   // sotuvchilar ishsiz qolmasin. Signal (`offer_pending`) baribir qaytadi.
@@ -38,9 +45,10 @@ export async function assertOfferAccepted(
   if (!storeUserId) return; // servis kaliti — hisob yo'q
   const path = String(req?.originalUrl || req?.url || '').split('?')[0];
   if (ALWAYS_ALLOWED.some((r) => r.test(path))) return;
+  if (kind === 'courier' && COURIER_ALWAYS_ALLOWED.some((r) => r.test(path))) return;
 
   const offer = await OfferVersion.findOne({
-    where: { kind: 'seller', is_current: true },
+    where: { kind, is_current: true },
     attributes: ['version', 'url'],
   });
   // Joriy oferta e'lon qilinmagan bo'lsa hech kimni to'smaymiz.
@@ -49,7 +57,7 @@ export async function assertOfferAccepted(
   const or: any[] = [{ store_user_id: storeUserId }];
   if (storeId) or.push({ store_id: storeId });
   const accepted = await OfferAcceptance.findOne({
-    where: { kind: 'seller', version: offer.version, [Op.or]: or },
+    where: { kind, version: offer.version, [Op.or]: or },
     attributes: ['id'],
   });
   if (accepted) return;
@@ -59,6 +67,6 @@ export async function assertOfferAccepted(
     error: 'offer_acceptance_required',
     message:
       "Oferta yangilandi — davom etish uchun yangi versiyani tasdiqlang",
-    offer_pending: { kind: 'seller', version: offer.version, url: offer.url },
+    offer_pending: { kind, version: offer.version, url: offer.url },
   });
 }

@@ -4,6 +4,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateCartItemDto {
@@ -17,10 +18,18 @@ export class CreateCartItemDto {
   @IsNotEmpty()
   product_id: number;
 
-  @ApiProperty({ example: 543000, description: 'Product price' })
+  // Narxsiz model ham savatga tushadi (topshiriq №25, 1-band): katalogda
+  // narx bo'lmasa sayt `null` yuboradi va savat oxirida "KP so'rash" chiqadi.
+  @ApiProperty({
+    example: 543000,
+    required: false,
+    nullable: true,
+    description: "Narx (so'm); null yoki yuborilmasa — narxi kelishiladi",
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
   @IsNumber()
-  @IsNotEmpty()
-  price: number;
+  price?: number | null;
 
   @ApiProperty({
     example: 'ВНВ243.1-078-050-02-2,2-04-1',

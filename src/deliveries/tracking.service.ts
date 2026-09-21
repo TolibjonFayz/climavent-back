@@ -1,0 +1,201 @@
+import { GoneException, Injectable, NotFoundException } from '@nestjs/common';
+import { createHash, randomBytes } from 'crypto';
+import { QueryTypes } from 'sequelize';
+import {
+  ETA_CITY_FACTOR,
+  ETA_MIN_MINUTES,
+  ETA_SPEED_KMH,
+  LOCATION_STALE_MS,
+  TRACKING_AFTER_FINISH_MS,
+  TRACKING_BASE_URL,
+  TRACKING_LINK_PATH,
+} from './constants';
+import { Courier, CourierVehicle, Delivery, DeliveryEvent } from './model/models';
+
+/** Havola kaliti: 32 bayt tasodifiy, base64url (43 belgi). */
+export function newTrackingToken(): { raw: string; hash: string } {
+  const raw = randomBytes(32).toString('base64url');
+  return { raw, hash: hashToken(raw) };
+}
+
+/** Bazada FAQAT xesh turadi (№21 dagi refresh tokenlar kabi). */
+export function hashToken(raw: string): string {
+  return createHash('sha256').update(raw).digest('hex');
+}
+
+export const trackingUrl = (raw: string) =>
+  `${TRACKING_BASE_URL}${TRACKING_LINK_PATH.startsWith('/') ? '' : '/'}${TRACKING_LINK_PATH}${TRACKING_LINK_PATH.endsWith('/') ? '' : '/'}${raw}`;
+
+/** Koordinata ~11 metrgacha yumaloqlanadi — mijozga aniq uy kerak emas. */
+const round4 = (v: unknown) => (v === null || v === undefined ? null : Number(Number(v).toFixed(4)));
+
+/** To'g'ri masofa (km). */
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const R = 6371;
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(lat2 - lat1);
+  const dLng = rad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+/** Yetkazish yakunlangan holatlar — havola shundan keyin 24 soat yashaydi. */
+const FINISHED: Record<string, keyof Delivery> = {
+  delivered: 'delivered_at',
+  failed: 'failed_at',
+  cancelled: 'cancelled_at',
+  returned: 'returned_at',
+};
+
+/**
+ * Mijoz uchun OCHIQ kuzatish (topshiriq №24, 2-band).
+ *
+ * Guvohnoma yo'q — SMS'dagi havolaning o'zi kalit. Shuning uchun javobda
+ * FAQAT mijozning o'ziga tegishli narsa bo'lishi kerak:
+ *
+ *   - kuryer joylashuvi — faqat `picked_up` / `on_the_way` da, 4 xonagacha
+ *     yumaloqlangan; `last_seen_at` 5 daqiqadan eski bo'lsa `stale: true`;
+ *   - kuryer ismi — familiyasiz; telefoni — faqat `on_the_way` da;
+ *   - manzil — mijozning O'Z manzili, lekin `dropoff_details` (kvartira,
+ *     qavat) BERILMAYDI: havola boshqa qo'lga tushsa ham uyning ichki
+ *     tafsiloti oshkor bo'lmasin;
+ *   - yakunlangandan keyin joylashuv ham, telefon ham `null`;
+ *   - tarixda `actor_id`, kuryer ID, do'kon ID, mijoz telefoni YO'Q.
+ */
+@Injectable()
+export class TrackingService {
+  async track(token: string) {
+    const raw = String(token || '');
+    // Har qanday noto'g'ri token uchun ish hajmi bir xil bo'lsin: xesh
+    // doim hisoblanadi, bazaga doim boriladi (timing orqali tokenning
+    // borligini bilib bo'lmasin).
+    const hash = hashToken(raw);
+    const d = raw.length >= 20 ? await Delivery.findOne({ where: { tracking_token_hash: hash } }) : null;
+    if (!d) throw new NotFoundException('Topilmadi');
+
+    // Yakunlangandan keyin havola 24 soat yashaydi — mijoz "topshirildi"
+    // ni ko'rib ulgursin, keyin yopiladi.
+    const finishedField = FINISHED[d.status];
+    const finishedAt = finishedField ? (d[finishedField] as unknown as Date | null) : null;
+    if (finishedAt && Date.now() - new Date(finishedAt).getTime() > TRACKING_AFTER_FINISH_MS) {
+      throw new GoneException("Havola muddati o'tgan");
+    }
+    const finished = !!finishedField;
+
+    const [store] = (await Delivery.sequelize.query(
+      'SELECT name, phone FROM stores WHERE id = :id',
+      { replacements: { id: d.store_id }, type: QueryTypes.SELECT },
+    )) as any[];
+
+    const events = await DeliveryEvent.findAll({
+      where: { delivery_id: d.id, event: null },
+      attributes: ['from_status', 'to_status', 'created_at'],
+      order: [['id', 'ASC']],
+    });
+    // Har holat — BIRINCHI marta kirilgan vaqti bilan. Tahrir yozuvlari
+    // (from === to) va `pending` qadam sifatida ko'rsatilmaydi.
+    const seen = new Set<string>();
+    const steps: { status: string; at: Date }[] = [];
+    for (const e of events) {
+      if (e.from_status === e.to_status || e.to_status === 'pending') continue;
+      if (seen.has(e.to_status)) continue;
+      seen.add(e.to_status);
+      steps.push({ status: e.to_status, at: e.created_at });
+    }
+
+    const showLocation = !finished && (d.status === 'picked_up' || d.status === 'on_the_way');
+    const showPhone = !finished && d.status === 'on_the_way';
+
+    let courier: any = null;
+    let courierLocation: any = null;
+    let etaMinutes: number | null = null;
+
+    if (d.courier_id) {
+      const c = await Courier.findByPk(d.courier_id, {
+        attributes: [
+          'full_name', 'phone', 'vehicle_type', 'active_vehicle_id',
+          'last_lat', 'last_lng', 'last_heading', 'last_speed', 'last_seen_at',
+        ],
+      });
+      if (c) {
+        // Faol transport (topshiriq №26, 1a-band): mijoz mashinani
+        // tanishi uchun rusum va rang; DAVLAT RAQAMI faqat `on_the_way` da
+        // — kuryer yo'lga chiqmaguncha uni bilishning hojati yo'q.
+        const v = c.active_vehicle_id ? await CourierVehicle.findByPk(c.active_vehicle_id) : null;
+        courier = {
+          // Faqat ism — familiya mijozga kerak emas
+          first_name: String(c.full_name || '').trim().split(/\s+/)[0] || null,
+          vehicle_type: v?.vehicle_type ?? c.vehicle_type,
+          vehicle: v
+            ? {
+                type: v.vehicle_type,
+                model: v.model,
+                color: v.color,
+                plate: showPhone ? v.plate : null,
+              }
+            : null,
+          phone: showPhone ? c.phone : null,
+        };
+        if (showLocation && c.last_lat !== null && c.last_lng !== null && c.last_seen_at) {
+          const stale = Date.now() - new Date(c.last_seen_at).getTime() > LOCATION_STALE_MS;
+          courierLocation = {
+            lat: round4(c.last_lat),
+            lng: round4(c.last_lng),
+            at: c.last_seen_at,
+            stale,
+            // GPS'dan kelgan yo'nalish — xaritadagi mashinacha to'g'ri
+            // tomonga burilsin (topshiriq №26, 5-band)
+            heading: c.last_heading ?? null,
+          };
+          // Baho: to'g'ri masofa x 1,4 (shahar yo'llari) / 25 km/soat.
+          // Joylashuv eskirgan bo'lsa baho ham ishonchsiz — `null`.
+          if (!stale && d.dropoff_lat !== null && d.dropoff_lng !== null) {
+            const km = haversineKm(
+              Number(c.last_lat),
+              Number(c.last_lng),
+              Number(d.dropoff_lat),
+              Number(d.dropoff_lng),
+            );
+            etaMinutes = Math.max(
+              ETA_MIN_MINUTES,
+              Math.round(((km * ETA_CITY_FACTOR) / ETA_SPEED_KMH) * 60),
+            );
+          }
+        }
+      }
+    }
+
+    const items = d.items?.length
+      ? ((await Delivery.sequelize.query(
+          `SELECT COALESCE(p.name_uz, p.name_ru, p.name_en) AS name, i.product_model AS model, i.quantity
+             FROM "order-items" i LEFT JOIN products p ON p.id = i.product_id
+            WHERE i.id IN (:ids) ORDER BY i.id`,
+          { replacements: { ids: d.items }, type: QueryTypes.SELECT },
+        )) as any[])
+      : [];
+
+    return {
+      status: d.status,
+      // Holat `on_the_way` da qoladi, lekin sahifa "Kuryer yetib keldi"
+      // deb ko'rsatishi kerak (topshiriq №26, 4-band). SMS yuborilmaydi.
+      arrived_at: finished ? null : d.arrived_at,
+      steps,
+      order_id: d.order_id,
+      store: store ? { name: store.name, phone: store.phone ?? null } : null,
+      courier,
+      courier_location: courierLocation,
+      destination: {
+        lat: d.dropoff_lat,
+        lng: d.dropoff_lng,
+        // `dropoff_details` (kirish, qavat, xonadon) ATAYLAB berilmaydi
+        address: d.dropoff_address,
+      },
+      window: { from: d.window_from, to: d.window_to },
+      eta_minutes: etaMinutes,
+      cod_amount: d.cod_amount,
+      items: items.map((i) => ({ name: i.name, model: i.model, quantity: Number(i.quantity) })),
+      delivered_at: d.delivered_at,
+    };
+  }
+}

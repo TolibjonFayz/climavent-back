@@ -57,7 +57,14 @@ const start = async () => {
     const PRODUCTION_ORIGINS = [
       'https://climavent.uz',
       'https://www.climavent.uz',
-      // Next.js marketpleys adminkasi (sotuvchi arizasi formasi shu yerda)
+      // Adminka va hamkor portali (sotuvchi arizasi formasi shu yerda).
+      // Topshiriq №26, 0-band: domen `climavent-hamkor.vercel.app` ga
+      // ko'chdi. Yangi domen ro'yxatda bo'lmagani uchun preflight javobida
+      // `Access-Control-Allow-Origin` qaytmasdi va `/sotuvchi-bolish`
+      // sahifasidan hujjat yuklash brauzerda ishlamasdi.
+      'https://climavent-hamkor.vercel.app',
+      // Eski domen (307 bilan yangisiga yo'naltiradi) — bir oy qoladi,
+      // keyin olib tashlanadi.
       'https://climavent-marketplace-admin.vercel.app',
     ];
     const allowedOrigins = [

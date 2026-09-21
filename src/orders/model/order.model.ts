@@ -132,6 +132,21 @@ export class Order extends Model<Order, OrderAtr> {
   })
   lng: number;
 
+  // ——— KP oqimi (topshiriq №25, 3-band) ———
+  // DIQQAT: bu ustunlar modelda e'lon qilinmasa, Sequelize `update()` da
+  // ularni JIMGINA tashlab yuboradi (migratsiyada bo'lsa ham).
+  @ApiProperty({ required: false, nullable: true, description: 'Mijoz KP ni qabul qilgan vaqt' })
+  @Column({ type: DataType.DATE, allowNull: true })
+  quote_accepted_at: Date;
+
+  @ApiProperty({ required: false, nullable: true, example: 2, description: 'Qabul qilingan KP versiyasi' })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  quote_accepted_version: number;
+
+  @ApiProperty({ required: false, nullable: true, example: 'Qimmat', description: 'KP rad etilgan sabab' })
+  @Column({ type: DataType.STRING(500), allowNull: true })
+  quote_reject_reason: string;
+
   @HasMany(() => OrderItem)
   orderItems: OrderItem;
 }

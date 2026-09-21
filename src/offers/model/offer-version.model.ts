@@ -1,6 +1,7 @@
 import { Column, DataType, Model, Table } from 'sequelize-typescript';
 
-export const OFFER_KINDS = ['seller', 'buyer', 'privacy'] as const;
+// `courier` — kuryerlar uchun oferta (topshiriq №26, 1-band)
+export const OFFER_KINDS = ['seller', 'buyer', 'privacy', 'courier'] as const;
 
 // Oferta versiyasi (topshiriq №16, 3-band). Har bir tur uchun bazada faqat
 // BITTA `is_current` bo'la oladi (qisman unique indeks).

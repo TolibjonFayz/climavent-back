@@ -5,9 +5,20 @@ import { SettingEvent } from './model/setting-event.model';
 import { CbuService } from './cbu.service';
 
 export const USD_RATE_KEY = 'usd_rate';
+/**
+ * Kursni har kuni avtomatik yangilash YOQILGANMI (topshiriq №27).
+ *
+ * Nega kerak bo'ldi: 17.09 da kunlik cron kursni 12 000 dan 11 797,46 ga
+ * tushirdi va saytdagi HAMMA so'm narxi o'zgardi. Egasi kurs o'zidan-o'zi
+ * o'zgarmasligini so'radi. Qo'lda o'zgartirish va "Bank kursini qo'yish"
+ * tugmasi avvalgidek ishlaydi — faqat cron shu sozlamaga bog'liq.
+ *
+ * Standart qiymat — `false` (migratsiya shunday yozadi).
+ */
+export const USD_RATE_AUTO_KEY = 'usd_rate_auto';
 
 export interface RateChangeContext {
-  source: 'auto' | 'manual';
+  source: 'auto' | 'manual' | 'auto_toggle';
   actor?: string | null;
   ip?: string | null;
   note?: string | null;
@@ -106,6 +117,76 @@ export class SettingsService {
       ip: ctx.ip ?? null,
       note: `cbu.uz${date ? ' ' + date : ''}`,
     });
+  }
+
+  // ============================================================ avtomatik yangilash (№27)
+
+  /**
+   * Galochkaning holati. Sozlama yo'q bo'lsa (migratsiya hali o'tmagan)
+   * — `false`: kurs o'zidan-o'zi o'zgarmasligi STANDART xulq.
+   */
+  async getAutoUpdate() {
+    const setting = await this.settingRepository.findOne({
+      where: { key: USD_RATE_AUTO_KEY },
+    });
+    const last = await this.eventRepository.findOne({
+      where: { key: USD_RATE_KEY, source: 'auto_toggle' },
+      order: [['created_at', 'DESC']],
+    });
+    return {
+      enabled: setting?.value === 'true',
+      updated_at: setting?.updatedAt ?? null,
+      updated_by: last?.actor ?? null,
+    };
+  }
+
+  /**
+   * Galochkani yoqish/o'chirish. Kurs qiymati O'ZGARMAYDI — tarixga faqat
+   * "kim yoqdi/o'chirdi" yoziladi (`old_value = new_value`), chunki nizoda
+   * "kurs qachondan beri o'zi yangilanyapti" degan savol ham chiqadi.
+   */
+  async setAutoUpdate(enabled: boolean, ctx: { actor?: string | null; ip?: string | null } = {}) {
+    const before = await this.getAutoUpdate();
+    const value = enabled ? 'true' : 'false';
+
+    const [setting, created] = await this.settingRepository.findOrCreate({
+      where: { key: USD_RATE_AUTO_KEY },
+      defaults: {
+        key: USD_RATE_AUTO_KEY,
+        value,
+        description: "Kursni har kuni avtomatik yangilash (topshiriq №27)",
+      } as any,
+    });
+    if (!created && setting.value !== value) {
+      await this.settingRepository.update(
+        { value },
+        { where: { key: USD_RATE_AUTO_KEY } },
+      );
+      await setting.reload();
+    }
+
+    if (before.enabled !== enabled) {
+      // Kurs o'zgarmaydi: eski va yangi qiymat — HOZIRGI kurs.
+      const rateRow = await this.settingRepository.findOne({ where: { key: USD_RATE_KEY } });
+      const rate = rateRow?.value ?? '';
+      await this.eventRepository.create({
+        key: USD_RATE_KEY,
+        old_value: rate,
+        new_value: rate,
+        source: 'auto_toggle',
+        actor: ctx.actor ?? null,
+        ip: ctx.ip ?? null,
+        note: enabled ? 'avtomatik yangilash yoqildi' : "avtomatik yangilash o'chirildi",
+        created_at: new Date(),
+      } as any);
+    }
+
+    return {
+      enabled,
+      updated_at: setting.updatedAt,
+      updated_by: ctx.actor ?? null,
+      changed: before.enabled !== enabled,
+    };
   }
 
   /** Kurs o'zgarishlari tarixi (adminka uchun). */

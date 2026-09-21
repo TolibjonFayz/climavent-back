@@ -5,12 +5,14 @@ import { Transaction } from 'sequelize';
 import { OfferVersion } from './model/offer-version.model';
 import { OfferAcceptance } from './model/offer-acceptance.model';
 
-export type OfferKind = 'seller' | 'buyer' | 'privacy';
+export type OfferKind = 'seller' | 'buyer' | 'privacy' | 'courier';
 
 const LABELS: Record<OfferKind, string> = {
   seller: 'Sotuvchilar uchun oferta',
   buyer: 'Foydalanish shartlari',
   privacy: 'Maxfiylik siyosati',
+  // Topshiriq №26, 1-band: sotuvchi ofertasi mexanizmi kuryer uchun takrorlanadi
+  courier: 'Kuryerlar uchun oferta',
 };
 
 export interface AcceptanceInput {
@@ -84,14 +86,17 @@ export class ConsentService {
 
   /**
    * Kabinetga kirishda tasdiqlanishi kerak bo'lgan hujjat (yoki `null`).
-   * Superadmin — sotuvchi emas, undan oferta so'ralmaydi.
+   * Superadmin — sotuvchi ham, kuryer ham emas: undan oferta so'ralmaydi.
+   *
+   * `kind` — hisob roliga qarab: sotuvchi `seller`, kuryer `courier`
+   * (topshiriq №26, 1-band).
    */
-  async pendingForStoreUser(storeUserId: number, storeId: number | null) {
-    const offer = await this.current('seller');
+  async pendingForStoreUser(storeUserId: number, storeId: number | null, kind: OfferKind = 'seller') {
+    const offer = await this.current(kind);
     if (!offer) return null;
-    const accepted = await this.storeUserAccepted('seller', offer.version, storeUserId, storeId);
+    const accepted = await this.storeUserAccepted(kind, offer.version, storeUserId, storeId);
     if (accepted) return null;
-    return { kind: 'seller' as const, version: offer.version, url: offer.url };
+    return { kind, version: offer.version, url: offer.url };
   }
 
   /**

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { resolveStoreSession } from 'src/store_auth/store-session';
+import { assertOfferAccepted } from 'src/offers/offer-gate';
 import { Courier } from './model/models';
 
 /**
@@ -40,6 +41,11 @@ export class CourierGuard implements CanActivate {
 
     const courier = await Courier.findOne({ where: { store_user_id: session.user_id } });
     if (!courier || !courier.is_active) throw new UnauthorizedException('Kuryer profili faol emas');
+
+    // Kuryer ofertani tasdiqlamaguncha YOZISH amallari 409 beradi
+    // (topshiriq №26, 1-band). `me` va o'qish ochiq qoladi — aks holda
+    // kuryer nimani tasdiqlashini ham ko'ra olmasdi.
+    await assertOfferAccepted(req, session.user_id, session.store_id ?? null, 'courier');
 
     req.storeUser = session;
     req.courier = courier;

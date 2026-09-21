@@ -3,7 +3,7 @@ import { MailerService } from '@nestjs-modules/mailer';
 
 /** Sotuvchi kabineti (parol o'rnatish sahifasi shu yerda). */
 const PORTAL_URL = (
-  process.env.SELLER_PORTAL_URL || 'https://climavent-marketplace-admin.vercel.app'
+  process.env.SELLER_PORTAL_URL || 'https://climavent-hamkor.vercel.app'
 ).replace(/\/+$/, '');
 /** Ariza holati sahifasi — saytda. */
 const SITE_URL = (process.env.PUBLIC_SITE_URL || 'https://climavent.uz').replace(/\/+$/, '');

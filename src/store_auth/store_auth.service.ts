@@ -74,11 +74,14 @@ export class StoreAuthService {
     // ochadi (topshiriq №20, 2-band; oferta 12.3). Tasdiqlanmaguncha YOZISH
     // amallari 409 `offer_acceptance_required` qaytaradi.
     //
-    // Superadmin sotuvchi emas — undan oferta so'ralmaydi.
+    // Superadmin sotuvchi ham, kuryer ham emas — undan oferta so'ralmaydi.
+    // Kuryer uchun `courier` turidagi oferta (topshiriq №26, 1-band).
     const offerPending =
       user.role === 'store_admin'
         ? await this.consent.pendingForStoreUser(user.id, user.store_id ?? null)
-        : null;
+        : user.role === 'courier'
+          ? await this.consent.pendingForStoreUser(user.id, user.store_id ?? null, 'courier')
+          : null;
 
     return {
       token,
@@ -243,7 +246,9 @@ export class StoreAuthService {
     const offerPending =
       user.role === 'store_admin'
         ? await this.consent.pendingForStoreUser(user.id, user.store_id ?? null)
-        : null;
+        : user.role === 'courier'
+          ? await this.consent.pendingForStoreUser(user.id, user.store_id ?? null, 'courier')
+          : null;
     return { ...user.get({ plain: true }), offer_pending: offerPending };
   }
 }

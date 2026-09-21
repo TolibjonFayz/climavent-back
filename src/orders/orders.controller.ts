@@ -2,11 +2,13 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Body,
   Patch,
   Param,
   ParseIntPipe,
   Delete,
+  HttpCode,
   UseGuards,
   Query,
   Req,
@@ -22,12 +24,17 @@ import { UserGuard } from 'src/guards/user.guard';
 import { UserSelfGuard } from 'src/guards/user_self.guard';
 import { UserSelfOrBackofficeGuard } from 'src/guards/user_self_or_backoffice.guard';
 import { CustomerOrBackofficeGuard } from 'src/guards/customer_or_backoffice.guard';
+import { QuotesService, quoteSender } from './quotes.service';
+import { AcceptQuoteDto, RejectQuoteDto, SendQuoteDto } from './dto/quote.dto';
 
 @ApiTags('Orders')
 @ApiBearerAuth()
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly quotes: QuotesService,
+  ) {}
 
   //Create order — foydalanuvchi login qilgan bo'lishi kerak
   @ApiOperation({ summary: 'Creating order' })
@@ -109,8 +116,77 @@ export class OrdersController {
     return this.ordersService.deleteOrderById(id, req.actor);
   }
 
+  // ============================================================ KP oqimi (topshiriq №25)
+
+  /**
+   * Sotuvchi narx taklifini yuboradi (2-band).
+   *
+   * Aralash buyurtmada do'kon admini FAQAT o'z qatorlariga narx qo'yadi
+   * (begona `order_item_id` — 403), va o'z qatorlarining HAMMASIGA:
+   * yarim KP mijozga hech narsa aytmaydi.
+   *
+   * Qayta yuborish — yangi versiya; eskisi o'zgarmaydi (nizo dalili).
+   */
+  @ApiOperation({ summary: "KP yuborish (do'kon admini — o'z qatorlari, superadmin)" })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(AdminOrStoreGuard)
+  @Put(':id/quote')
+  async sendQuote(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SendQuoteDto,
+    @Req() req: any,
+  ) {
+    return this.quotes.send(id, dto, quoteSender(req));
+  }
+
+  /** Mijoz KP ni qabul qiladi — so'rov oddiy buyurtmaga aylanadi (3-band). */
+  @ApiOperation({ summary: 'KP ni qabul qilish (buyurtma egasi)' })
+  @ApiBearerAuth()
+  @UseGuards(UserGuard)
+  @HttpCode(200)
+  @Post(':id/quote/accept')
+  async acceptQuote(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AcceptQuoteDto,
+    @Req() req: any,
+  ) {
+    return this.quotes.accept(id, dto, req.user);
+  }
+
+  @ApiOperation({ summary: 'KP ni rad etish (buyurtma egasi)' })
+  @ApiBearerAuth()
+  @UseGuards(UserGuard)
+  @HttpCode(200)
+  @Post(':id/quote/reject')
+  async rejectQuote(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RejectQuoteDto,
+    @Req() req: any,
+  ) {
+    return this.quotes.reject(id, dto, req.user);
+  }
+
+  @ApiOperation({ summary: "Eskirgan KP o'rniga yangisini so'rash (buyurtma egasi)" })
+  @ApiBearerAuth()
+  @UseGuards(UserGuard)
+  @HttpCode(200)
+  @Post(':id/quote/request-again')
+  async requestQuoteAgain(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.quotes.requestAgain(id, req.user);
+  }
+
   // Adminka: buyurtma + yetkazishlari (topshiriq №22, 4-band). Mijoz uchun `one/:id`.
   // DIQQAT: bu marshrut ENG OXIRIDA turadi — aks holda `all` ham `:id` deb o'qilardi.
+  @ApiOperation({ summary: "KP hisoboti: javob vaqti, KP -> buyurtma ulushi, do'konlar kesimi" })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(AdminOrStoreGuard)
+  @Get('quote-stats')
+  async quoteStats(@Req() req: any, @Query() q: any) {
+    return this.quotes.stats(scopedStoreId(req), q);
+  }
+
   @ApiOperation({ summary: "Buyurtma va yetkazishlari (servis kaliti, admin yoki do'kon tokeni)" })
   @ApiBearerAuth()
   @ApiSecurity('service-key')

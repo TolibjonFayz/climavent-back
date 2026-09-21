@@ -13,6 +13,15 @@ import { ProofStorageService } from './proof-storage.service';
 import { CouriersController, DeliveriesController } from './deliveries.controller';
 import { CourierAppController, DevicesController } from './courier-app.controller';
 import { TrackingController } from './tracking.controller';
+import { TrackingService } from './tracking.service';
+import { CourierDocumentsService } from './courier-documents.service';
+import { CourierVehiclesService } from './courier-vehicles.service';
+import { CourierWorkService } from './courier-work.service';
+import {
+  CourierAdminController,
+  CourierDocumentFileController,
+  CourierRatesController,
+} from './courier-admin.controller';
 import { CourierGuard } from './courier.guard';
 import { LOCATION_RETENTION_MS } from './constants';
 
@@ -28,7 +37,10 @@ export class DeliveriesJobs implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(DeliveriesJobs.name);
   private timer: NodeJS.Timeout | null = null;
 
-  constructor(private readonly couriers: CouriersService) {}
+  constructor(
+    private readonly couriers: CouriersService,
+    private readonly documents: CourierDocumentsService,
+  ) {}
 
   onApplicationBootstrap() {
     if (process.env.SELLER_JOBS_DISABLED === 'true') return;
@@ -55,6 +67,14 @@ export class DeliveriesJobs implements OnApplicationBootstrap, OnModuleDestroy {
     } catch (e) {
       this.logger.error(`Naqd pul eslatmasi yiqildi: ${(e as Error).message}`);
     }
+    try {
+      // Ishdan ketgan kuryerning pasport skani 30 kundan keyin o'chadi
+      // (topshiriq №26, 1-band; №16 dagi qoida bilan bir xil).
+      const n = await this.documents.purgeOldPassports();
+      if (n) this.logger.log(`Kuryer pasportlari: ${n} ta skan o'chirildi`);
+    } catch (e) {
+      this.logger.error(`Pasport skanlarini tozalab bo'lmadi: ${(e as Error).message}`);
+    }
   }
 }
 
@@ -65,8 +85,31 @@ export class DeliveriesJobs implements OnApplicationBootstrap, OnModuleDestroy {
     StoreAuthModule,
     OtpModule,
   ],
-  controllers: [CouriersController, DeliveriesController, CourierAppController, DevicesController, TrackingController],
-  providers: [CouriersService, DeliveriesService, ProofStorageService, R2DocumentsStore, CourierGuard, DeliveriesJobs],
+  controllers: [
+    // DIQQAT: `CourierAdminController` (`:id/documents`, `:id/vehicles`)
+    // `CouriersController` dagi `:id` dan oldin turishi kerak emas —
+    // yo'llar turli chuqurlikda, lekin tartib o'qishni osonlashtiradi.
+    CourierDocumentFileController,
+    CourierRatesController,
+    CourierAdminController,
+    CouriersController,
+    DeliveriesController,
+    CourierAppController,
+    DevicesController,
+    TrackingController,
+  ],
+  providers: [
+    CouriersService,
+    DeliveriesService,
+    TrackingService,
+    ProofStorageService,
+    CourierDocumentsService,
+    CourierVehiclesService,
+    CourierWorkService,
+    R2DocumentsStore,
+    CourierGuard,
+    DeliveriesJobs,
+  ],
   exports: [DeliveriesService],
 })
 export class DeliveriesModule {}
