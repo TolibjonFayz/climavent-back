@@ -12,13 +12,14 @@ import { DeliveriesService } from './deliveries.service';
 import { ProofStorageService } from './proof-storage.service';
 import { CouriersController, DeliveriesController } from './deliveries.controller';
 import { CourierAppController, DevicesController } from './courier-app.controller';
+import { TrackingController } from './tracking.controller';
 import { CourierGuard } from './courier.guard';
 import { LOCATION_RETENTION_MS } from './constants';
 
 const HOUR = 60 * 60 * 1000;
 
 /**
- * Fon ishlari (topshiriq №22):
+ * Fon ishlari (topshiriq —22):
  *   - yo'l tarixi 30 kundan keyin o'chiriladi (6-band);
  *   - kuryerda 24 soatdan ortiq topshirilmagan naqd — adminlarga push (9-band).
  */
@@ -64,7 +65,7 @@ export class DeliveriesJobs implements OnApplicationBootstrap, OnModuleDestroy {
     StoreAuthModule,
     OtpModule,
   ],
-  controllers: [CouriersController, DeliveriesController, CourierAppController, DevicesController],
+  controllers: [CouriersController, DeliveriesController, CourierAppController, DevicesController, TrackingController],
   providers: [CouriersService, DeliveriesService, ProofStorageService, R2DocumentsStore, CourierGuard, DeliveriesJobs],
   exports: [DeliveriesService],
 })

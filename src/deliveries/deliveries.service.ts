@@ -8,7 +8,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { createHmac, randomInt, timingSafeEqual } from 'crypto';
+import { createHmac, randomInt, timingSafeEqual, randomBytes, createHash } from 'crypto';
 import { Op, QueryTypes, Transaction, UniqueConstraintError } from 'sequelize';
 import type { StoreRequester } from 'src/store_auth/store_auth.guard';
 import { OtpService } from 'src/otp/otp.service';
@@ -312,6 +312,99 @@ export class DeliveriesService {
     return this.present(d, { full: false });
   }
 
+  async trackingLink(id: number, r: StoreRequester) {
+    const d = await this.loadScoped(id, r);
+    const trackToken = randomBytes(32).toString('base64url');
+    const hash = createHash('sha256').update(trackToken).digest('hex');
+    await d.update({ tracking_token_hash: hash });
+    return { url: `https://climavent.uz/kuzatish/${trackToken}` };
+  }
+
+  async trackByToken(token: string) {
+    const hash = createHash('sha256').update(token).digest('hex');
+    const d = await Delivery.findOne({ where: { tracking_token_hash: hash } });
+    if (!d) {
+      await new Promise((resolve) => setTimeout(resolve, 50)); // Prevent timing attacks
+      throw new NotFoundException('Topilmadi');
+    }
+
+    const terminal = ['delivered', 'failed', 'cancelled', 'returned'];
+    if (terminal.includes(d.status)) {
+      const stamp = STATUS_TIME[d.status as DeliveryStatus];
+      const time = d[stamp as keyof Delivery] as Date;
+      if (time && Date.now() - new Date(time).getTime() > 24 * 3600 * 1000) {
+        throw new HttpException('Kuzatish havolasi eskirgan (24 soat o\'tgan)', 410);
+      }
+    }
+
+    let courierData = null;
+    let courierLocation = null;
+    let eta = null;
+
+    if (d.courier_id) {
+      const c = await Courier.findByPk(d.courier_id);
+      if (c) {
+        courierData = {
+          first_name: c.full_name.split(' ')[0],
+          phone: d.status === 'on_the_way' ? c.phone : undefined,
+          vehicle: c.vehicle_type,
+        };
+
+        if (d.status === 'picked_up' || d.status === 'on_the_way') {
+          if (c.last_lat && c.last_lng && c.last_seen_at) {
+            courierLocation = {
+              lat: Number(Number(c.last_lat).toFixed(4)),
+              lng: Number(Number(c.last_lng).toFixed(4)),
+              stale: Date.now() - new Date(c.last_seen_at).getTime() > 5 * 60 * 1000,
+            };
+
+            if (d.dropoff_lat && d.dropoff_lng) {
+              const dist = this.haversine(Number(c.last_lat), Number(c.last_lng), Number(d.dropoff_lat), Number(d.dropoff_lng));
+              const etaMins = Math.max(3, Math.round((dist * 1.4) / 25 * 60));
+              eta = etaMins;
+            }
+          }
+        }
+      }
+    }
+
+    const events = await DeliveryEvent.findAll({
+      where: { delivery_id: d.id },
+      order: [['created_at', 'ASC']],
+      attributes: ['to_status', 'created_at'],
+    });
+
+    return {
+      id: d.id,
+      order_id: d.order_id,
+      status: d.status,
+      window_from: d.window_from,
+      window_to: d.window_to,
+      cod_amount: d.cod_amount,
+      pickup_address: d.pickup_address,
+      pickup_lat: d.pickup_lat,
+      pickup_lng: d.pickup_lng,
+      dropoff_address: d.dropoff_address ? d.dropoff_address.split(',')[0] : null,
+      dropoff_lat: d.dropoff_lat,
+      dropoff_lng: d.dropoff_lng,
+      courier: courierData,
+      courier_location: courierLocation,
+      eta,
+      events,
+    };
+  }
+
+  private haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
+    const R = 6371; // km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  }
+
   async proofFile(id: number, proofId: number, r: StoreRequester) {
     await this.loadScoped(id, r);
     const proof = await DeliveryProof.findOne({ where: { id: proofId, delivery_id: id } });
@@ -556,7 +649,14 @@ export class DeliveriesService {
       order: [[Delivery.sequelize.literal("CASE status WHEN 'on_the_way' THEN 0 WHEN 'picked_up' THEN 1 ELSE 2 END"), 'ASC']],
     });
     if (active) {
-      await CourierLocation.create({ courier_id: courier.id, delivery_id: active.id, lat: dto.lat, lng: dto.lng, accuracy: dto.accuracy ?? null } as any);
+      const lastLoc = await CourierLocation.findOne({
+        where: { courier_id: courier.id, delivery_id: active.id },
+        order: [['created_at', 'DESC']],
+      });
+      const tooSoon = lastLoc && (Date.now() - new Date(lastLoc.created_at).getTime() < 30 * 1000);
+      if (!tooSoon) {
+        await CourierLocation.create({ courier_id: courier.id, delivery_id: active.id, lat: dto.lat, lng: dto.lng, accuracy: dto.accuracy ?? null } as any);
+      }
     }
     return { stored: !!active, last_seen_at: new Date() };
   }

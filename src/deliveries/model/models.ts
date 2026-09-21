@@ -62,6 +62,7 @@ export class Delivery extends Model {
   @Column({ type: DataType.STRING(1000), allowNull: true }) proof_comment: string | null;
   @Column({ type: DataType.STRING(30), allowNull: true }) failure_reason: string | null;
   @Column({ type: DataType.STRING(1000), allowNull: true }) failure_comment: string | null;
+  @Column({ type: DataType.STRING(64), allowNull: true, unique: true }) tracking_token_hash: string | null;
   @Column({ type: DataType.DATE, allowNull: true }) assigned_at: Date | null;
   @Column({ type: DataType.DATE, allowNull: true }) accepted_at: Date | null;
   @Column({ type: DataType.DATE, allowNull: true }) picked_up_at: Date | null;
