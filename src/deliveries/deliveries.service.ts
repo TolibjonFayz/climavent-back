@@ -16,9 +16,13 @@ import {
   ACTIVE_STATUSES,
   ActorType,
   DeliveryStatus,
+  ETA_CITY_FACTOR,
+  ETA_MIN_MINUTES,
+  ETA_SPEED_KMH,
   HISTORY_MASK_AFTER_MS,
   HISTORY_STATUSES,
   LOCATION_HISTORY_MIN_MS,
+  LOCATION_STALE_MS,
   PICKUP_PHOTO_REQUIRED_FOR,
   PROOF_CODE_MAX_ATTEMPTS,
   TRACKING_LINK_STATUSES,
@@ -48,8 +52,14 @@ import { CourierVehiclesService } from './courier-vehicles.service';
 import { CourierWorkService } from './courier-work.service';
 import { recordOrderEvent, OrderEventName } from 'src/orders/order-events';
 import { ProofStorageService } from './proof-storage.service';
-import { newTrackingToken, trackingSmsLink, trackingUrl } from './tracking.service';
+import { haversineKm, newTrackingToken, trackingSmsLink, trackingUrl } from './tracking.service';
 import { pushToCourier, pushToStoreAdmins } from './push';
+import {
+  orderOwnerId,
+  pushCourierArrived,
+  pushCourierOnTheWay,
+  pushOrderDelivered,
+} from './customer-push';
 
 export interface Actor {
   type: ActorType;
@@ -605,6 +615,9 @@ export class DeliveriesService {
       return d;
     });
     await this.touchCourier(courier, dto);
+    // Xaridorga push (topshiriq №29, 4-band). SMS ATAYLAB yuborilmaydi
+    // (17.09 qarori) — push esa bepul va aynan shu payt kerak.
+    await pushCourierArrived(d.order_id, await orderOwnerId(d.order_id));
     return { id: d.id, status: d.status, arrived_at: d.arrived_at };
   }
 
@@ -667,6 +680,7 @@ export class DeliveriesService {
     const actor: Actor = { type: 'courier', id: courier.store_user_id };
     let code: string | null = null;
     let track: string | null = null;
+    let rawToken: string | null = null;
     const d = await Delivery.sequelize.transaction(async (t) => {
       const d = await this.courierGet(courier, id, t, true);
       const extra: any = {};
@@ -685,6 +699,7 @@ export class DeliveriesService {
         const token = newTrackingToken();
         extra.tracking_token_hash = token.hash;
         track = trackingSmsLink(token.raw);
+        rawToken = token.raw;
       }
       await this.apply(d, action, actor, extra, body, body.comment || null, t);
       return d;
@@ -692,7 +707,7 @@ export class DeliveriesService {
     await this.touchCourier(courier, body);
 
     if (action === 'start') {
-      await this.onTheWay(d, courier, code, track);
+      await this.onTheWay(d, courier, code, track, rawToken);
     } else if (action === 'reject') {
       await pushToStoreAdmins([d.store_id], {
         title: 'Kuryer rad etdi',
@@ -802,6 +817,9 @@ export class DeliveriesService {
     });
     await this.touchCourier(courier, dto);
     await this.syncOrderAfterDelivered(d.order_id);
+    // "Topshirildi" xabari xaridorga PUSH bo'lib boradi (topshiriq №29,
+    // 4-band) — SMS o'rniga, u ataylab o'chirilgan.
+    await pushOrderDelivered(d.order_id, await orderOwnerId(d.order_id));
     // "Topshirildi" SMS'i ATAYLAB YUBORILMAYDI (tekshiruv 21.09): mijozga
     // faqat "yo'lda" SMS'i ketadi. Eskizda bunday shablon yo'q va har bir
     // ortiqcha SMS — pul. Mijoz topshirilganini kuzatish sahifasida ko'radi.
@@ -1012,7 +1030,13 @@ export class DeliveriesService {
   }
 
   /** Yo'lga chiqdi: mijozga kuzatish havolasi va kod bilan SMS, buyurtma — shipping (3-band). */
-  private async onTheWay(d: Delivery, courier: Courier, code: string | null, track: string | null) {
+  private async onTheWay(
+    d: Delivery,
+    courier: Courier,
+    code: string | null,
+    track: string | null,
+    trackingToken: string | null = null,
+  ) {
     try {
       await Delivery.sequelize.query(
         `UPDATE orders SET status = 'shipping', "updatedAt" = now() WHERE id = :id AND status IN ('new', 'paid', 'quote_sent')`,
@@ -1021,6 +1045,17 @@ export class DeliveriesService {
     } catch (e) {
       this.logger.error(`Buyurtma holati (shipping) yozilmadi: ${(e as Error).message}`);
     }
+    // XARIDORGA PUSH (topshiriq №29, 4-band): SMS bilan BIRGA ketadi —
+    // ilova ochiq bo'lsa xaridor SMS kutmasin. Ilovadan ochiladigan sahifa
+    // `/track/<token>`, shuning uchun `data` da kuzatish tokeni ham bor.
+    await pushCourierOnTheWay(
+      d.order_id,
+      await orderOwnerId(d.order_id),
+      firstName(courier.full_name),
+      this.etaMinutes(d, courier),
+      trackingToken,
+    );
+
     if (d.recipient_phone && code && track) {
       // Eskiz shabloni **#90539** (17.09 da topshirilgan) — matn HARFMA-HARF
       // shunday bo'lishi shart, aks holda SMS rad etiladi:
@@ -1032,6 +1067,25 @@ export class DeliveriesService {
           `Kuzatish: ${track} Kod: ${code}`,
       );
     }
+  }
+
+  /**
+   * Yetib borish bahosi (kuzatish sahifasidagi bilan bir xil formula):
+   * to'g'ri masofa x 1,4 / 25 km/soat. Joylashuv yo'q yoki eskirgan bo'lsa
+   * `null` — push matnida vaqt ko'rsatilmaydi.
+   */
+  private etaMinutes(d: Delivery, courier: Courier): number | null {
+    const seen = courier.last_seen_at ? new Date(courier.last_seen_at).getTime() : 0;
+    if (!seen || Date.now() - seen > LOCATION_STALE_MS) return null;
+    if (courier.last_lat === null || courier.last_lng === null) return null;
+    if (d.dropoff_lat === null || d.dropoff_lng === null) return null;
+    const km = haversineKm(
+      Number(courier.last_lat),
+      Number(courier.last_lng),
+      Number(d.dropoff_lat),
+      Number(d.dropoff_lng),
+    );
+    return Math.max(ETA_MIN_MINUTES, Math.round(((km * ETA_CITY_FACTOR) / ETA_SPEED_KMH) * 60));
   }
 
   /** Buyurtmaning (bekor qilinmagan) hamma yetkazishlari topshirilgan bo'lsa — done. */

@@ -21,6 +21,7 @@ import { BadRequestException } from '@nestjs/common';
 import Sequelize, { Op } from 'sequelize';
 import { cancelDeliveriesForOrder } from 'src/deliveries/deliveries.service';
 import { Delivery } from 'src/deliveries/model/models';
+import { pushOrderStatus } from 'src/deliveries/customer-push';
 import { OrderItemsService } from 'src/order_items/order_items.service';
 import { QuotesService } from './quotes.service';
 import { OrderQuote } from './model/order-quote.model';
@@ -318,6 +319,11 @@ export class OrdersService {
     if (!updated[1][0]?.dataValues) throw new NotFoundException('Order not found or something wrong');
 
     if (payload.status !== undefined && payload.status !== existing.status) {
+      // Xaridorga push (topshiriq №29, 4-band). O'ZI bekor qilgan bo'lsa
+      // xabar bermaymiz — u buni ekranda ko'rib turadi.
+      if (actor?.kind !== 'customer') {
+        await pushOrderStatus(id, existing.user_id, payload.status);
+      }
       await recordOrderEvent({
         order_id: id,
         event: 'status_changed',

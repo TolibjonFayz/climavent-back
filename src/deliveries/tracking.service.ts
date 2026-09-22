@@ -50,7 +50,7 @@ export const trackingSmsLink = (raw: string) =>
 const round4 = (v: unknown) => (v === null || v === undefined ? null : Number(Number(v).toFixed(4)));
 
 /** To'g'ri masofa (km). */
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371;
   const rad = (d: number) => (d * Math.PI) / 180;
   const dLat = rad(lat2 - lat1);

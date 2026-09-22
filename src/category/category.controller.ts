@@ -28,6 +28,8 @@ import { SortbyCategoryIdProductDto } from './dto/sortbycategoryid-product.dto';
 // tahrirlashi, nomini almashtirishi va O'CHIRISHI mumkin edi — o'chirilgan
 // kategoriya esa boshqa sotuvchilarning mahsulotlarini ham saytdan yo'qotardi.
 import { BackofficeSuperadminGuard } from 'src/guards/backoffice_superadmin.guard';
+import { Scope } from 'src/common/decorators/scope.decorator';
+import type { CatalogScope } from 'src/common/visibility/catalog-visibility';
 
 @ApiTags('Category')
 @Controller('category')
@@ -74,9 +76,11 @@ export class CategoryController {
   @Post('slug')
   async getBySlug(
     @Body() sortbyCategoryIdProduct: SortbyCategoryIdProductDto,
+    @Scope() scope: CatalogScope,
   ): Promise<Product[]> {
     return this.categoryService.sortProductsByCategoryId(
       sortbyCategoryIdProduct,
+      scope,
     );
   }
 

@@ -23,6 +23,12 @@ import { ProductImages } from 'src/product_images/model/product_image.model';
 import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
 import { OrderItem } from 'src/order_items/model/order_item.model';
 import { ON_SALE_PRODUCT_IDS_SQL, sortPrice } from 'src/common/pricing/sale';
+import {
+  CatalogScope,
+  PUBLIC_SCOPE,
+  productVisibilityWhere,
+} from 'src/common/visibility/catalog-visibility';
+import { searchVariants } from 'src/common/helpers/translit';
 
 const SALE_ATTRS = ['sale_price', 'sale_starts_at', 'sale_ends_at'];
 
@@ -76,15 +82,33 @@ export class ProductsService {
     };
   }
 
-  //Search product by query
+  /**
+   * QIDIRUV (topshiriq №29, 2-band).
+   *
+   * Qamrov: `name_uz`, `name_ru`, `name_en`, model nomi
+   * (`characteristics.title`) va SAP varianti (`product-model-inside`.
+   * `sap_name`, `in_model_name`). Katta-kichik harf ahamiyatsiz (`ILIKE`).
+   *
+   * Har so'z uchun kirill/lotin variantlari ham qidiriladi
+   * (`common/helpers/translit.ts`): "вент" lotincha yozilgan nomni ham,
+   * "vts" esa "ВЦ" ni ham topadi.
+   *
+   * Har so'z ALOHIDA `EXISTS` bo'lib tekshiriladi: "kanal ventilyatori"
+   * kabi so'rovda so'zlar turli maydonlarda (hatto turli variantlarda)
+   * bo'lishi mumkin. Ilgari hamma shart BITTA birlashtirilgan qatorga
+   * tushishi kerak edi.
+   *
+   * SQL `literal` bilan yoziladi (Sequelize ning `$nested.field$` yozuvi
+   * ikki darajali `include` da ishonchsiz), lekin har bir qiymat
+   * `sequelize.escape()` dan o'tadi — foydalanuvchi matni SQL ga
+   * aralashmaydi. `%`/`_` belgilari ham zararsizlantiriladi, aks holda
+   * bitta `%` butun katalogni qaytarardi.
+   */
   async searchProducts(
     searchProductsByQueryDto: SearchProductsByQueryDto,
-    privileged = false,
+    scope: CatalogScope = PUBLIC_SCOPE,
   ) {
-    const text = searchProductsByQueryDto.text;
-    // Har bir so'z alohida qidiriladi (barchasi mos kelishi kerak, lekin
-    // turli maydonlarda bo'lishi mumkin) — shu orqali "kanal ventilyatori"
-    // kabi ko'p so'zli so'rovlar ham topiladi.
+    const raw = String(searchProductsByQueryDto.text ?? '').slice(0, 100);
     // O'zbekcha qo'shimchalarga (-i, -lar va h.k.) chidamli bo'lishi uchun
     // uzun so'zlarning oxiridagi 1-2 harfi kesiladi: "ventilyatori" ->
     // "ventilyato", bu esa "ventilyator" so'ziga ham mos keladi.
@@ -93,23 +117,49 @@ export class ProductsService {
       if (word.length > 3) return word.slice(0, -1);
       return word;
     };
-    const words = text
+    const words = raw
       .trim()
       .split(/\s+/)
       .filter(Boolean)
-      .map(stem);
-    const wordConditions = words.map((word) => ({
-      [Op.or]: [
-        { name_uz: { [Op.iLike]: `%${word}%` } },
-        { name_en: { [Op.iLike]: `%${word}%` } },
-        { name_ru: { [Op.iLike]: `%${word}%` } },
-        { '$characters.title$': { [Op.iLike]: `%${word}%` } },
-      ],
-    }));
+      .slice(0, 6);
+    if (!words.length) return [];
+
+    const sq = this.productRepository.sequelize;
+    const like = (column: string, value: string) => {
+      // `%` va `_` — ILIKE ning shablon belgilari; qidiruv matnida ular
+      // oddiy belgi bo'lishi kerak.
+      const safe = value.replace(/([\\%_])/g, '\\$1');
+      return `${column} ILIKE ${sq.escape(`%${safe}%`)}`;
+    };
+
+    const wordSql = words.map((word) => {
+      const variants = searchVariants(word).map(stem);
+      const any = (column: string) => variants.map((v) => like(column, v)).join(' OR ');
+      return `(
+        ${any('p.name_uz')} OR ${any('p.name_ru')} OR ${any('p.name_en')}
+        OR EXISTS (
+          SELECT 1 FROM characteristics c
+           WHERE c.product_id = p.id
+             AND (
+               ${any('c.title')}
+               OR EXISTS (
+                 SELECT 1 FROM "product-model-inside" i
+                  WHERE i.product_model_id = c.id
+                    AND (${any('i.sap_name')} OR ${any('i.in_model_name')})
+               )
+             )
+        )
+      )`;
+    });
+
+    const idsSql = `(SELECT p.id FROM products p WHERE ${wordSql.join(' AND ')})`;
+
     const blogs = await this.productRepository.findAll({
       where: {
-        [Op.and]: wordConditions,
-        ...this.visibilityWhere(privileged),
+        id: { [Op.in]: Sequelize.literal(idsSql) },
+        // Ko'rinuvchanlik qidiruvda ham bir xil (1-band): xaridor tokeni
+        // yashirin do'kon tovarini qidiruvdan ham topmaydi.
+        ...productVisibilityWhere(scope),
       },
       attributes: ['id', 'name_uz', 'name_en', 'name_ru'],
       include: [
@@ -127,7 +177,12 @@ export class ProductsService {
         { model: ProductImages, as: 'images', attributes: ['image_link'] },
         { model: Store, attributes: ['id', 'name', 'slug'] },
       ],
-      subQuery: false,
+      order: [['id', 'ASC']],
+      // DIQQAT: `subQuery: false` BO'LMASLIGI kerak. `hasMany` include
+      // bilan birga bo'lsa LIMIT birlashtirilgan QATORLARGA qo'llanadi va
+      // 100 qator 10 ta mahsulotga yig'ilib qoladi. Standart (subquery)
+      // rejimida limit mahsulotlarga tushadi.
+      limit: 100,
     });
     // Topilmasa bo'sh massiv qaytaramiz (frontend uni .length === 0 bilan tekshiradi)
     return blogs;
@@ -141,7 +196,7 @@ export class ProductsService {
     page?: number,
     limit?: number,
     storeId?: number,
-    privileged = false,
+    scope: CatalogScope = PUBLIC_SCOPE,
     onSale = false,
     view: 'full' | 'card' = 'full',
   ) {
@@ -150,7 +205,7 @@ export class ProductsService {
     const offset = (effectivePage - 1) * effectiveLimit;
     return this.productRepository.findAll({
       where: {
-        ...this.visibilityWhere(privileged),
+        ...this.visibilityWhere(scope),
         ...(storeId ? { store_id: storeId } : {}),
         ...this.saleWhere(onSale),
       },
@@ -165,9 +220,16 @@ export class ProductsService {
   }
 
   //Get all products FOR ADMIN
-  async getAllProductsForAdmin(storeId?: number) {
+  async getAllProductsForAdmin(storeId?: number, scope: CatalogScope = PUBLIC_SCOPE) {
     const products = await this.productRepository.findAll({
-      ...(storeId ? { where: { store_id: storeId } } : {}),
+      // Bu endpoint TOKENSIZ ham ochiq (sitemap shundan o'qiydi), shuning
+      // uchun ro'yxat ham ko'rinuvchanlik doirasidan o'tadi: mehmonga
+      // e'lon qilinmagan do'konning tovar nomlari ham chiqmasin
+      // (topshiriq №29, 1-band).
+      where: {
+        ...productVisibilityWhere(scope),
+        ...(storeId ? { store_id: storeId } : {}),
+      },
       order: [['createdAt', 'DESC']],
       // `producer` (do'kon kaliti sifatida ishlatilyapti) va `views`
       // adminka ro'yxati uchun kerak — ularsiz adminka to'liq
@@ -205,9 +267,9 @@ export class ProductsService {
   // Sahifalash shu songa tayanadi, shuning uchun u ham FILTRDAN
   // KEYINGI son bo'lishi kerak — aks holda sayt "177 ta" deb yozib,
   // 137 tasini ko'rsatardi (topshiriq №14, 1-band, 3-qadam).
-  async getAllProductsCount(privileged = false, onSale = false) {
+  async getAllProductsCount(scope: CatalogScope = PUBLIC_SCOPE, onSale = false) {
     const products = await this.productRepository.count({
-      where: { ...this.visibilityWhere(privileged), ...this.saleWhere(onSale) },
+      where: { ...this.visibilityWhere(scope), ...this.saleWhere(onSale) },
     });
     return products;
   }
@@ -215,16 +277,16 @@ export class ProductsService {
   //Get recently added products
   async getRecentlyAddedProducts(
     getRecentlyAddedProductsDto: GetRecentlyAddedProductsDto,
-    privileged = false,
+    scope: CatalogScope = PUBLIC_SCOPE,
   ) {
     const offset =
       (getRecentlyAddedProductsDto.page - 1) *
       getRecentlyAddedProductsDto.limit;
     const onSale = getRecentlyAddedProductsDto.on_sale === true;
-    const count = await this.getAllProductsCount(privileged, onSale);
+    const count = await this.getAllProductsCount(scope, onSale);
 
     const products = await this.productRepository.findAll({
-      where: { ...this.visibilityWhere(privileged), ...this.saleWhere(onSale) },
+      where: { ...this.visibilityWhere(scope), ...this.saleWhere(onSale) },
       order: [['createdAt', 'DESC']],
       limit: getRecentlyAddedProductsDto.limit,
       offset: offset,
@@ -259,16 +321,13 @@ export class ProductsService {
   //
   // Do'kon shartida `literal` subquery ishlatilgan: alohida so'rov
   // qilinmaydi, hamma narsa bitta SQL da hal bo'ladi.
-  private visibilityWhere(privileged: boolean): Record<string, any> {
-    if (privileged) return {};
-    return {
-      is_active: true,
-      store_id: {
-        [Op.in]: Sequelize.literal(
-          '(SELECT id FROM stores WHERE is_active = true)',
-        ),
-      },
-    };
+  //
+  // Qoidalar yagona joyda: `common/visibility/catalog-visibility.ts`
+  // (topshiriq №29, 1-band). Do'kon admini O'Z do'konining hammasini,
+  // boshqalarning esa faqat ommaviy tovarini ko'radi; sayt admini va
+  // xaridor tokeni — mehmon bilan bir xil.
+  private visibilityWhere(scope: CatalogScope): Record<string, any> {
+    return productVisibilityWhere(scope);
   }
 
   // `on_sale=true` filtri (topshiriq №15, 6-band): kamida bitta varianti
@@ -331,10 +390,10 @@ export class ProductsService {
   }
 
   //Get products by sort
-  async getProductsBySort(searchProductDto: SortProductDto, privileged = false) {
+  async getProductsBySort(searchProductDto: SortProductDto, scope: CatalogScope = PUBLIC_SCOPE) {
     const offset = (searchProductDto.page - 1) * searchProductDto.limit;
     const where = {
-      ...this.visibilityWhere(privileged),
+      ...this.visibilityWhere(scope),
       ...this.saleWhere(searchProductDto.on_sale === true),
     };
 
@@ -363,7 +422,7 @@ export class ProductsService {
   //Get products by category (+ bola kategoriyalar) — bitta query, DB darajasida sort
   async sortProductsByCategoryId(
     sortbyCategoryIdProduct: SortbyCategoryIdProductDto,
-    privileged = false,
+    scope: CatalogScope = PUBLIC_SCOPE,
   ) {
     // Bola (sub) kategoriyalarni topamiz
     const children = await this.categoryRepository.findAll({
@@ -384,7 +443,7 @@ export class ProductsService {
       const all = await this.productRepository.findAll({
         where: {
           category_id: { [Op.in]: categoryIds },
-          ...this.visibilityWhere(privileged),
+          ...this.visibilityWhere(scope),
           ...this.saleWhere(sortbyCategoryIdProduct.on_sale === true),
         },
         include: this.catalogInclude(),
@@ -397,7 +456,7 @@ export class ProductsService {
     return this.productRepository.findAll({
       where: {
         category_id: { [Op.in]: categoryIds },
-        ...this.visibilityWhere(privileged),
+        ...this.visibilityWhere(scope),
         ...this.saleWhere(sortbyCategoryIdProduct.on_sale === true),
       },
       include: this.catalogInclude(),
@@ -409,13 +468,13 @@ export class ProductsService {
   //Get product by id.
   //`countView=false` bo'lsa ko'rish hisoblagichi oshmaydi — admin/servis
   //o'qishlari mijoz tashrifi emas.
-  async getProductById(id: number, countView = true, privileged = false) {
+  async getProductById(id: number, countView = true, scope: CatalogScope = PUBLIC_SCOPE) {
     const product = await this.productRepository.findOne({
       // Nofaol do'kon mahsulotiga TO'G'RIDAN-TO'G'RI havola ham
       // ochilmasin (topshiriq №14, 1-band, 2-qadam): odamlarda eski
       // havola saqlanib qolgan bo'lishi mumkin. Filtr `where` ichida —
       // shuning uchun natija topilmaydi va quyida 404 beriladi.
-      where: { id: id, ...this.visibilityWhere(privileged) },
+      where: { id: id, ...this.visibilityWhere(scope) },
       include: [
         {
           // Yashirilgan sharhlar saytda ko'rinmaydi (topshiriq №14,
@@ -423,7 +482,7 @@ export class ProductsService {
           // u yerda hammasi qaytadi.
           model: Review,
           required: false,
-          ...(privileged ? {} : { where: { is_hidden: false } }),
+          ...(scope.kind === 'public' ? { where: { is_hidden: false } } : {}),
           include: [{ model: User, attributes: ['name'] }],
         },
         // Narx (USD) characteristics'ning SAP variantlarida turadi.

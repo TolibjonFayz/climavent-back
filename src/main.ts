@@ -99,8 +99,14 @@ const start = async () => {
         'service-key',
       )
       .build();
-    const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('/api/docs', app, document);
+    // Swagger PROD'DA OCHIQ turibdi: `/api/docs` da butun API xaritasi,
+    // maydon nomlari va misollar ko'rinadi. Bu hujum yuzasini bepul
+    // ko'rsatib qo'yadi. Xulq o'zgarmadi (adminka dasturchisi foydalanadi),
+    // lekin relizda `SWAGGER_DISABLED=true` bilan o'chirish mumkin.
+    if (process.env.SWAGGER_DISABLED !== 'true') {
+      const document = SwaggerModule.createDocument(app, config);
+      SwaggerModule.setup('/api/docs', app, document);
+    }
 
     const httpAdapterHost = app.get(HttpAdapterHost);
     app.useGlobalFilters(new BadInputFilter(httpAdapterHost.httpAdapter));

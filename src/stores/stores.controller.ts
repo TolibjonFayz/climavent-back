@@ -21,7 +21,8 @@ import {
 } from '@nestjs/swagger';
 import { StoresService } from './stores.service';
 import { Store } from './model/store.model';
-import { Privileged } from 'src/common/decorators/privileged.decorator';
+import { Scope } from 'src/common/decorators/scope.decorator';
+import type { CatalogScope } from 'src/common/visibility/catalog-visibility';
 import { CurrentViewer } from 'src/common/decorators/viewer.decorator';
 import type { Viewer } from 'src/common/middleware/viewer_scope.middleware';
 import { CreateStoreDto } from './dto/create-store.dto';
@@ -45,12 +46,12 @@ export class StoresController {
   @Get('all')
   async getAll(
     @Query('active') active?: string,
-    @Privileged() privileged?: boolean,
+    @Scope() scope?: CatalogScope,
     @CurrentViewer() viewer?: Viewer,
   ) {
     // Yopiq rekvizitlar faqat o'z do'koni va superadminga (№16, 8-band)
     return this.storesService.present(
-      await this.storesService.getAll(active === 'true', privileged),
+      await this.storesService.getAll(active === 'true', scope),
       viewer,
     );
   }
@@ -61,10 +62,10 @@ export class StoresController {
   @Get('one/:id')
   async getOne(
     @Param('id', ParseIntPipe) id: number,
-    @Privileged() privileged: boolean,
+    @Scope() scope: CatalogScope,
     @CurrentViewer() viewer: Viewer,
   ) {
-    return this.storesService.present(await this.storesService.getOne(id, privileged), viewer);
+    return this.storesService.present(await this.storesService.getOne(id, scope), viewer);
   }
 
   @ApiOperation({ summary: "Do'kon slug bo'yicha (sayt sahifasi uchun)" })
@@ -73,10 +74,10 @@ export class StoresController {
   @Get('slug/:slug')
   async getBySlug(
     @Param('slug') slug: string,
-    @Privileged() privileged: boolean,
+    @Scope() scope: CatalogScope,
     @CurrentViewer() viewer: Viewer,
   ) {
-    return this.storesService.present(await this.storesService.getBySlug(slug, privileged), viewer);
+    return this.storesService.present(await this.storesService.getBySlug(slug, scope), viewer);
   }
 
   @ApiOperation({ summary: "Do'kon yaratish (superadmin)" })

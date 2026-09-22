@@ -51,7 +51,18 @@ export class ViewerScopeMiddleware implements NestMiddleware {
 
   async use(req: Request, _res: Response, next: NextFunction) {
     req.viewer = await this.aniqla(req);
-    req.isPrivileged = req.viewer.kind !== null;
+    // MUHIM (topshiriq №29, 1-band): `site_admin` — ya'ni `users.is_admin`
+    // tokeni — BU YERDA "adminka" deb HISOBLANMAYDI. Prod'dagi sayt
+    // adminlari ayni paytda mobil ilova xaridori ham; ilgari ular ilovada
+    // e'lon qilinmagan do'konlarning tovarini, nofaol bannerni va
+    // yashirilgan sharhlarni ko'rib turgan.
+    //
+    // Orqa ofis ishi uchun do'kon hisobi (store-auth) yoki servis kaliti
+    // ishlatiladi. Sayt adminining maxsus imkoni faqat ikki joyda saqlangan
+    // (`products/alladmin`, `products/one/:id`) — `catalogScope(..., {
+    // siteAdminSeesAll: true })` orqali.
+    const kind = req.viewer.kind;
+    req.isPrivileged = kind === 'service' || kind === 'superadmin' || kind === 'store_admin';
     next();
   }
 

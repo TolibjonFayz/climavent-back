@@ -54,6 +54,16 @@ import { ViewerScopeMiddleware } from './common/middleware/viewer_scope.middlewa
       database: process.env.POSTGRES_DB,
       autoLoadModels: true,
       logging: false,
+      // `sequelize.sync()` — `@nestjs/sequelize` da `synchronize`
+      // ko'rsatilmasa YOQILGAN bo'ladi. `sync()` (force/alter'siz) faqat
+      // YO'Q jadvalni yaratadi, lekin shu ham DB/kod driftiga olib keladi:
+      // migratsiyada yo'q jadval prod'da jimgina paydo bo'ladi (FK va
+      // indekslarsiz), keyin migratsiya "already exists" bilan yiqiladi.
+      //
+      // Prod'da `DB_SYNC=false` qo'yish tavsiya etiladi — sxema FAQAT
+      // migratsiya orqali o'zgarsin. Standart qiymat o'zgarmadi
+      // (muvofiqlik), lekin endi o'chirish mumkin.
+      synchronize: process.env.DB_SYNC !== 'false',
       // SSL faqat TASHQI ulanishda kerak. Railway'ning ICHKI tarmog'i
       // (`*.railway.internal`) SSL ishlatmaydi — u yerda `ssl: require`
       // qoldirilsa ulanish umuman qurilmaydi.

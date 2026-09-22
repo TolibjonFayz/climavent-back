@@ -1,32 +1,14 @@
-import { ApiProperty, PartialType } from '@nestjs/swagger';
+import { PartialType } from '@nestjs/swagger';
 import { CreateCategoryDto } from './create-category.dto';
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
 
-export class UpdateCategoryDto extends PartialType(CreateCategoryDto) {
-  @ApiProperty({
-    example: 'VR conditsioner tizimlari',
-    description: 'Name of category',
-  })
-  @IsString()
-  @IsNotEmpty()
-  name_uz: string;
-
-  @ApiProperty({
-    example: 'VR air conditioning systems',
-    description: 'Name of category in english',
-  })
-  @IsString()
-  @IsNotEmpty()
-  name_en: string;
-
-  @ApiProperty({
-    example: 'Системы кондиционирования VR',
-    description: 'Name of category in russian',
-  })
-  @IsString()
-  @IsNotEmpty()
-  name_ru: string;
-
-  @ApiProperty({ example: 1, description: 'Product id' })
-  category_id: number;
-}
+/**
+ * QISMIY yangilash (PATCH): har maydon ixtiyoriy.
+ *
+ * Ilgari bu sinf `PartialType(CreateCategoryDto)` dan meros olsa ham,
+ * uchta nom maydonini `@IsString() @IsNotEmpty()` bilan QAYTA e'lon qilardi.
+ * class-validator meros qoidalarini ALMASHTIRMAYDI, ustiga QO'SHADI —
+ * shuning uchun `PartialType` bergan ixtiyoriylik bekor bo'lib, faqat
+ * `category_id` ni o'zgartirish uchun ham uchta nomni qayta yuborish
+ * shart edi (topshiriq №29, 5-band).
+ */
+export class UpdateCategoryDto extends PartialType(CreateCategoryDto) {}

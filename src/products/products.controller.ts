@@ -32,7 +32,8 @@ import { SortbyCategoryIdProductDto } from 'src/category/dto/sortbycategoryid-pr
 import { GetRecentlyAddedProductsDto } from './dto/getlastadded-product.dto';
 import { SearchProductsByQueryDto } from './dto/search-product.dto';
 import { parsePositiveIntParam } from 'src/common/helpers/pagination';
-import { Privileged } from 'src/common/decorators/privileged.decorator';
+import { AdminScope, Scope } from 'src/common/decorators/scope.decorator';
+import type { CatalogScope } from 'src/common/visibility/catalog-visibility';
 
 @ApiTags('Products')
 @Controller('products')
@@ -67,12 +68,9 @@ export class ProductsController {
   @Post('search')
   async search(
     @Body() searchProductsByQueryDto: SearchProductsByQueryDto,
-    @Privileged() privileged: boolean,
+    @Scope() scope: CatalogScope,
   ) {
-    return this.productsService.searchProducts(
-      searchProductsByQueryDto,
-      privileged,
-    );
+    return this.productsService.searchProducts(searchProductsByQueryDto, scope);
   }
 
   //Get all products count
@@ -85,10 +83,10 @@ export class ProductsController {
   })
   @Get('allcount')
   async getAllCount(
-    @Privileged() privileged: boolean,
+    @Scope() scope: CatalogScope,
     @Query('on_sale') onSale?: string,
   ): Promise<number> {
-    return this.productsService.getAllProductsCount(privileged, onSale === 'true');
+    return this.productsService.getAllProductsCount(scope, onSale === 'true');
   }
 
   //Get all products (page/limit/store_id ixtiyoriy)
@@ -133,7 +131,7 @@ export class ProductsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('store_id') storeId?: string,
-    @Privileged() privileged?: boolean,
+    @Scope() scope?: CatalogScope,
     @Query('on_sale') onSale?: string,
     @Query('view') view?: string,
   ): Promise<Product[]> {
@@ -142,7 +140,7 @@ export class ProductsController {
       parsePositiveIntParam(page, 'page'),
       parsePositiveIntParam(limit, 'limit'),
       parsePositiveIntParam(storeId, 'store_id'),
-      privileged,
+      scope,
       onSale === 'true',
       view === 'card' ? 'card' : 'full',
     );
@@ -165,10 +163,12 @@ export class ProductsController {
   })
   @Get('alladmin')
   async getAllProductsForAdmin(
+    @AdminScope() scope: CatalogScope,
     @Query('store_id') storeId?: string,
   ): Promise<Product[]> {
     return this.productsService.getAllProductsForAdmin(
       parsePositiveIntParam(storeId, 'store_id'),
+      scope,
     );
   }
 
@@ -177,11 +177,11 @@ export class ProductsController {
   @Post('lastadded')
   async getLastAddedProducts(
     @Body() getRecentlyAddedProductsDto: GetRecentlyAddedProductsDto,
-    @Privileged() privileged: boolean,
+    @Scope() scope: CatalogScope,
   ): Promise<any> {
     return this.productsService.getRecentlyAddedProducts(
       getRecentlyAddedProductsDto,
-      privileged,
+      scope,
     );
   }
 
@@ -190,9 +190,9 @@ export class ProductsController {
   @Post('bysort')
   async getProductsBySort(
     @Body() searchProductDto: SortProductDto,
-    @Privileged() privileged: boolean,
+    @Scope() scope: CatalogScope,
   ): Promise<Product[]> {
-    return this.productsService.getProductsBySort(searchProductDto, privileged);
+    return this.productsService.getProductsBySort(searchProductDto, scope);
   }
 
   //Get products by category
@@ -200,11 +200,11 @@ export class ProductsController {
   @Post('categoryslug')
   async getBySlug(
     @Body() sortbyCategoryIdProduct: SortbyCategoryIdProductDto,
-    @Privileged() privileged: boolean,
+    @Scope() scope: CatalogScope,
   ): Promise<Product[]> {
     return this.productsService.sortProductsByCategoryId(
       sortbyCategoryIdProduct,
-      privileged,
+      scope,
     );
   }
 
@@ -227,13 +227,15 @@ export class ProductsController {
   async getOne(
     @Param('id', ParseIntPipe) id: number,
     @Req() req: Request,
-    @Privileged() privileged?: boolean,
+    @AdminScope() scope?: CatalogScope,
     @Query('count') count?: string,
   ): Promise<Product> {
     const isService = Boolean(req.headers['x-api-key']);
     const countView = !isService && count !== 'false';
-    // Nofaol do'kon mahsuloti mehmonga 404, adminkaga esa ochiq.
-    return this.productsService.getProductById(id, countView, privileged);
+    // Nofaol do'kon mahsuloti mehmonga (va xaridor tokeniga) 404, orqa
+    // ofisga ochiq. Tahrir shakli uchun eski Vue adminkaning sayt admini
+    // tokeni ham bu yerda qabul qilinadi (`AdminScope`, topshiriq №29).
+    return this.productsService.getProductById(id, countView, scope);
   }
 
   //Update product by id

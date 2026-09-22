@@ -163,7 +163,16 @@ export class R2Controller {
     message: string;
   }> {
     if (!key) {
-      throw new Error('key parametri majburiy');
+      throw new BadRequestException('key parametri majburiy');
+    }
+    // Bu endpoint ATAYLAB ochiq (sayt mahsulot tavsifini shu orqali
+    // o'qiydi), shuning uchun kalit SHAKLI cheklanadi: faqat bizning
+    // `buildJsonKey()` yasaydigan `climavent/<uuid>.json` yoki eski
+    // prefikssiz uuid. Aks holda bucket'dagi HAR QANDAY obyektni
+    // (kelajakda hujjatlar ham shu yerda bo'lishi mumkin) tokensiz
+    // o'qish mumkin bo'lardi.
+    if (!/^(climavent\/)?[0-9a-fA-F-]{36}(\.json)?$/.test(key.trim())) {
+      throw new BadRequestException("Kalit shakli noto'g'ri");
     }
 
     const data = await this.r2Service.getJson(key);

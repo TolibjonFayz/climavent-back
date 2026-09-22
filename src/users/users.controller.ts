@@ -1,6 +1,7 @@
 import {
   Controller,
   Delete,
+  HttpCode,
   Patch,
   Param,
   ParseIntPipe,
@@ -28,6 +29,7 @@ import { UsersService } from './users.service';
 import { User } from './model/user.model';
 import { Request, Response } from 'express';
 import { SignoutDto } from './dto/signout.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UserSelfGuard } from 'src/guards/user_self.guard';
 import { UserSelfOrBackofficeGuard } from 'src/guards/user_self_or_backoffice.guard';
 import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
@@ -65,6 +67,40 @@ export class UsersController {
   @Post('login')
   async login(@Body() loginUserDto: LoginUserDto) {
     return this.usersService.loginUser(loginUserDto);
+  }
+
+  /**
+   * MOBIL SESSIYANI YANGILASH (topshiriq №29, 3-band).
+   *
+   * Muddat: access — `MOBILE_ACCESS_TOKEN_TIME_USER` (standart 15 daqiqa),
+   * refresh — 90 kun va SIRPANUVCHI (har yangilashda qaytadan 90 kun).
+   * Refresh HAR chaqiruvda almashadi; eski token qayta kelsa butun zanjir
+   * bekor qilinadi (o'g'irlik belgisi). Tarmoq uzilgan holat uchun 30
+   * soniyalik imtiyoz oynasi bor — o'sha juftlik qaytariladi.
+   */
+  @ApiOperation({ summary: 'Refresh mobile session (xaridor)' })
+  @ApiResponse({
+    status: 200,
+    schema: {
+      example: {
+        accessToken: 'eyJhbGciOi...',
+        refreshToken: 'q7k2...',
+        refresh_expires_at: '2026-12-21T10:00:00.000Z',
+        expires_in: '15m',
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: "Noto'g'ri, muddati o'tgan yoki qayta ishlatilgan" })
+  // Token o'zi 48 baytlik tasodifiy qiymat; cheklov faqat suiiste'molga qarshi.
+  @Throttle({ default: { limit: 60, ttl: 60 * 1000 } })
+  // 200 (201 emas) — topshiriqdagi shartnoma va `store-auth/refresh` bilan bir xil
+  @HttpCode(200)
+  @Post('refresh')
+  async refresh(@Body() dto: RefreshTokenDto, @Req() req: Request) {
+    return this.usersService.refreshMobileSession(dto.refresh_token, {
+      ip: req.ip,
+      userAgent: String(req.headers['user-agent'] || ''),
+    });
   }
 
   //Sign out user
@@ -167,7 +203,9 @@ export class UsersController {
   async updateUser(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateUserdto: UpdateUserDto,
-  ): Promise<User> {
+    // Javob — yangilangan qatorning maydonlari (`lang` bilan), model
+    // nusxasi emas; shuning uchun `User` tipi qo'yilmaydi.
+  ) {
     return this.usersService.updateUser(+id, updateUserdto);
   }
 

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class VerifyOtpDto {
@@ -31,6 +31,17 @@ export class VerifyOtpDto {
     example: '1',
   })
   userId: string;
+
+  /**
+   * `mobile` — so'rov Android/iOS ilovasidan (topshiriq №29, 3-band).
+   * Shu holatda access token 15 daqiqa, refresh esa 90 kunlik SIRPANUVCHI
+   * sessiya bo'ladi (`users/refresh` bilan yangilanadi). Berilmasa — sayt
+   * oqimi o'zgarmaydi.
+   */
+  @ApiProperty({ example: 'mobile', required: false, enum: ['mobile', 'web'] })
+  @IsOptional()
+  @IsIn(['mobile', 'web'])
+  client?: 'mobile' | 'web';
 
   // ---- Rozilik (topshiriq №18, 2-band). Ikkalasi birga beriladi; berilmasa
   // eskicha ishlaydi (sayt yangilanguncha buzilmasin).

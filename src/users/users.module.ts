@@ -10,10 +10,14 @@ import { OtpModule } from 'src/otp/otp.module';
 import { Like } from 'src/likes/model/like.model';
 import { Cart } from 'src/cart/models/cart.model';
 import { OffersModule } from 'src/offers/offers.module';
+import { UserRefreshToken } from './model/user-refresh-token.model';
 
 @Module({
   imports: [
-    SequelizeModule.forFeature([User, Otp, Like, Cart]),
+    // `UserRefreshToken` — mobil sessiya (topshiriq №29, 3-band). Statik
+    // ishlatiladi (`user-mobile-session.ts`), lekin `sequelize.sync()` va
+    // `autoLoadModels` uni ko'rishi uchun ro'yxatda turishi shart.
+    SequelizeModule.forFeature([User, Otp, Like, Cart, UserRefreshToken]),
     JwtModule.register({}),
     MailModule,
     OtpModule,

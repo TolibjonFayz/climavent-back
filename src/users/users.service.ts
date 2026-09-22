@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { dates, decode, encode } from '../common/helpers/crypto';
 import { AddMinutesToDate } from '../common/helpers/addMinutes';
@@ -27,6 +28,15 @@ import { Like } from 'src/likes/model/like.model';
 import { Cart } from 'src/cart/models/cart.model';
 import { Op } from 'sequelize';
 import { ConsentService } from 'src/offers/consent.service';
+import {
+  findUserRefreshToken,
+  issueUserRefreshToken,
+  MOBILE_ACCESS_TTL,
+  revokeAllUserRefreshTokens,
+  revokeUserRefreshToken,
+  rotateUserRefreshToken,
+  SessionMeta,
+} from './user-mobile-session';
 
 // Refresh token cookie muddati: 75 kun — REFRESH_TOKEN_TIME_USER (.env) bilan
 // mos kelishi kerak, aks holda cookie JWT haqiqiy amal qilish muddatidan
@@ -126,8 +136,29 @@ export class UsersService {
     return response;
   }
 
+  /**
+   * Raqamni YAGONA shaklga keltiradi: `+998XXXXXXXXX`.
+   *
+   * Ilgari `login` raqamni qanday kelsa shunday izlardi va shunday
+   * yozardi, SMS esa faqat raqamlarini olib yuborilardi. Ya'ni
+   * "+998 90 815 04 12" va "+998908150412" — bitta odam, ikkita hisob;
+   * bunday hisobni `verify-otp` bilan faollashtirib ham bo'lmasdi
+   * (u normallashtirilgan raqam bilan solishtiradi).
+   */
+  private normalizePhone(value: string): string {
+    const digits = String(value ?? '').replace(/\D/g, '');
+    const phone = `+${digits}`;
+    if (!/^\+998\d{9}$/.test(phone)) {
+      throw new BadRequestException(
+        "Telefon raqam +998XXXXXXXXX ko'rinishida bo'lishi kerak",
+      );
+    }
+    return phone;
+  }
+
   // Login user — faqat OTP yuboradi. Token OTP tasdiqlangandan keyin beriladi.
   async loginUser(loginuserDto: LoginUserDto) {
+    loginuserDto.phone_number = this.normalizePhone(loginuserDto.phone_number);
     //Is user exists?
     let user = await this.UsersRepository.findOne({
       where: { phone_number: loginuserDto.phone_number },
@@ -183,27 +214,50 @@ export class UsersService {
     return response;
   }
 
-  //Sign out user
+  /**
+   * CHIQISH (`POST /api/users/signout { refresh_token }`).
+   *
+   * Ikki xil refresh tokenni ham qabul qiladi (topshiriq №29, 3-band):
+   *   - mobil ilovaning shaffof bo'lmagan tokeni — shu QURILMA sessiyasi
+   *     bekor qilinadi (boshqa qurilmalar ishlab turadi);
+   *   - saytning JWT refresh tokeni — eskicha `users.refresh_token`
+   *     tozalanadi va cookie o'chiriladi.
+   *
+   * TUZATILDI: ilgari token `REFRESH_TOKEN_KEY` (do'kon/xodim kaliti) bilan
+   * tekshirilardi, xaridor tokeni esa `REFRESH_TOKEN_KEY_USER` bilan
+   * imzolanadi. Ya'ni `signout` HAR DOIM imzo xatosi bilan yiqilardi
+   * (`jwt.verify` xato tashlaydi -> 500) va hech qachon hech narsani bekor
+   * qilmagan.
+   */
   async signOutUser(signoutDto: SignoutDto, res: Response) {
-    const userData = await this.jwtservice.verify(signoutDto.refresh_token, {
-      secret: process.env.REFRESH_TOKEN_KEY,
-    });
+    const raw = String(signoutDto?.refresh_token ?? '').trim();
+    if (!raw) throw new BadRequestException('refresh_token yuborilmadi');
 
-    //Is users exists?
-    if (!userData) throw new ForbiddenException('User not found');
-    const updateUser = await this.UsersRepository.update(
+    // Mobil (shaffof bo'lmagan) token
+    if (raw.split('.').length !== 3) {
+      const revoked = await revokeUserRefreshToken(raw);
+      res.clearCookie('refresh_token');
+      // Bekor qilinmagan (allaqachon bekor yoki noma'lum) token uchun ham
+      // 200: chiqish g'oyasi bajarilgan, xato ilovani qotirmasin.
+      return { message: 'User signed out successfully', revoked };
+    }
+
+    let userData: any;
+    try {
+      userData = await this.jwtservice.verifyAsync(raw, {
+        secret: process.env.REFRESH_TOKEN_KEY_USER,
+      });
+    } catch {
+      // Imzo yaroqsiz — sessiya baribir yo'q, cookie tozalanadi.
+      res.clearCookie('refresh_token');
+      return { message: 'User signed out successfully', revoked: false };
+    }
+    await this.UsersRepository.update(
       { refresh_token: null },
-      { where: { id: userData.id }, returning: true },
+      { where: { id: userData.id } },
     );
-    if (!updateUser[0]) throw new ForbiddenException('User update failed');
-
-    //Clearing cookie
     res.clearCookie('refresh_token');
-    const response = {
-      message: 'User signed out successfully',
-      admin: updateUser[1][0],
-    };
-    return response;
+    return { message: 'User signed out successfully', revoked: true };
   }
 
   //Get all users
@@ -270,12 +324,38 @@ export class UsersService {
     const before = await this.UsersRepository.findByPk(id);
     if (!before) throw new NotFoundException('User not found');
 
+    // TELEFON RAQAM profil shakli orqali ALMASHTIRILMAYDI (xavfsizlik
+    // tekshiruvi, №29). Bu endpoint `UserSelfGuard` ostida, ya'ni hisob
+    // egasi o'zi chaqiradi — va ilgari istalgan raqamni, SMS TASDIG'ISIZ,
+    // o'ziga yozib qo'ya olardi. Natijada:
+    //   - boshqa odamning raqami bilan ikkinchi hisob paydo bo'lardi
+    //     (`phone_number` da unikal cheklov ham yo'q edi), keyin `login`
+    //     ning `findOne` i qaysi hisobni tanlashi tasodifga qolardi;
+    //   - raqam egasi keyinchalik SMS bilan kirganda begona hisobga
+    //     tushib qolishi mumkin edi.
+    // Raqamni almashtirish = yangi raqam bilan qaytadan SMS orqali kirish.
+    if (
+      updateUserDto.phone_number !== undefined &&
+      String(updateUserDto.phone_number).trim() !== String(before.phone_number)
+    ) {
+      throw new BadRequestException(
+        "Telefon raqamni profil orqali almashtirib bo'lmaydi — yangi raqam bilan SMS kod orqali kiring",
+      );
+    }
+
     const breaks = UsersService.SESSION_BREAKING_FIELDS.some((f) => {
       const next = (updateUserDto as any)[f];
       return next !== undefined && next !== (before as any)[f];
     });
 
     const payload: any = { ...updateUserDto };
+    // Sayt formasi to'ldirilmagan sanani `""` bilan yuboradi — bo'sh satrni
+    // DATE ustuniga yozib bo'lmaydi (Sequelize xato beradi).
+    if (payload.birthdate === '') payload.birthdate = null;
+    // Til modelda e'lon qilinmagan (user.model.ts dagi izohga qarang) —
+    // xom SQL bilan alohida yoziladi.
+    const lang = payload.lang;
+    delete payload.lang;
     if (breaks) {
       payload.token_version = Number(before.token_version ?? 0) + 1;
       // Eski refresh token ham ishlamasin
@@ -286,7 +366,30 @@ export class UsersService {
       where: { id },
       returning: true,
     });
-    return updating[1][0].dataValues;
+    const langSaqlandi = lang ? await this.saveLang(id, lang) : false;
+    const saqlangan: Record<string, any> = { ...updating[1][0].dataValues };
+    // Faqat HAQIQATAN yozilgan bo'lsa javobga qo'shamiz (migratsiyadan
+    // oldin ustun yo'q — javob yolg'on gapirmasin).
+    if (langSaqlandi) saqlangan.lang = lang;
+    return saqlangan;
+  }
+
+  /**
+   * Til (`uz` | `ru` | `en`) — push matni shu tilda ketadi.
+   * Ustun modelda yo'q, shuning uchun xom SQL. Migratsiya hali
+   * ishlatilmagan bo'lsa xato jimgina yutiladi (til `uz` bo'lib qoladi).
+   */
+  private async saveLang(id: number, lang: string): Promise<boolean> {
+    try {
+      await this.UsersRepository.sequelize.query(
+        'UPDATE users SET lang = :lang WHERE id = :id',
+        { replacements: { id, lang } },
+      );
+      return true;
+    } catch {
+      // `users.lang` ustuni yo'q — migratsiyadan keyin ishlaydi
+      return false;
+    }
   }
 
   /** Foydalanuvchining barcha sessiyalarini bekor qiladi (adminka uchun). */
@@ -331,6 +434,115 @@ export class UsersService {
       accessToken: accessToken,
       refreshToken: refreshToken,
     };
+  }
+
+  /** Mobil ilova uchun QISQA muddatli access token (topshiriq №29, 3-band). */
+  private async mobileAccessToken(user: User) {
+    return this.jwtservice.signAsync(
+      {
+        id: user.id,
+        is_active: user.is_active,
+        is_admin: user.is_admin,
+        tv: Number(user.token_version ?? 0),
+        client: 'mobile',
+      },
+      { secret: process.env.ACCESS_TOKEN_KEY_USER, expiresIn: MOBILE_ACCESS_TTL },
+    );
+  }
+
+  /**
+   * MOBIL SESSIYANI YANGILASH (topshiriq №29, 3-band).
+   *
+   * `POST /api/users/refresh { refresh_token }`
+   *   200 — yangi juftlik (refresh ALMASHADI, eskisi bekor);
+   *   401 — noto'g'ri, muddati o'tgan, chiqilgan yoki qayta ishlatilgan
+   *         (bu holda butun zanjir bekor qilinadi).
+   *
+   * Tarmoq uzilib javob yetib bormagan holat uchun 30 soniyalik imtiyoz
+   * oynasi bor: xuddi o'sha refresh bilan qayta so'ralsa AYNAN o'sha
+   * juftlik qaytadi va hisob "o'g'irlangan" deb yopilmaydi.
+   *
+   * Eski (sayt) JWT refresh tokeni ham qabul qilinadi — sayt oqimi
+   * o'zgarmasin.
+   */
+  async refreshMobileSession(rawToken: string, meta: SessionMeta = {}) {
+    const denied = new UnauthorizedException(
+      'Sessiya tugagan yoki bekor qilingan — qayta kiring',
+    );
+    if (typeof rawToken !== 'string' || !rawToken.trim()) throw denied;
+    const token = rawToken.trim();
+
+    // JWT (sayt) ko'rinishidagi token — eski oqim bilan yangilanadi.
+    if (token.split('.').length === 3) return this.refreshWebSession(token);
+
+    const found = await findUserRefreshToken(token);
+    if (found.ok === false) throw denied;
+
+    const user = await this.UsersRepository.findByPk(found.row.user_id);
+    if (
+      !user ||
+      !user.is_active ||
+      Number(user.token_version ?? 0) !== Number(found.row.token_version)
+    ) {
+      await revokeAllUserRefreshTokens(found.row.user_id);
+      throw denied;
+    }
+
+    // Imtiyoz oynasi: allaqachon berilgan juftlikni qaytaramiz.
+    if (found.ok === 'grace') {
+      return {
+        accessToken: await this.mobileAccessToken(user),
+        refreshToken: found.replacement,
+        expires_in: MOBILE_ACCESS_TTL,
+        reused_within_grace: true,
+      };
+    }
+
+    const next = await rotateUserRefreshToken(found.row, Number(user.token_version ?? 0), meta);
+    if (!next) {
+      // Boshqa so'rov bizdan oldin almashtirdi — o'sha juftlikni beramiz.
+      const again = await findUserRefreshToken(token);
+      if (again.ok === 'grace') {
+        return {
+          accessToken: await this.mobileAccessToken(user),
+          refreshToken: again.replacement,
+          expires_in: MOBILE_ACCESS_TTL,
+          reused_within_grace: true,
+        };
+      }
+      throw denied;
+    }
+
+    return {
+      accessToken: await this.mobileAccessToken(user),
+      refreshToken: next.raw,
+      refresh_expires_at: next.row.expires_at,
+      expires_in: MOBILE_ACCESS_TTL,
+    };
+  }
+
+  /** Sayt (JWT refresh) oqimi — mavjud xulq saqlanadi. */
+  private async refreshWebSession(token: string) {
+    const denied = new UnauthorizedException(
+      'Sessiya tugagan yoki bekor qilingan — qayta kiring',
+    );
+    let payload: any;
+    try {
+      payload = await this.jwtservice.verifyAsync(token, {
+        secret: process.env.REFRESH_TOKEN_KEY_USER,
+      });
+    } catch {
+      throw denied;
+    }
+    const user = await this.UsersRepository.findByPk(Number(payload?.id));
+    if (!user || !user.is_active || !user.refresh_token) throw denied;
+    if (Number(payload?.tv ?? 0) !== Number(user.token_version ?? 0)) throw denied;
+    if (!(await bcrypt.compare(token, user.refresh_token))) throw denied;
+
+    const tokens = await this.getTokens(user);
+    user.refresh_token = await bcrypt.hash(tokens.refreshToken, 8);
+    await user.save();
+    return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
   }
 
   async signInWithOtp(phone_number: string) {
@@ -492,6 +704,29 @@ export class UsersService {
       }
     }
 
+    // MOBIL ILOVA (topshiriq №29, 3-band): access 15 daqiqa, refresh 90 kun
+    // va SIRPANUVCHI — javob shakli o'zgarmaydi (`tokens.accessToken` /
+    // `tokens.refreshToken`), faqat refresh endi bazadagi (xeshlangan)
+    // sessiya. `users/refresh` shu token bilan ishlaydi.
+    if (verifyOtpDto.client === 'mobile') {
+      const refresh = await issueUserRefreshToken(
+        client.id,
+        Number(client.token_version ?? 0),
+        ctx,
+      );
+      const tokens = {
+        accessToken: await this.mobileAccessToken(client),
+        refreshToken: refresh.raw,
+      };
+      return {
+        client,
+        tokens,
+        expires_in: MOBILE_ACCESS_TTL,
+        refresh_expires_at: refresh.row.expires_at,
+        status: 1,
+      };
+    }
+
     const tokens = await this.getTokens(client);
     client.refresh_token = await bcrypt.hash(tokens.refreshToken, 8);
     await client.save();
@@ -499,6 +734,9 @@ export class UsersService {
     res.cookie('refresh_token', tokens.refreshToken, {
       maxAge: REFRESH_TOKEN_COOKIE_MAX_AGE,
       httpOnly: true,
+      // Faqat HTTPS orqali va boshqa sayt so'rovlariga qo'shilmasin.
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
     });
 
     return { client, tokens, status: 1 };

@@ -1,8 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import Sequelize from 'sequelize';
 import { CreateBannerDto } from './dto/create-banner.dto';
 import { UpdateBannerDto } from './dto/update-banner.dto';
 import { InjectModel } from '@nestjs/sequelize';
 import { Banner } from './model/banner.model';
+import {
+  CatalogScope,
+  PUBLIC_SCOPE,
+  visibleProductIdsSql,
+} from 'src/common/visibility/catalog-visibility';
+
+const { Op } = Sequelize;
 
 @Injectable()
 export class BannersService {
@@ -50,9 +58,9 @@ export class BannersService {
    * bannerni o'chirmasdan yashirish mumkin bo'lsin. Adminka/bot hammasini
    * ko'radi — aks holda o'chirilgan bannerni qayta yoqib bo'lmasdi.
    */
-  async getAllBanners(privileged = false) {
+  async getAllBanners(scope: CatalogScope = PUBLIC_SCOPE) {
     const banners = await this.bannerRepository.findAll({
-      ...(privileged ? {} : { where: { is_active: true } }),
+      where: this.visibilityWhere(scope),
       include: { all: true },
       order: [
         ['sort_order', 'ASC'],
@@ -63,15 +71,32 @@ export class BannersService {
   }
 
   //Get banner by id — nofaol banner to'g'ridan-to'g'ri havolada ham chiqmasin
-  async getBannerById(id: number, privileged = false) {
+  async getBannerById(id: number, scope: CatalogScope = PUBLIC_SCOPE) {
     const banner = await this.bannerRepository.findOne({
-      where: { id: id },
+      where: { id: id, ...this.visibilityWhere(scope) },
       include: { all: true },
     });
-    if (!banner || (!privileged && !banner.is_active)) {
+    if (!banner) {
       throw new NotFoundException('Product not found or product id is invalid');
     }
     return banner;
+  }
+
+  /**
+   * MEHMON faqat faol bannerni ko'radi va YASHIRIN MAHSULOTGA bog'langan
+   * banner ham ko'rinmaydi (topshiriq №29, 1-band): e'lon qilinmagan do'kon
+   * tovarining rasmi bosh sahifada turib, bosilganda 404 bo'lmasin.
+   */
+  private visibilityWhere(scope: CatalogScope): Record<string, any> {
+    if (scope.kind === 'all') return {};
+    const idsSql = visibleProductIdsSql(scope);
+    return {
+      is_active: true,
+      [Op.or]: [
+        { product_id: { [Op.is]: null } },
+        { product_id: { [Op.in]: Sequelize.literal(idsSql) } },
+      ],
+    };
   }
 
   //Update banner by id

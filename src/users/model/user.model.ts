@@ -158,6 +158,19 @@ export class User extends Model<User, UserAtr> {
   @Column({ type: DataType.STRING, allowNull: false, defaultValue: 'customer' })
   role: string;
 
+  // DIQQAT — `lang` ustuni ATAYLAB bu yerda E'LON QILINMAGAN
+  // (topshiriq №29, 4-band). Sequelize e'lon qilingan ustunni HAR
+  // `SELECT` ga qo'shadi; ustun bazada bo'lmasa (migratsiya hali
+  // ishlatilmagan) `users` ga tegadigan har bir so'rov
+  // "column User.lang does not exist" bilan yiqilardi — ya'ni kod
+  // migratsiyadan oldin deploy bo'lsa BUTUN sayt to'xtardi (Railway
+  // push'da avtomatik deploy qiladi).
+  //
+  // Shuning uchun til xom SQL bilan o'qiladi/yoziladi:
+  //   o'qish  — `deliveries/customer-push.ts` (`langOf`),
+  //   yozish  — `users.service.ts` (`saveLang`).
+  // Ustun yo'q bo'lsa til jimgina `uz` bo'lib qoladi.
+
   @ApiProperty({
     example: 'sdlak',
     description: 'Adminni activ qilish uchun ishlatiladigan id',

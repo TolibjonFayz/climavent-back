@@ -12,6 +12,7 @@ import { MailerService } from '@nestjs-modules/mailer';
 import { QueryTypes, Transaction } from 'sequelize';
 import { OtpService } from 'src/otp/otp.service';
 import { pushToStoreAdmins } from 'src/deliveries/push';
+import { pushQuoteReady } from 'src/deliveries/customer-push';
 import { Order } from './model/order.model';
 import { OrderQuote, QuoteItem } from './model/order-quote.model';
 import { OrderEvent, recordOrderEvent } from './order-events';
@@ -628,10 +629,16 @@ export class QuotesService {
   /** KP tayyor: mijozga SMS va (bo'lsa) e-pochta. */
   private async notifyCustomer(orderId: number, opts: { sms: boolean } = { sms: true }) {
     const [row]: any[] = await this.orderRepo.sequelize.query(
-      `SELECT u.phone_number, u.email, u.name FROM orders o JOIN users u ON u.id = o.user_id WHERE o.id = :id`,
+      `SELECT u.id AS user_id, u.phone_number, u.email, u.name
+         FROM orders o JOIN users u ON u.id = o.user_id WHERE o.id = :id`,
       { replacements: { id: orderId }, type: QueryTypes.SELECT },
     );
     if (!row) return;
+
+    // Push HAR SAFAR ketadi (topshiriq №29, 4-band): SMS pullik va faqat
+    // birinchi to'liq KP da yuboriladi, push esa bepul — ilova ochiq bo'lsa
+    // xaridor KP yangilanganini ham darhol ko'radi.
+    await pushQuoteReady(orderId, row.user_id);
     const link = `${SITE_URL}/profile/orders/${orderId}`;
     // SMS havolasi — **protokolsiz qisqa yo'l** `/p/:id` (sayt uni
     // `/profile/orders/:id` ga yo'naltiradi). Shablon #90540 aynan shunday.
