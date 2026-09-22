@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import {
   S3Client,
   PutObjectCommand,
@@ -37,7 +37,7 @@ export class R2Service {
    * chunki o'qish kalitni shundayligicha uzatadi.
    */
   buildJsonKey(): string {
-    return `climavent/${uuidv4()}.json`;
+    return `climavent/${randomUUID()}.json`;
   }
 
   /**

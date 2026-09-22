@@ -39,13 +39,47 @@ const start = async () => {
     // qiymat baribir tanlanmaydi.
     app.set('trust proxy', 2);
 
-    // CSP o'chirilgan — Swagger UI (/api/docs) inline script/style ishlatadi,
-    // qattiq CSP uni buzadi. Qolgan sarlavhalar (HSTS, X-Frame-Options,
-    // X-Content-Type-Options, X-Powered-By yashirish va h.k.) standart holida.
-    app.use(helmet({ contentSecurityPolicy: false }));
+    // SWAGGER: prod'da YOPIQ (2026-09-22).
+    //
+    // `/api/docs` butun API xaritasini, maydon nomlarini va misollarni
+    // tokensiz ko'rsatadi — hujum yuzasini bepul beradi. Endi u faqat
+    // lokal/stend muhitida ochiladi. Railway'da ataylab ochish kerak
+    // bo'lsa: `SWAGGER_ENABLED=true`.
+    const production =
+      process.env.NODE_ENV === 'production' ||
+      Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+    const swaggerOn =
+      process.env.SWAGGER_ENABLED === 'true' ||
+      (!production && process.env.SWAGGER_DISABLED !== 'true');
 
-    app.use(bodyParser.json({ limit: '10mb' }));
-    app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
+    // CSP: Swagger UI inline script/style ishlatadi, shuning uchun u YOQIQ
+    // bo'lganda CSP o'chiriladi. Aks holda (ya'ni prod'da) qattiq CSP
+    // qo'yiladi: API javoblari hech qanday skript yuklamaydi, sahifa
+    // ichiga joylab bo'lmaydi.
+    app.use(
+      helmet({
+        contentSecurityPolicy: swaggerOn
+          ? false
+          : {
+              directives: {
+                defaultSrc: ["'none'"],
+                frameAncestors: ["'none'"],
+                baseUri: ["'none'"],
+                formAction: ["'none'"],
+              },
+            },
+        crossOriginResourcePolicy: { policy: 'cross-origin' },
+      }),
+    );
+
+    // JSON tanasi: 10 MB juda katta edi (xotirani band qilish oson).
+    // Eng katta tana — mahsulot tavsifi (R2 ga ketadigan HTML), u 2 MB dan
+    // oshmaydi. Rasm/hujjat yuklash bundan MUSTASNO: ular multipart bilan
+    // ketadi va o'z chegarasiga ega (8 MB).
+    app.use(bodyParser.json({ limit: process.env.JSON_BODY_LIMIT || '2mb' }));
+    app.use(
+      bodyParser.urlencoded({ limit: process.env.JSON_BODY_LIMIT || '2mb', extended: true }),
+    );
 
     // credentials: true bilan origin '*' ishlamaydi — brauzer rad etadi.
     // Shuning uchun aniq domenlar ro'yxatini .env dan o'qiymiz.
@@ -99,11 +133,7 @@ const start = async () => {
         'service-key',
       )
       .build();
-    // Swagger PROD'DA OCHIQ turibdi: `/api/docs` da butun API xaritasi,
-    // maydon nomlari va misollar ko'rinadi. Bu hujum yuzasini bepul
-    // ko'rsatib qo'yadi. Xulq o'zgarmadi (adminka dasturchisi foydalanadi),
-    // lekin relizda `SWAGGER_DISABLED=true` bilan o'chirish mumkin.
-    if (process.env.SWAGGER_DISABLED !== 'true') {
+    if (swaggerOn) {
       const document = SwaggerModule.createDocument(app, config);
       SwaggerModule.setup('/api/docs', app, document);
     }

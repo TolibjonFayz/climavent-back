@@ -60,10 +60,11 @@ import { ViewerScopeMiddleware } from './common/middleware/viewer_scope.middlewa
       // migratsiyada yo'q jadval prod'da jimgina paydo bo'ladi (FK va
       // indekslarsiz), keyin migratsiya "already exists" bilan yiqiladi.
       //
-      // Prod'da `DB_SYNC=false` qo'yish tavsiya etiladi — sxema FAQAT
-      // migratsiya orqali o'zgarsin. Standart qiymat o'zgarmadi
-      // (muvofiqlik), lekin endi o'chirish mumkin.
-      synchronize: process.env.DB_SYNC !== 'false',
+      // Endi standart holda O'CHIQ: sxema FAQAT migratsiya orqali
+      // o'zgaradi. Bazadagi hamma jadval migratsiyalarda bor (tekshirildi
+      // 2026-09-22), shuning uchun sync'ning ishi qolmagan. Kerak bo'lsa
+      // (masalan bo'sh bazada tez sinov) `DB_SYNC=true`.
+      synchronize: process.env.DB_SYNC === 'true',
       // SSL faqat TASHQI ulanishda kerak. Railway'ning ICHKI tarmog'i
       // (`*.railway.internal`) SSL ishlatmaydi — u yerda `ssl: require`
       // qoldirilsa ulanish umuman qurilmaydi.

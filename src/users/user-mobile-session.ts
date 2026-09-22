@@ -23,8 +23,12 @@ import { UserRefreshToken } from './model/user-refresh-token.model';
  *   - admin hisobni bloklagan yoki telefon almashgan (`token_version`).
  */
 export const MOBILE_ACCESS_TTL = process.env.MOBILE_ACCESS_TOKEN_TIME_USER || '15m';
-export const MOBILE_REFRESH_TTL_MS =
-  Number(process.env.MOBILE_REFRESH_DAYS_USER || 90) * 24 * 60 * 60 * 1000;
+/** Sayt access tokeni — qisqa. Sessiya refresh bilan cho'ziladi. */
+export const WEB_ACCESS_TTL = process.env.WEB_ACCESS_TOKEN_TIME_USER || '30m';
+/** Mobil: 90 kun (topshiriq №29). Sayt: 180 kun = 6 oy. Ikkisi ham sirpanuvchi. */
+export const MOBILE_REFRESH_DAYS = Number(process.env.MOBILE_REFRESH_DAYS_USER || 90);
+export const WEB_REFRESH_DAYS = Number(process.env.WEB_REFRESH_DAYS_USER || 180);
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Almashtirilgan refresh shu muddat ichida qayta kelsa — o'g'irlik emas,
@@ -72,13 +76,15 @@ export async function issueUserRefreshToken(
   userId: number,
   tokenVersion: number,
   meta: SessionMeta = {},
+  ttlDays: number = WEB_REFRESH_DAYS,
 ) {
   const raw = randomBytes(48).toString('base64url');
   const row = await UserRefreshToken.create({
     user_id: userId,
     token_hash: hash(raw),
     token_version: tokenVersion,
-    expires_at: new Date(Date.now() + MOBILE_REFRESH_TTL_MS),
+    ttl_days: ttlDays,
+    expires_at: new Date(Date.now() + ttlDays * DAY_MS),
     ip: meta.ip ? String(meta.ip).slice(0, 64) : null,
     user_agent: meta.userAgent ? String(meta.userAgent).slice(0, 500) : null,
   } as any);
@@ -122,19 +128,36 @@ export async function rotateUserRefreshToken(
   meta: SessionMeta = {},
 ): Promise<{ raw: string; row: UserRefreshToken } | null> {
   const sequelize = UserRefreshToken.sequelize;
-  const [, affected]: any = await sequelize.query(
-    'UPDATE user_refresh_tokens SET revoked_at = now(), replaced_at = now() WHERE id = :id AND revoked_at IS NULL',
-    { replacements: { id: row.id }, type: QueryTypes.UPDATE },
-  );
-  if (!affected) return null;
 
-  const next = await issueUserRefreshToken(row.user_id, tokenVersion, meta);
-  await sequelize.query(
+  // SIRPANUVCHI muddat: yangi token shu sessiyaning muddati bilan (sayt 180
+  // kun, mobil 90) qaytadan boshlanadi — faol foydalanuvchi hech qachon
+  // chiqarib yuborilmaydi.
+  //
+  // TARTIB MUHIM: avval YANGI qator yaratiladi, keyin eskisi BITTA
+  // `UPDATE` bilan "bekor + almashtirildi + shifrlangan nusxa" holatiga
+  // o'tadi. Ilgari ikki qadamda edi va o'rtada eski token "bekor, lekin
+  // almashtirilmagan" ko'rinardi: shu mikro-oynada kelgan PARALLEL so'rov
+  // imtiyoz oynasini topmay 401 olardi (sayt profil sahifasida aynan
+  // shunday bo'ldi — bir vaqtda 4 ta so'rov 401 oladi).
+  const next = await issueUserRefreshToken(
+    row.user_id,
+    tokenVersion,
+    meta,
+    Number(row.ttl_days) || WEB_REFRESH_DAYS,
+  );
+  const [, affected]: any = await sequelize.query(
     `UPDATE user_refresh_tokens
-        SET replaced_by_id = :next, replacement_enc = :enc, last_used_at = now()
-      WHERE id = :id`,
+        SET revoked_at = now(), replaced_at = now(), replaced_by_id = :next,
+            replacement_enc = :enc, last_used_at = now()
+      WHERE id = :id AND revoked_at IS NULL`,
     { replacements: { id: row.id, next: next.row.id, enc: seal(next.raw) }, type: QueryTypes.UPDATE },
   );
+  if (!affected) {
+    // Bizdan oldin boshqa so'rov almashtirgan — o'zimiz yaratgan qatorni
+    // qoldirmaymiz (hech kimga berilmagan, "yetim" sessiya bo'lib qolardi).
+    await UserRefreshToken.destroy({ where: { id: next.row.id } });
+    return null;
+  }
   // Oynasi o'tgan nusxalarni tozalaymiz: shifrlangan token bazada
   // kerakdan uzoq turmasin.
   await sequelize.query(

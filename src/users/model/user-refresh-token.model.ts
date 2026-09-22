@@ -24,6 +24,8 @@ export class UserRefreshToken extends Model {
   /** Berilgan paytdagi `users.token_version` — hisob bloklansa token o'ladi. */
   @Column({ type: DataType.INTEGER, allowNull: false }) token_version: number;
   @Column({ type: DataType.DATE, allowNull: false }) expires_at: Date;
+  /** Muddat (kun): sayt 180, mobil 90. Yangilashda shu qiymat qayta qo'yiladi. */
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 180 }) ttl_days: number;
   @Column({ type: DataType.DATE, allowNull: true }) revoked_at: Date | null;
   @Column({ type: DataType.INTEGER, allowNull: true }) replaced_by_id: number | null;
   @Column({ type: DataType.DATE, allowNull: true }) replaced_at: Date | null;

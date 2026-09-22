@@ -20,7 +20,7 @@ import { hashOtp, otpMatches } from 'src/otp/otp-hash';
 import * as otpGenerator from 'otp-generator';
 import { User } from './model/user.model';
 import { JwtService } from '@nestjs/jwt';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { Response } from 'express';
 import * as bcrypt from 'bcrypt';
 import { SignoutDto } from './dto/signout.dto';
@@ -32,16 +32,14 @@ import {
   findUserRefreshToken,
   issueUserRefreshToken,
   MOBILE_ACCESS_TTL,
+  MOBILE_REFRESH_DAYS,
   revokeAllUserRefreshTokens,
   revokeUserRefreshToken,
   rotateUserRefreshToken,
   SessionMeta,
+  WEB_ACCESS_TTL,
+  WEB_REFRESH_DAYS,
 } from './user-mobile-session';
-
-// Refresh token cookie muddati: 75 kun — REFRESH_TOKEN_TIME_USER (.env) bilan
-// mos kelishi kerak, aks holda cookie JWT haqiqiy amal qilish muddatidan
-// oldin o'chib, mijoz muddatidan oldin qayta SMS oladi.
-const REFRESH_TOKEN_COOKIE_MAX_AGE = 75 * 24 * 60 * 60 * 1000;
 
 // OTP cheklovlari — SMS pullik, shuning uchun suiiste'moldan himoya kerak
 const OTP_RESEND_COOLDOWN_MS = 5 * 60 * 1000; // bitta raqamga 5 daqiqada 1 marta
@@ -82,7 +80,7 @@ export class UsersService {
     // const tokens = await this.getTokens(newuser);
     // //Update user
     // const hashed_refresh_token = await bcrypt.hash(tokens.refreshToken, 7);
-    // const uniqueKey: string = uuidv4();
+    // const uniqueKey: string = randomUUID();
     // const updateUser = await this.UsersRepository.update(
     //   {
     //     refresh_token: hashed_refresh_token,
@@ -410,43 +408,27 @@ export class UsersService {
     else throw new NotFoundException('User not found or something is wrong');
   }
 
-  //Token generation
-  async getTokens(user: User) {
-    const JwtPayload = {
-      id: user.id,
-      is_active: user.is_active,
-      is_admin: user.is_admin,
-      // Sessiya versiyasi (topshiriq №19, 2-band). Hisobda xavfsizlikka
-      // tegadigan o'zgarish bo'lsa bu son oshadi va eski tokenlar 401 oladi.
-      tv: Number(user.token_version ?? 0),
-    };
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtservice.signAsync(JwtPayload, {
-        secret: process.env.ACCESS_TOKEN_KEY_USER,
-        expiresIn: process.env.ACCESS_TOKEN_TIME_USER,
-      }),
-      this.jwtservice.signAsync(JwtPayload, {
-        secret: process.env.REFRESH_TOKEN_KEY_USER,
-        expiresIn: process.env.REFRESH_TOKEN_TIME_USER,
-      }),
-    ]);
-    return {
-      accessToken: accessToken,
-      refreshToken: refreshToken,
-    };
-  }
-
-  /** Mobil ilova uchun QISQA muddatli access token (topshiriq №29, 3-band). */
-  private async mobileAccessToken(user: User) {
+  /**
+   * QISQA muddatli access token.
+   *
+   * Sayt — 30 daqiqa, mobil — 15 daqiqa. Ilgari sayt tokeni 7 KUN yashardi
+   * va localStorage'da turardi: o'g'irlangan token bir hafta ishlardi.
+   * Endi sessiyani refresh token cho'zadi (sayt 6 oy, mobil 90 kun,
+   * ikkisi ham sirpanuvchi), access esa tez o'ladi.
+   */
+  private async sessionAccessToken(user: User, client: 'web' | 'mobile') {
     return this.jwtservice.signAsync(
       {
         id: user.id,
         is_active: user.is_active,
         is_admin: user.is_admin,
         tv: Number(user.token_version ?? 0),
-        client: 'mobile',
+        client,
       },
-      { secret: process.env.ACCESS_TOKEN_KEY_USER, expiresIn: MOBILE_ACCESS_TTL },
+      {
+        secret: process.env.ACCESS_TOKEN_KEY_USER,
+        expiresIn: client === 'mobile' ? MOBILE_ACCESS_TTL : WEB_ACCESS_TTL,
+      },
     );
   }
 
@@ -472,8 +454,9 @@ export class UsersService {
     if (typeof rawToken !== 'string' || !rawToken.trim()) throw denied;
     const token = rawToken.trim();
 
-    // JWT (sayt) ko'rinishidagi token — eski oqim bilan yangilanadi.
-    if (token.split('.').length === 3) return this.refreshWebSession(token);
+    // ESKI sayt tokeni (JWT): tekshiriladi va sessiya JIMGINA yangi
+    // ko'rinishga ko'chiriladi — foydalanuvchi qayta kirmaydi.
+    if (token.split('.').length === 3) return this.upgradeLegacySession(token, meta);
 
     const found = await findUserRefreshToken(token);
     if (found.ok === false) throw denied;
@@ -487,13 +470,17 @@ export class UsersService {
       await revokeAllUserRefreshTokens(found.row.user_id);
       throw denied;
     }
+    // Muddat satrda saqlanadi: mobil 90 kun, sayt 180 kun
+    const kind: 'web' | 'mobile' =
+      Number(found.row.ttl_days) === MOBILE_REFRESH_DAYS ? 'mobile' : 'web';
+    const accessTtl = kind === 'mobile' ? MOBILE_ACCESS_TTL : WEB_ACCESS_TTL;
 
     // Imtiyoz oynasi: allaqachon berilgan juftlikni qaytaramiz.
     if (found.ok === 'grace') {
       return {
-        accessToken: await this.mobileAccessToken(user),
+        accessToken: await this.sessionAccessToken(user, kind),
         refreshToken: found.replacement,
-        expires_in: MOBILE_ACCESS_TTL,
+        expires_in: accessTtl,
         reused_within_grace: true,
       };
     }
@@ -504,9 +491,9 @@ export class UsersService {
       const again = await findUserRefreshToken(token);
       if (again.ok === 'grace') {
         return {
-          accessToken: await this.mobileAccessToken(user),
+          accessToken: await this.sessionAccessToken(user, kind),
           refreshToken: again.replacement,
-          expires_in: MOBILE_ACCESS_TTL,
+          expires_in: accessTtl,
           reused_within_grace: true,
         };
       }
@@ -514,15 +501,23 @@ export class UsersService {
     }
 
     return {
-      accessToken: await this.mobileAccessToken(user),
+      accessToken: await this.sessionAccessToken(user, kind),
       refreshToken: next.raw,
       refresh_expires_at: next.row.expires_at,
-      expires_in: MOBILE_ACCESS_TTL,
+      expires_in: accessTtl,
     };
   }
 
-  /** Sayt (JWT refresh) oqimi — mavjud xulq saqlanadi. */
-  private async refreshWebSession(token: string) {
+  /**
+   * ESKI SESSIYANI KO'CHIRISH.
+   *
+   * Saytda kirgan foydalanuvchilarda `localStorage` da JWT refresh token
+   * bor (75 kunlik, `users.refresh_token` da bcrypt xeshi). Ular relizdan
+   * keyin qayta kirmasligi kerak: eski token bir marta ishlatiladi va
+   * o'rniga YANGI ko'rinishdagi (bazadagi, aylanadigan, 6 oylik) sessiya
+   * beriladi. Eski token esa darhol o'ladi.
+   */
+  private async upgradeLegacySession(token: string, meta: SessionMeta) {
     const denied = new UnauthorizedException(
       'Sessiya tugagan yoki bekor qilingan — qayta kiring',
     );
@@ -539,10 +534,22 @@ export class UsersService {
     if (Number(payload?.tv ?? 0) !== Number(user.token_version ?? 0)) throw denied;
     if (!(await bcrypt.compare(token, user.refresh_token))) throw denied;
 
-    const tokens = await this.getTokens(user);
-    user.refresh_token = await bcrypt.hash(tokens.refreshToken, 8);
-    await user.save();
-    return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
+    // Eski token qayta ishlatilmasin
+    await this.UsersRepository.update({ refresh_token: null }, { where: { id: user.id } });
+
+    const next = await issueUserRefreshToken(
+      user.id,
+      Number(user.token_version ?? 0),
+      meta,
+      WEB_REFRESH_DAYS,
+    );
+    return {
+      accessToken: await this.sessionAccessToken(user, 'web'),
+      refreshToken: next.raw,
+      refresh_expires_at: next.row.expires_at,
+      expires_in: WEB_ACCESS_TTL,
+      upgraded: true,
+    };
   }
 
   async signInWithOtp(phone_number: string) {
@@ -607,7 +614,7 @@ export class UsersService {
     // Tasdiqlash endi aniq shu urinishning otp_id'si bo'yicha qidiriladi
     // (verifyOtpClient), shuning uchun eski qatorlar chalkashlik keltirmaydi.
     const newOtp = await this.otpRepo.create({
-      unique_id: uuidv4(),
+      unique_id: randomUUID(),
       // Kodning O'ZI bazaga yozilmaydi — faqat xeshi (topshiriq №19, 8-band)
       otp_hash: hashOtp(otp, fullPhone),
       expiration_time,
@@ -704,42 +711,53 @@ export class UsersService {
       }
     }
 
-    // MOBIL ILOVA (topshiriq №29, 3-band): access 15 daqiqa, refresh 90 kun
-    // va SIRPANUVCHI — javob shakli o'zgarmaydi (`tokens.accessToken` /
-    // `tokens.refreshToken`), faqat refresh endi bazadagi (xeshlangan)
-    // sessiya. `users/refresh` shu token bilan ishlaydi.
-    if (verifyOtpDto.client === 'mobile') {
-      const refresh = await issueUserRefreshToken(
-        client.id,
-        Number(client.token_version ?? 0),
-        ctx,
-      );
-      const tokens = {
-        accessToken: await this.mobileAccessToken(client),
-        refreshToken: refresh.raw,
-      };
-      return {
-        client,
-        tokens,
-        expires_in: MOBILE_ACCESS_TTL,
-        refresh_expires_at: refresh.row.expires_at,
-        status: 1,
-      };
+    // SESSIYA (mobil ham, sayt ham bir xil mexanizm).
+    //
+    //   mobil — access 15 daqiqa, refresh 90 kun (topshiriq №29, 3-band);
+    //   sayt  — access 30 daqiqa, refresh 180 kun (6 OY).
+    //
+    // Ikkisida ham refresh SIRPANUVCHI (har ishlatilganda muddat qaytadan
+    // boshlanadi) va har chaqiruvda ALMASHADI. Bazada faqat SHA-256 xeshi.
+    // Javob shakli o'zgarmadi: `tokens.accessToken` / `tokens.refreshToken`.
+    //
+    // Ilgari sayt uchun 7 KUNLIK access + 75 kunlik JWT refresh berilardi va
+    // ikkisi ham localStorage'da turardi — o'g'irlangan token bir hafta
+    // ishlardi, sessiyani bekor qilish esa imkonsiz edi.
+    const mobil = verifyOtpDto.client === 'mobile';
+    const refresh = await issueUserRefreshToken(
+      client.id,
+      Number(client.token_version ?? 0),
+      ctx,
+      mobil ? MOBILE_REFRESH_DAYS : WEB_REFRESH_DAYS,
+    );
+    const tokens = {
+      accessToken: await this.sessionAccessToken(client, mobil ? 'mobile' : 'web'),
+      refreshToken: refresh.raw,
+    };
+    // Eski JWT refresh (agar bor bo'lsa) endi kerak emas
+    if (client.refresh_token) {
+      await this.UsersRepository.update({ refresh_token: null }, { where: { id: client.id } });
     }
 
-    const tokens = await this.getTokens(client);
-    client.refresh_token = await bcrypt.hash(tokens.refreshToken, 8);
-    await client.save();
+    if (!mobil) {
+      // Brauzer uchun qo'shimcha nusxa — `httpOnly`, ya'ni JS o'qiy olmaydi.
+      // Sayt asosan localStorage'dagi nusxadan foydalanadi (API boshqa
+      // domenda — uchinchi tomon cookie'lari bloklanishi mumkin).
+      res.cookie('refresh_token', refresh.raw, {
+        maxAge: WEB_REFRESH_DAYS * 24 * 60 * 60 * 1000,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+      });
+    }
 
-    res.cookie('refresh_token', tokens.refreshToken, {
-      maxAge: REFRESH_TOKEN_COOKIE_MAX_AGE,
-      httpOnly: true,
-      // Faqat HTTPS orqali va boshqa sayt so'rovlariga qo'shilmasin.
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-    });
-
-    return { client, tokens, status: 1 };
+    return {
+      client,
+      tokens,
+      expires_in: mobil ? MOBILE_ACCESS_TTL : WEB_ACCESS_TTL,
+      refresh_expires_at: refresh.row.expires_at,
+      status: 1,
+    };
   }
 
   /**
@@ -784,38 +802,4 @@ export class UsersService {
     return payload;
   }
 
-  async refreshToken(user_id: number, refreshToken: string, res: Response) {
-    const decodedToken = this.jwtservice.decode(refreshToken);
-    if (user_id != decodedToken['id']) {
-      throw new BadRequestException('Worker not found');
-    }
-    const worker = await this.UsersRepository.findOne({
-      where: { id: user_id },
-    });
-    if (!worker || !worker.refresh_token) {
-      throw new BadRequestException('Worker not found');
-    }
-    const tokenMatch = await bcrypt.compare(refreshToken, worker.refresh_token);
-    if (!tokenMatch) throw new ForbiddenException('Forbidden');
-
-    // Bloklangan hisob refresh token orqali qaytib kirmasin (№19, 2-band)
-    if (!worker.is_active) throw new ForbiddenException('Hisob faol emas');
-
-    const token = await this.getTokens(worker);
-    const hashed_refresh_token = await bcrypt.hash(token.refreshToken, 7);
-    const updateWorker = await this.UsersRepository.update(
-      { refresh_token: hashed_refresh_token },
-      { where: { id: worker.id }, returning: true },
-    );
-    res.cookie('refresh_token', token.refreshToken, {
-      maxAge: REFRESH_TOKEN_COOKIE_MAX_AGE,
-      httpOnly: true,
-    });
-    const response = {
-      message: 'Worker refreshed',
-      worker: updateWorker[1][0],
-      token,
-    };
-    return response;
-  }
 }
