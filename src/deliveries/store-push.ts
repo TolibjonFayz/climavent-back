@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { QueryTypes } from 'sequelize';
 import { DeviceToken } from './model/models';
-import { pushTo, PushMessage } from './push';
+import { emptyPushResult, logPush, mergeResults, pushTo, PushMessage } from './push';
 
 /**
  * SOTUVCHIGA PUSH — "CV Hamkor" ilovasi (topshiriq №31).
@@ -56,15 +56,36 @@ async function adminsByLang(storeIds: number[]): Promise<Map<Lang, number[]>> {
   return out;
 }
 
-/** Har tilga o'z matni bilan yuboradi. */
+/**
+ * Har tilga o'z matni bilan yuboradi.
+ *
+ * Log — HAR DO'KONGA BITTA qator (topshiriq №32, 1-band), qabul qiluvchi
+ * topilmasa ham: "Push: buyurtma #116, do'kon 1 (new_order, hisob 49) —
+ * 0 ta qurilma topildi, yuborilmadi". Hisob ro'yxati qatorda bo'lgani uchun
+ * "token boshqa hisobda turibdi" holati logdan darhol ko'rinadi.
+ */
 async function send(storeIds: number[], build: (lang: Lang) => PushMessage) {
-  try {
-    const groups = await adminsByLang(storeIds);
-    for (const [lang, ids] of groups) {
-      await pushTo('store_user', ids, { ...build(lang), channel: CHANNEL });
+  const sample = build('uz');
+  for (const storeId of [...new Set(storeIds.filter((x) => Number.isInteger(x) && x > 0))]) {
+    try {
+      const groups = await adminsByLang([storeId]);
+      const owners = [...groups.values()].flat();
+      const label =
+        `buyurtma #${sample.data?.order_id}, do'kon ${storeId} ` +
+        `(${sample.data?.type}, hisob ${owners.join(',') || "yo'q — faol store_admin topilmadi"})`;
+      let result = emptyPushResult();
+      for (const [lang, ids] of groups) {
+        const r = await pushTo('store_user', ids, { ...build(lang), channel: CHANNEL }, { quiet: true });
+        result = mergeResults(result, r);
+      }
+      if (!groups.size) {
+        // Hisob yo'q — baribir "sozlanmagan"mi yoki yo'qmi, ko'rinsin
+        result = await pushTo('store_user', [], sample, { quiet: true });
+      }
+      logPush(label, sample.title, result);
+    } catch (e) {
+      logger.warn(`Sotuvchiga push yuborilmadi (do'kon ${storeId}): ${(e as Error).message}`);
     }
-  } catch (e) {
-    logger.warn(`Sotuvchiga push yuborilmadi: ${(e as Error).message}`);
   }
 }
 

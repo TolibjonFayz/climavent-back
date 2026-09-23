@@ -10,6 +10,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { stripSensitiveFields } from './common/serialization/sensitive-fields';
 import { SalePresentationInterceptor } from './common/pricing/sale-presentation.interceptor';
 import { responseTime } from './common/middleware/response-time';
+import { logFcmStatus } from './deliveries/push';
 
 const start = async () => {
   try {
@@ -155,6 +156,8 @@ const start = async () => {
     await app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
     });
+    // FCM holati — deploydan keyin buyurtma bermasdan ko'rinsin (topshiriq №32)
+    logFcmStatus();
   } catch (error) {
     console.log(error);
   }

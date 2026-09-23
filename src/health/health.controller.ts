@@ -4,6 +4,7 @@ import { Request } from 'express';
 import { InjectConnection } from '@nestjs/sequelize';
 import { Sequelize } from 'sequelize-typescript';
 import { ServiceKeyGuard } from 'src/guards/service_key.guard';
+import { fcmStatus } from 'src/deliveries/push';
 
 // Deploy tekshiruvi uchun yengil endpoint.
 // Bazaga TEGMAYDI — shuning uchun baza sekin/uzilgan bo'lsa ham javob
@@ -82,6 +83,8 @@ export class HealthController {
         startedAt: '2026-09-02T12:40:00.000Z',
         uptimeSeconds: 42,
         node: 'v22.12.0',
+        fcm: 'ok',
+        fcm_auth: 'ok',
       },
     },
   })
@@ -91,12 +94,19 @@ export class HealthController {
     startedAt: string;
     uptimeSeconds: number;
     node: string;
+    fcm: 'ok' | 'sozlanmagan';
+    fcm_auth: 'ok' | 'xato' | null;
   } {
+    // Topshiriq №32, 3-band: kalitning o'zi emas, faqat holat.
+    // `fcm_auth` — oxirgi Google OAuth urinishi (null — hali urinilmagan).
+    const fcm = fcmStatus();
     return {
       status: 'ok',
       startedAt: HealthController.startedAt,
       uptimeSeconds: Math.round(process.uptime()),
       node: process.version,
+      fcm: fcm.fcm,
+      fcm_auth: fcm.auth ? (fcm.auth.ok ? 'ok' : 'xato') : null,
     };
   }
 

@@ -642,6 +642,33 @@ export class LocationDto {
   speed?: number;
 }
 
+/**
+ * Sinov push (topshiriq №32, 4-band). Faqat SERVIS KALITI bilan kerak:
+ * kirgan hisob tokeni bilan chaqirilsa — o'sha hisobning o'zi.
+ */
+export class DeviceTestDto {
+  @ApiProperty({ required: false, enum: ['store_user', 'user'] })
+  @IsOptional()
+  @IsIn(['store_user', 'user'])
+  owner_type?: 'store_user' | 'user';
+
+  @ApiProperty({ required: false, example: 48 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  owner_id?: number;
+
+  @ApiProperty({
+    required: false,
+    example: 1,
+    description: "Yangi buyurtmadagi kabi: do'konning faol store_admin hisoblariga",
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  store_id?: number;
+}
+
 export class DeviceDto {
   @ApiProperty({ enum: ['ios', 'android', 'web'] })
   @IsIn(['ios', 'android', 'web'])

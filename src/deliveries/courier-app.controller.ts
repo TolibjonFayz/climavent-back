@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -21,9 +22,12 @@ import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express
 import { JwtService } from '@nestjs/jwt';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import { timingSafeEqual } from 'crypto';
+import { QueryTypes } from 'sequelize';
 import { resolveStoreSession } from 'src/store_auth/store-session';
 import { resolveUserSession } from 'src/users/user-session';
 import { PROOF_MAX_BYTES } from './constants';
+import { fcmStatus, pushTo } from './push';
 import { CourierGuard } from './courier.guard';
 import { DeliveriesService } from './deliveries.service';
 import { CourierVehiclesService } from './courier-vehicles.service';
@@ -38,6 +42,7 @@ import {
   CourierRejectDto,
   CourierVehicleDto,
   DeviceDto,
+  DeviceTestDto,
   IncidentDto,
   LocationDto,
   ShiftEndDto,
@@ -337,6 +342,110 @@ export class DevicesController {
     }
     const row = await DeviceToken.create({ owner_type: o.type, owner_id: o.id, platform: dto.platform, token: dto.token } as any);
     return { id: row.id, platform: row.platform };
+  }
+
+  private isServiceKey(req: any): boolean {
+    const provided = req.headers?.['x-api-key'];
+    const expected = process.env.SERVICE_API_KEY;
+    if (!expected || typeof provided !== 'string') return false;
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    return a.length === b.length && timingSafeEqual(a, b);
+  }
+
+  /**
+   * Sinov push (topshiriq №32, 4-band) — haqiqiy buyurtma yaratmasdan
+   * zanjirni 10 soniyada tekshirish uchun.
+   *
+   *   - hisob tokeni bilan — o'sha hisobning qurilmalariga;
+   *   - servis kaliti bilan — `owner_type`+`owner_id` yoki `store_id`
+   *     (yangi buyurtmadagi kabi qabul qiluvchi tanlovi).
+   *
+   * Javobda nima bo'lgani qaytadi: topilgan token soni, yuborilgan, xatolar
+   * (FCM kodi bilan, masalan `SENDER_ID_MISMATCH`). Kalitning o'zi qaytmaydi.
+   */
+  @ApiOperation({ summary: "Sinov push — hisob qurilmalariga, natija javobda (topshiriq №32)" })
+  @ApiResponse({
+    status: 200,
+    schema: {
+      example: {
+        fcm: 'ok',
+        owner_type: 'store_user',
+        owner_id: 7,
+        tokens_found: 1,
+        sent: 1,
+        failed: 0,
+        errors: [],
+      },
+    },
+  })
+  @Throttle({ default: { limit: 10, ttl: 60 * 1000 } })
+  @HttpCode(200)
+  @Post('test')
+  async test(@Body() dto: DeviceTestDto, @Req() req: any) {
+    let ownerType: 'store_user' | 'user';
+    let ownerIds: number[];
+    let storeId: number | null = null;
+    if (this.isServiceKey(req)) {
+      if (dto.store_id) {
+        storeId = dto.store_id;
+        ownerType = 'store_user';
+        const rows: any[] = await DeviceToken.sequelize.query(
+          `SELECT id FROM store_users WHERE role = 'store_admin' AND is_active AND store_id = :id ORDER BY id`,
+          { replacements: { id: storeId }, type: QueryTypes.SELECT },
+        );
+        ownerIds = rows.map((r) => Number(r.id));
+      } else if (dto.owner_type && dto.owner_id) {
+        ownerType = dto.owner_type;
+        ownerIds = [dto.owner_id];
+      } else {
+        throw new BadRequestException('Servis kaliti bilan owner_type + owner_id yoki store_id kerak');
+      }
+    } else {
+      const o = await this.owner(req);
+      ownerType = o.type;
+      ownerIds = [o.id];
+    }
+
+    // Hamkor ilovasida `orders` kanali bor; kuryer va xaridor ilovasida yo'q
+    // (yo'q kanalga yuborilsa Android ko'rsatmasligi mumkin — push.ts ga qarang).
+    let channel: string | undefined;
+    if (ownerType === 'store_user' && ownerIds.length) {
+      const roles: any[] = await DeviceToken.sequelize.query(
+        'SELECT role FROM store_users WHERE id IN (:ids)',
+        { replacements: { ids: ownerIds }, type: QueryTypes.SELECT },
+      );
+      if (roles.length && roles.every((r) => r.role !== 'courier')) channel = 'orders';
+    }
+
+    const time = new Intl.DateTimeFormat('uz-UZ', {
+      timeZone: 'Asia/Tashkent',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(new Date());
+    const who = storeId ? `do'kon ${storeId}, hisob ${ownerIds.join(',') || "yo'q"}` : `${ownerType} ${ownerIds[0]}`;
+    const r = await pushTo(
+      ownerType,
+      ownerIds,
+      { title: 'Sinov bildirishnomasi', body: `Push ishlayapti · ${time}`, data: { type: 'test' }, channel },
+      { label: `sinov, ${who}` },
+    );
+    const status = fcmStatus();
+    return {
+      fcm: status.fcm,
+      ...(status.reason ? { fcm_reason: status.reason } : {}),
+      fcm_auth: status.auth ? (status.auth.ok ? 'ok' : 'xato') : null,
+      owner_type: ownerType,
+      owner_id: storeId ? null : ownerIds[0],
+      ...(storeId ? { store_id: storeId, owner_ids: ownerIds } : {}),
+      tokens_found: r.tokens_found,
+      sent: r.sent,
+      failed: r.failed,
+      removed: r.removed,
+      errors: r.not_configured ? [`FCM sozlanmagan: ${status.reason}`, ...r.errors] : r.errors,
+    };
   }
 
   @Delete(':token')

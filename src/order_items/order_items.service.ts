@@ -4,6 +4,7 @@ import { QueryTypes } from 'sequelize';
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { CreateOrderItemDto } from './dto/create-order_item.dto';
@@ -20,6 +21,8 @@ import { recordOrderEvent } from 'src/orders/order-events';
 
 @Injectable()
 export class OrderItemsService {
+  private readonly logger = new Logger('StorePush');
+
   constructor(
     @InjectModel(OrderItem)
     private readonly OrderItemRepository: typeof OrderItem,
@@ -273,10 +276,18 @@ export class OrderItemsService {
            FROM products p, orders o WHERE p.id = :product AND o.id = :order`,
         { replacements: { order: orderId, product: productId, item: itemId }, type: QueryTypes.SELECT },
       );
-      if (!row?.store_id || row.before > 0) return;
+      if (!row?.store_id) {
+        this.logger.warn(`Push: buyurtma #${orderId} — mahsulot ${productId} do'koni aniqlanmadi, yuborilmadi`);
+        return;
+      }
+      // Shu do'konning ikkinchi va keyingi qatorlari — push birinchisida ketgan
+      if (row.before > 0) return;
       // Saytda chiqarilgan KP (№28) o'z push'ini yuboradi ("N ta qatorga
       // narx kerak") — sotuvchini ikki marta bezovta qilmaymiz.
-      if (row.source === 'site_kp') return;
+      if (row.source === 'site_kp') {
+        this.logger.log(`Push: buyurtma #${orderId}, do'kon ${row.store_id} — site_kp, push KP chiqarilganda ketadi`);
+        return;
+      }
       // Topshiriq №31: matn mazmunli bo'lsin — "Chiller JV-65 va yana 2 ta
       // · 148 692 000 so'm". Narxsiz qator bo'lsa "KP so'rovi".
       if (row.kind === 'quote') {
@@ -292,8 +303,9 @@ export class OrderItemsService {
         }
       }
       await pushNewOrder(orderId, row.store_id);
-    } catch {
-      // push ixtiyoriy
+    } catch (e) {
+      // push ixtiyoriy — lekin jim qolmasin (topshiriq №32)
+      this.logger.warn(`Push: buyurtma #${orderId} — yuborishdan oldin xato: ${(e as Error).message}`);
     }
   }
 
