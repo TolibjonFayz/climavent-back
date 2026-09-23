@@ -1,4 +1,5 @@
 import { pushToStoreAdmins } from 'src/deliveries/push';
+import { pushNewOrder, pushQuoteRequest } from 'src/deliveries/store-push';
 import { QueryTypes } from 'sequelize';
 import {
   ForbiddenException,
@@ -276,12 +277,21 @@ export class OrderItemsService {
       // Saytda chiqarilgan KP (№28) o'z push'ini yuboradi ("N ta qatorga
       // narx kerak") — sotuvchini ikki marta bezovta qilmaymiz.
       if (row.source === 'site_kp') return;
-      const quote = row.kind === 'quote';
-      await pushToStoreAdmins([row.store_id], {
-        title: quote ? "Yangi KP so'rovi" : 'Yangi buyurtma',
-        body: `#${orderId}`,
-        data: { type: quote ? 'new_quote' : 'new_order', order_id: orderId },
-      });
+      // Topshiriq №31: matn mazmunli bo'lsin — "Chiller JV-65 va yana 2 ta
+      // · 148 692 000 so'm". Narxsiz qator bo'lsa "KP so'rovi".
+      if (row.kind === 'quote') {
+        const [need]: any[] = await this.orderRepository.sequelize.query(
+          `SELECT COUNT(*)::int AS n FROM "order-items" i
+             JOIN products p ON p.id = i.product_id
+            WHERE i.order_id = :order AND p.store_id = :store AND i.price IS NULL`,
+          { replacements: { order: orderId, store: row.store_id }, type: QueryTypes.SELECT },
+        );
+        if (Number(need?.n) > 0) {
+          await pushQuoteRequest(orderId, row.store_id, Number(need.n));
+          return;
+        }
+      }
+      await pushNewOrder(orderId, row.store_id);
     } catch {
       // push ixtiyoriy
     }

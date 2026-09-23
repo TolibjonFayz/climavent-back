@@ -6,8 +6,13 @@ import { DeviceToken } from './model/models';
 /**
  * Push-bildirishnomalar — FCM HTTP v1 (topshiriq №22, 7-band).
  *
- * Bitta xizmat iOS, Android va PWA (web-push) ni birga qoplaydi. Sozlama:
- *   FCM_PROJECT_ID, FCM_CLIENT_EMAIL, FCM_PRIVATE_KEY  (servis hisobi kaliti)
+ * Bitta xizmat iOS, Android va PWA (web-push) ni birga qoplaydi.
+ *
+ * SOZLAMA — ikki usuldan biri (topshiriq №31: kalit repoga yozilmaydi):
+ *   1) `FIREBASE_SERVICE_ACCOUNT` — Firebase'dan yuklab olingan servis
+ *      hisobi JSON'ining O'ZI (bir qatorga qo'yilgan holda ham bo'ladi);
+ *   2) alohida o'zgaruvchilar: `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`,
+ *      `FCM_PRIVATE_KEY`.
  * Sozlanmagan bo'lsa — hech narsa yuborilmaydi, faqat logga yoziladi.
  *
  * QOIDA: push yuborilmasa asosiy amal BUZILMAYDI. Hamma xato shu yerda yutiladi.
@@ -20,21 +25,67 @@ const API_BASE = () => process.env.FCM_API_BASE || 'https://fcm.googleapis.com';
 
 let cached: { token: string; exp: number } | null = null;
 
-const configured = () =>
-  Boolean(process.env.FCM_PROJECT_ID && process.env.FCM_CLIENT_EMAIL && process.env.FCM_PRIVATE_KEY);
+/**
+ * Muhit o'zgaruvchisida kalit bir qatorda bo'ladi: qator tashlash `\n` deb
+ * yoziladi. RSA kaliti haqiqiy qator tashlashni talab qiladi.
+ */
+const unescapeKey = (value: string) => String(value).split('\\n').join('\n');
+
+interface ServiceAccount {
+  projectId: string;
+  clientEmail: string;
+  privateKey: string;
+}
+
+/**
+ * Servis hisobi: avval `FIREBASE_SERVICE_ACCOUNT` (JSON), keyin alohida
+ * o'zgaruvchilar. `private_key` da qator tashlash matn sifatida kelishi
+ * normal — haqiqiy qatorga aylantiriladi (`unescapeKey`).
+ */
+function serviceAccount(): ServiceAccount | null {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (raw && raw.trim().startsWith('{')) {
+    try {
+      const j = JSON.parse(raw);
+      if (j.project_id && j.client_email && j.private_key) {
+        return {
+          projectId: String(j.project_id),
+          clientEmail: String(j.client_email),
+          privateKey: unescapeKey(j.private_key),
+        };
+      }
+      logger.error("FIREBASE_SERVICE_ACCOUNT ichida project_id/client_email/private_key yo'q");
+    } catch {
+      logger.error("FIREBASE_SERVICE_ACCOUNT JSON sifatida o'qilmadi");
+    }
+  }
+  const { FCM_PROJECT_ID, FCM_CLIENT_EMAIL, FCM_PRIVATE_KEY } = process.env;
+  if (FCM_PROJECT_ID && FCM_CLIENT_EMAIL && FCM_PRIVATE_KEY) {
+    return {
+      projectId: FCM_PROJECT_ID,
+      clientEmail: FCM_CLIENT_EMAIL,
+      privateKey: unescapeKey(FCM_PRIVATE_KEY),
+    };
+  }
+  return null;
+}
+
+const configured = () => serviceAccount() !== null;
 
 async function accessToken(): Promise<string> {
   if (cached && cached.exp > Date.now() + 60_000) return cached.token;
+  const sa = serviceAccount();
+  if (!sa) throw new Error('FCM sozlanmagan');
   const now = Math.floor(Date.now() / 1000);
   const assertion = jwt.sign(
     {
-      iss: process.env.FCM_CLIENT_EMAIL,
+      iss: sa.clientEmail,
       scope: 'https://www.googleapis.com/auth/firebase.messaging',
       aud: TOKEN_URL(),
       iat: now,
       exp: now + 3600,
     },
-    String(process.env.FCM_PRIVATE_KEY).replace(/\\n/g, '\n'),
+    sa.privateKey,
     { algorithm: 'RS256' },
   );
   const res = await fetch(TOKEN_URL(), {
@@ -53,10 +104,19 @@ export interface PushMessage {
   body: string;
   /** Ilova ichida qaysi ekranni ochish (hammasi satr bo'lishi shart — FCM talabi). */
   data?: Record<string, string | number>;
+  /**
+   * Android bildirishnoma kanali (topshiriq №31: Hamkor ilovasida `orders`).
+   *
+   * ATAYLAB IXTIYORIY: ilovada mavjud bo'lmagan kanal nomi yuborilsa
+   * Android bildirishnomani ko'rsatmasligi mumkin. Shuning uchun faqat
+   * kanali aniq bilingan ilovalar uchun beriladi.
+   */
+  channel?: string;
 }
 
 async function sendToToken(token: string, msg: PushMessage): Promise<'ok' | 'gone' | 'error'> {
-  const res = await fetch(`${API_BASE()}/v1/projects/${process.env.FCM_PROJECT_ID}/messages:send`, {
+  const sa = serviceAccount();
+  const res = await fetch(`${API_BASE()}/v1/projects/${sa?.projectId}/messages:send`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -64,6 +124,11 @@ async function sendToToken(token: string, msg: PushMessage): Promise<'ok' | 'gon
         token,
         notification: { title: msg.title, body: msg.body },
         data: Object.fromEntries(Object.entries(msg.data || {}).map(([k, v]) => [k, String(v)])),
+        android: {
+          // Buyurtma/KP xabari kechikmasin (ilova uxlab yotgan bo'lsa ham)
+          priority: 'HIGH',
+          ...(msg.channel ? { notification: { channel_id: msg.channel } } : {}),
+        },
       },
     }),
   });

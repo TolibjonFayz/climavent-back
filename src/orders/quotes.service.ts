@@ -13,6 +13,12 @@ import { QueryTypes, Transaction } from 'sequelize';
 import { OtpService } from 'src/otp/otp.service';
 import { pushToStoreAdmins } from 'src/deliveries/push';
 import { pushQuoteReady } from 'src/deliveries/customer-push';
+import {
+  pushQuoteAccepted,
+  pushQuoteRejected,
+  pushQuoteRequest,
+  pushQuoteRequestAgain,
+} from 'src/deliveries/store-push';
 import { Order } from './model/order.model';
 import { OrderQuote, QuoteItem } from './model/order-quote.model';
 import { OrderEvent, recordOrderEvent } from './order-events';
@@ -313,11 +319,8 @@ export class QuotesService {
       for (const [storeId, storeRows] of byStore) {
         const need = storeRows.filter((r) => r.price === null).length;
         if (!need) continue;
-        await pushToStoreAdmins([storeId], {
-          title: 'Mijoz KP oldi',
-          body: `#${orderId}: mijoz KP oldi, ${need} ta qatorga narx kerak`,
-          data: { type: 'site_quote_unpriced', order_id: orderId },
-        });
+        // Topshiriq №31: Hamkor ilovasi `quote_request` turini kutadi
+        await pushQuoteRequest(orderId, storeId, need);
       }
     }
 
@@ -338,9 +341,22 @@ export class QuotesService {
       rep.store = storeId;
     }
     const rows: any[] = await this.orderRepo.sequelize.query(
-      `SELECT i.product_model_id,
+      `SELECT i.product_id,
+              i.product_model_id,
               COALESCE(p.name_uz, p.name_ru, p.name_en) AS name,
-              COALESCE(c.title, i.product_model) AS model,
+              -- MODEL NOMI (topshiriq №30): modelli qatorda characteristic
+              -- sarlavhasi, modelsizda buyurtma paytidagi nom. Mahsulot
+              -- RAQAMI hech qachon model o'rnida qaytmaydi: eski qatorlarda
+              -- product_model ga mahsulot id si yozilib qolgan
+              -- ("158", "170") va Hamkor ilovasi uni model nomi deb
+              -- o'qishga majbur bo'lgan.
+              CASE
+                WHEN c.title IS NOT NULL THEN c.title
+                WHEN i.product_model IS NULL THEN NULL
+                WHEN btrim(i.product_model) IN ('', '-') THEN NULL
+                WHEN btrim(i.product_model) = i.product_id::text THEN NULL
+                ELSE i.product_model
+              END AS model,
               p.store_id,
               COUNT(DISTINCT i.order_id)::int AS requests,
               MAX(o."createdAt") AS last_requested_at
@@ -349,12 +365,18 @@ export class QuotesService {
          LEFT JOIN products p ON p.id = i.product_id
          LEFT JOIN characteristics c ON c.id = i.product_model_id
         WHERE i.price IS NULL AND o.kind = 'quote' ${cond}
-        GROUP BY i.product_model_id, p.name_uz, p.name_ru, p.name_en, c.title, i.product_model, p.store_id
+        GROUP BY i.product_id, i.product_model_id, p.name_uz, p.name_ru, p.name_en,
+                 c.title, i.product_model, p.store_id
         ORDER BY requests DESC, last_requested_at DESC
         LIMIT 200`,
       { replacements: rep, type: QueryTypes.SELECT },
     );
-    return rows.map((r) => ({ ...r, requests: Number(r.requests) }));
+    return rows.map((r) => ({
+      ...r,
+      product_id: r.product_id === null ? null : Number(r.product_id),
+      product_model_id: r.product_model_id === null ? null : Number(r.product_model_id),
+      requests: Number(r.requests),
+    }));
   }
 
   // ============================================================ 3-band: mijoz qabul qiladi / rad etadi
@@ -419,11 +441,7 @@ export class QuotesService {
     });
 
     const storeIds = [...new Set(latest.map((q) => q.store_id))];
-    await pushToStoreAdmins(storeIds, {
-      title: 'KP qabul qilindi',
-      body: `#${orderId}: mijoz KP ni qabul qildi`,
-      data: { type: 'quote_accepted', order_id: orderId },
-    });
+    await pushQuoteAccepted(orderId, storeIds);
 
     return {
       order_id: orderId,
@@ -457,11 +475,7 @@ export class QuotesService {
       });
     });
     const storeIds = [...new Set((await this.quotesOf(orderId)).map((q) => q.store_id))];
-    await pushToStoreAdmins(storeIds, {
-      title: 'KP rad etildi',
-      body: `#${orderId}${reason ? `: ${reason}` : ''}`.slice(0, 180),
-      data: { type: 'quote_rejected', order_id: orderId },
-    });
+    await pushQuoteRejected(orderId, storeIds, reason);
     return { order_id: orderId, status: 'cancelled', reason };
   }
 
@@ -490,11 +504,7 @@ export class QuotesService {
         transaction: t,
       });
     });
-    await pushToStoreAdmins([...new Set(latest.map((q) => q.store_id))], {
-      title: "Yangi KP so'raldi",
-      body: `#${orderId}: KP eskirgan, mijoz yangisini so'radi`,
-      data: { type: 'quote_requested_again', order_id: orderId },
-    });
+    await pushQuoteRequestAgain(orderId, [...new Set(latest.map((q) => q.store_id))]);
     return { order_id: orderId, status: 'new' };
   }
 

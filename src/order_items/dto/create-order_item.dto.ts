@@ -19,10 +19,24 @@ export class CreateOrderItemDto {
   @IsNotEmpty()
   product_id: number;
 
-  @ApiProperty({ example: 'HVAUSDHVOH', description: 'Model of product' })
+  /**
+   * Model NOMI — endi IXTIYORIY (topshiriq №30 ning sababi shu edi).
+   *
+   * Majburiy bo'lgani uchun mijozlar modeli yo'q mahsulotda bu maydonga
+   * nima bo'lsa shuni (masalan MAHSULOT RAQAMINI: "158") yuborishga majbur
+   * edi, keyin hisobotda o'sha raqam "model nomi" bo'lib chiqardi.
+   *
+   * Berilmasa server o'zi to'ldiradi: `product_model_id` bo'lsa
+   * characteristic sarlavhasidan, aks holda `-` (ya'ni "modeli yo'q").
+   */
+  @ApiProperty({
+    example: 'HVAUSDHVOH',
+    description: "Model nomi — ixtiyoriy. Berilmasa server modeldan oladi",
+    required: false,
+  })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  product_model: string;
+  product_model?: string;
 
   // Katalogdagi model. Berilmasa server `product_model` nomi bo'yicha shu
   // mahsulot ichidan topadi va o'zi yozib qo'yadi.

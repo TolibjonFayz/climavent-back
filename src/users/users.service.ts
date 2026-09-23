@@ -28,6 +28,7 @@ import { Like } from 'src/likes/model/like.model';
 import { Cart } from 'src/cart/models/cart.model';
 import { Op } from 'sequelize';
 import { ConsentService } from 'src/offers/consent.service';
+import { dropDeviceTokens } from 'src/deliveries/store-push';
 import {
   findUserRefreshToken,
   issueUserRefreshToken,
@@ -398,11 +399,15 @@ export class UsersService {
       { token_version: Number(user.token_version ?? 0) + 1, refresh_token: null },
       { where: { id } },
     );
+    await revokeAllUserRefreshTokens(id);
+    // Push ham kelmasin (topshiriq №31 qoidasi mijoz tomoni uchun ham)
+    await dropDeviceTokens('user', id);
     return { message: 'Sessiyalar bekor qilindi', user_id: id };
   }
 
   //Delete user by id
   async deleteUser(id: number) {
+    await dropDeviceTokens('user', id);
     const deleting = await this.UsersRepository.destroy({ where: { id: id } });
     if (deleting) return 'User deleted successfully';
     else throw new NotFoundException('User not found or something is wrong');

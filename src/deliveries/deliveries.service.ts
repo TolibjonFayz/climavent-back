@@ -60,6 +60,7 @@ import {
   pushCourierOnTheWay,
   pushOrderDelivered,
 } from './customer-push';
+import { pushDeliveryFailed } from './store-push';
 
 export interface Actor {
   type: ActorType;
@@ -80,6 +81,18 @@ const ORDER_EVENT_OF: Partial<Record<string, OrderEventName>> = {
   deliver: 'delivery_delivered',
   fail: 'delivery_failed',
   cancel: 'delivery_cancelled',
+};
+
+/**
+ * Yetkaza olmaslik sabablari — SOTUVCHI ko'radigan matn (topshiriq №31).
+ * Kod qiymatlari `constants.ts` dagi `FAILURE_REASONS` bilan bir xil.
+ */
+const FAILURE_TEXT: Record<string, string> = {
+  client_unreachable: 'Mijoz javob bermadi',
+  client_refused: 'Mijoz qabul qilmadi',
+  wrong_address: "Manzil noto'g'ri",
+  damaged: 'Tovar shikastlangan',
+  other: 'Boshqa sabab',
 };
 
 const STATUS_TIME: Partial<Record<DeliveryStatus, keyof Delivery>> = {
@@ -709,11 +722,14 @@ export class DeliveriesService {
     if (action === 'start') {
       await this.onTheWay(d, courier, code, track, rawToken);
     } else if (action === 'reject') {
-      await pushToStoreAdmins([d.store_id], {
-        title: 'Kuryer rad etdi',
-        body: `#${d.id}: ${courier.full_name} — ${body.comment}`.slice(0, 180),
-        data: { type: 'delivery_rejected', delivery_id: d.id },
-      });
+      // Topshiriq №31: ilova `delivery_failed` turini kutadi va `order_id`
+      // bilan buyurtma sahifasini ochadi.
+      await pushDeliveryFailed(
+        d.order_id,
+        d.id,
+        d.store_id,
+        `${firstName(courier.full_name)} rad etdi${body.comment ? `: ${body.comment}` : ''}`,
+      );
     }
     return this.present(d, { forCourier: true });
   }
@@ -861,11 +877,13 @@ export class DeliveriesService {
       return d;
     });
     await this.touchCourier(courier, dto);
-    await pushToStoreAdmins([d.store_id], {
-      title: 'Yetkazish amalga oshmadi',
-      body: `#${d.id}: ${dto.failure_reason}${dto.failure_comment ? ` — ${dto.failure_comment}` : ''}`.slice(0, 180),
-      data: { type: 'delivery_failed', delivery_id: d.id },
-    });
+    // Topshiriq №31: `order_id` MAJBURIY (ilova buyurtma sahifasini ochadi)
+    await pushDeliveryFailed(
+      d.order_id,
+      d.id,
+      d.store_id,
+      `${FAILURE_TEXT[dto.failure_reason] || dto.failure_reason}${dto.failure_comment ? ` — ${dto.failure_comment}` : ''}`,
+    );
     return this.present(d, { forCourier: true });
   }
 

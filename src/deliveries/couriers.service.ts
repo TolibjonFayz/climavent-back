@@ -14,6 +14,7 @@ import { ACTIVE_STATUSES } from './constants';
 import { CashHandover, Courier, CourierVehicle, CourierVehicleEvent, Delivery } from './model/models';
 import { CashHandoverDto, CreateCourierDto, UpdateCourierDto } from './dto/dto';
 import { pushToStoreAdmins } from './push';
+import { dropDeviceTokens } from './store-push';
 
 /**
  * Kuryerlar (topshiriq №22, 1-band).
@@ -291,6 +292,8 @@ export class CouriersService {
     if (!user) return;
     await user.update({ token_version: (user.token_version ?? 0) + 1, is_active: active } as any, { transaction });
     await revokeAllRefreshTokens(storeUserId);
+    // Nofaol qilingan hisobga push kelmasin (topshiriq №31 qoidasi)
+    if (!active) await dropDeviceTokens('store_user', storeUserId);
   }
 
   private async loginsOf(ids: number[]) {

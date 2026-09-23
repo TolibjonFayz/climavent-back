@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import * as bcrypt from 'bcrypt';
+import { dropDeviceTokens } from 'src/deliveries/store-push';
 import { DatabaseError, ForeignKeyConstraintError } from 'sequelize';
 import { StoreUser } from './model/store_user.model';
 import { Store } from 'src/stores/model/store.model';
@@ -116,8 +117,32 @@ export class StoreUsersService {
       payload.store_id = nextRole === 'superadmin' ? null : nextStoreId;
     }
 
+    // Til modelda e'lon qilinmagan (migratsiyadan oldin deploy bo'lsa
+    // `store_users` ga tegadigan hamma so'rov yiqilmasin) — xom SQL bilan.
+    const lang = payload.lang;
+    delete payload.lang;
+
     await this.storeUserRepository.update(payload, { where: { id } });
+    if (lang) await this.saveLang(id, lang);
+
+    // Hisob NOFAOL qilindi — qurilma tokenlari o'chadi, aks holda push
+    // chiqarilgan xodimning telefoniga kelib turardi (topshiriq №31).
+    if (dto.is_active === false || dto.password) {
+      await dropDeviceTokens('store_user', id);
+    }
     return this.getOneOrFail(id);
+  }
+
+  /** Bildirishnoma tili (`uz` | `ru` | `en`) — ustun modelda yo'q, xom SQL. */
+  private async saveLang(id: number, lang: string) {
+    try {
+      await this.storeUserRepository.sequelize.query(
+        'UPDATE store_users SET lang = :lang WHERE id = :id',
+        { replacements: { id, lang } },
+      );
+    } catch {
+      // `store_users.lang` ustuni yo'q — migratsiyadan keyin ishlaydi
+    }
   }
 
   // Kuryer hisobi profil bilan birga boshqariladi (№22): bu yerdan o'zgartirilsa
@@ -149,6 +174,8 @@ export class StoreUsersService {
       }
       throw e;
     }
+    // O'chirilgan hisobning qurilma tokenlari qolmasin (topshiriq №31)
+    await dropDeviceTokens('store_user', id);
     return { message: "Hisob o'chirildi" };
   }
 
