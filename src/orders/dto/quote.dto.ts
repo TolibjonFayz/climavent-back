@@ -71,6 +71,20 @@ export class AcceptQuoteDto {
   @Min(1)
   version: number;
 
+  @ApiProperty({
+    required: false,
+    type: [Number],
+    example: [41, 43],
+    description:
+      "Xaridor ko'rgan (qabul qilayotgan) KP versiyalari id si (№33, 4-band). " +
+      "Tayyor bo'limlarning oxirgi versiyalariga teng bo'lmasa — 409",
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsInt({ each: true })
+  quote_ids?: number[];
+
   @ApiProperty({ required: false, example: '"AIRCOOL" MChJ' })
   @IsOptional()
   @IsString()

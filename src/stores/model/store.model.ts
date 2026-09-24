@@ -99,6 +99,17 @@ export class Store extends Model<Store, StoreAtr> {
   @Column({ type: DataType.TEXT, allowNull: true })
   tin: string;
 
+  // Yagona Climavent KP hujjatidagi shartlar (topshiriq №33, 5-band).
+  // Hujjat do'kon №1 yozuvidan olinadi; boshqa do'konlarda ham saqlanadi
+  // (ichki hisob-kitob uchun), lekin xaridorga chiqmaydi.
+  @ApiProperty({ required: false, nullable: true, example: "Toshkent bo'ylab bepul, 3–5 ish kuni" })
+  @Column({ type: DataType.TEXT, allowNull: true })
+  default_delivery_terms: string;
+
+  @ApiProperty({ required: false, nullable: true, example: "100% oldindan, bank o'tkazmasi" })
+  @Column({ type: DataType.TEXT, allowNull: true })
+  default_payment_terms: string;
+
   // Eslatma: `@HasMany(() => Product)` ATAYLAB yo'q. Store `forRoot`
   // modellari ro'yxatida (User unga havola qiladi), Product esa emas —
   // teskari bog'lanish qo'shilsa "Product has not been defined" xatosi

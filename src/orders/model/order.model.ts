@@ -156,6 +156,15 @@ export class Order extends Model<Order, OrderAtr> {
   @Column({ type: DataType.STRING(500), allowNull: true })
   quote_reject_reason: string;
 
+  /**
+   * Topshiriq №33, 4-band: xaridor KP ning tayyor qismini qabul qilganda
+   * narxi hali kelmagan do'kon bo'limlari DAVOMI buyurtmaga ko'chadi.
+   * Davomi buyurtmada — asl buyurtma id si.
+   */
+  @ApiProperty({ required: false, nullable: true, example: 62 })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  parent_order_id: number;
+
   @HasMany(() => OrderItem)
   orderItems: OrderItem;
 }

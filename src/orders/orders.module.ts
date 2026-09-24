@@ -9,6 +9,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { OrderQuote } from './model/order-quote.model';
 import { OrderEvent } from './order-events';
 import { QuotesService } from './quotes.service';
+import { QuoteSectionJobs } from './quote-section.jobs';
 import { OtpModule } from 'src/otp/otp.module';
 import { OrderItemsModule } from 'src/order_items/order_items.module';
 
@@ -23,7 +24,7 @@ import { OrderItemsModule } from 'src/order_items/order_items.module';
     OrderItemsModule,
   ],
   controllers: [OrdersController],
-  providers: [OrdersService, QuotesService],
+  providers: [OrdersService, QuotesService, QuoteSectionJobs],
   exports: [OrdersService, QuotesService],
 })
 export class OrdersModule {}

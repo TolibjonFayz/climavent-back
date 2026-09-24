@@ -12,18 +12,28 @@ import { MailerService } from '@nestjs-modules/mailer';
 import { QueryTypes, Transaction } from 'sequelize';
 import { OtpService } from 'src/otp/otp.service';
 import { pushToStoreAdmins } from 'src/deliveries/push';
-import { pushQuoteReady } from 'src/deliveries/customer-push';
+import { pushQuoteReady, pushQuoteTimeout, pushQuoteUpdated } from 'src/deliveries/customer-push';
 import {
   pushQuoteAccepted,
   pushQuoteRejected,
   pushQuoteRequest,
   pushQuoteRequestAgain,
+  pushQuoteRequestReminder,
 } from 'src/deliveries/store-push';
 import { Order } from './model/order.model';
 import { OrderQuote, QuoteItem } from './model/order-quote.model';
 import { OrderEvent, recordOrderEvent } from './order-events';
 import { AcceptQuoteDto, RejectQuoteDto, SendQuoteDto } from './dto/quote.dto';
 import { defaultValidUntil, isQuoteExpired, quoteDueAt } from './quote-sla';
+import {
+  ensureSections,
+  markReady,
+  publicSection,
+  QuoteSection,
+  SECTION_REMIND_MS,
+  SECTION_TIMEOUT_MS,
+  sectionsOf,
+} from './quote-sections';
 
 const SITE_URL = (process.env.PUBLIC_SITE_URL || 'https://climavent.uz').replace(/\/+$/, '');
 
@@ -128,6 +138,12 @@ export class QuotesService {
       throw new BadRequestException("valid_until o'tmishda bo'lmasin");
     }
 
+    // Bo'limlar (№33): shu yuborishdan OLDIN birorta bo'lim tayyormidi —
+    // xaridorga `quote_ready` (birinchi) yoki `quote_updated` ketishini belgilaydi.
+    const seq = this.orderRepo.sequelize;
+    await ensureSections(seq, orderId);
+    const wasAnyReady = (await sectionsOf(seq, orderId)).some((x) => x.state === 'ready');
+
     const priceOf = new Map(dto.items.map((i) => [Number(i.order_item_id), Number(i.price)]));
     const quoteItems: QuoteItem[] = storeRows.map((r) => ({
       order_item_id: r.id,
@@ -181,11 +197,10 @@ export class QuotesService {
 
       await this.recomputeTotal(orderId, t);
 
-      // Buyurtmaning HAMMA qatoriga narx qo'yilgandagina holat `quote_sent`:
-      // aralash buyurtmada ikkinchi do'kon hali javob bermagan bo'lishi mumkin.
-      const fresh = await this.itemsOf(orderId, t);
-      const allPriced = fresh.length > 0 && fresh.every((r) => r.price !== null);
-      if (allPriced && order.status !== 'quote_sent') {
+      // Topshiriq №33: holat `quote_sent` — BIRORTA bo'lim tayyor bo'lganda
+      // (ilgari butun buyurtma narxlanganda edi). Bu yuborish shu do'kon
+      // bo'limini albatta tayyor qiladi: uning hamma qatoriga narx yozildi.
+      if (order.status !== 'quote_sent') {
         await this.orderRepo.update(
           { status: 'quote_sent' } as any,
           { where: { id: orderId }, transaction: t },
@@ -195,30 +210,28 @@ export class QuotesService {
         order_id: orderId,
         event: 'quote_sent',
         from_status: order.status,
-        to_status: allPriced ? 'quote_sent' : order.status,
+        to_status: 'quote_sent',
         actor_type: sender.is_super ? 'superadmin' : 'store',
         actor_id: sender.user_id,
         note: `v${version}, amal muddati ${validUntil}`,
         transaction: t,
       });
-      return {
-        created,
-        allPriced,
-        // Buyurtma BU chaqiruvdan oldin ham `quote_sent` bo'lgan bo'lsa,
-        // mijoz KP haqida allaqachon xabardor — qayta SMS ketmaydi
-        // (tekshiruv 21.09). Saytda darhol chiqqan KP (№28) ham shu yo'l
-        // bilan jim qoladi: mijoz uni ekranda ko'rib turibdi.
-        notifiedBefore: order.status === 'quote_sent',
-      };
+      return created;
     });
 
-    // SMS FAQAT birinchi to'liq KP da (tekshiruv 21.09): qayta yuborilgan
-    // versiyada mijozga SMS ketmaydi — e-pochta ketaveradi.
-    if (quote.allPriced) await this.notifyCustomer(orderId, { sms: !quote.notifiedBefore });
+    const sections = await sectionsOf(seq, orderId);
+    await markReady(seq, orderId, sections);
+    // SMS FAQAT birinchi tayyor bo'limda (tekshiruv 21.09): qayta yuborilgan
+    // versiya yoki keyingi bo'lim — push, SMS emas.
+    await this.notifySections(orderId, sections, {
+      firstReady: !wasAnyReady,
+      sms: !wasAnyReady && order.status !== 'quote_sent',
+    });
     return {
-      quote: quote.created.get({ plain: true }),
-      status: quote.allPriced ? 'quote_sent' : order.status,
+      quote: quote.get({ plain: true }),
+      status: 'quote_sent',
       order_id: orderId,
+      quote_sections: sections.map(publicSection),
     };
   }
 
@@ -228,14 +241,17 @@ export class QuotesService {
    * Savatdan olingan KP ning **v1 versiyasi** (topshiriq №28, 1-band).
    *
    * Nega kerak: narxi saytda BOR mahsulot uchun ham mijoz 1 ish kuni
-   * kutardi. Endi sayt narxlarini o'sha zahoti KP qilib beramiz; narxsiz
-   * qatorlar `price: null` bo'lib qoladi va sotuvchiga so'rov ochiladi.
+   * kutardi. Endi sayt narxlarini o'sha zahoti KP qilib beramiz.
+   *
+   * Topshiriq №33: v1 faqat HAMMA qatori narxlangan do'kon bo'limi uchun
+   * yaratiladi — narxsiz qator hujjatga tushmaydi. Qolgan bo'limlar
+   * "narx kutilmoqda" (`quote_sections`) va do'konga so'rov ochiladi.
    *
    * Narxlar `order_items.price` dan olinadi — ular qator qo'shilganda
    * `OrderPricingService` tomonidan AYNAN mijoz ko'rgan qoida bilan
    * (aksiya + joriy kurs) hisoblangan.
    *
-   * SMS **ketmaydi**: mijoz KP ni ekranda ko'rib turibdi.
+   * SMS **ketmaydi**: mijoz KP ni ekranda ko'rib turibdi (push ketadi).
    */
   async issueSiteQuote(orderId: number, actor: { id?: number | null; is_admin?: boolean } = {}) {
     const order = await this.orderRepo.findByPk(orderId);
@@ -266,10 +282,15 @@ export class QuotesService {
     }
     const validUntil = defaultValidUntil();
     const allPriced = rows.every((r) => r.price !== null);
+    // Topshiriq №33, 2-qaror: narxsiz qator HUJJATGA TUSHMAYDI. v1 faqat hamma
+    // qatori narxlangan do'kon bo'limi uchun yaratiladi; qolganlari
+    // "narx kutilmoqda" bo'lib turadi va do'kon narx yozganda qo'shiladi.
+    const readyStores = [...byStore].filter(([, storeRows]) => storeRows.every((r) => r.price !== null));
+    const seq = this.orderRepo.sequelize;
 
-    const created = await this.orderRepo.sequelize.transaction(async (t) => {
+    const created = await seq.transaction(async (t) => {
       const made: OrderQuote[] = [];
-      for (const [storeId, storeRows] of byStore) {
+      for (const [storeId, storeRows] of readyStores) {
         made.push(
           await this.quoteRepo.create(
             {
@@ -281,8 +302,7 @@ export class QuotesService {
                 name: r.name,
                 model: r.product_model,
                 quantity: Number(r.quantity),
-                // Narxsiz qator — jamiga qo'shilmaydi, sotuvchi to'ldiradi
-                price: r.price === null ? null : Number(r.price),
+                price: Number(r.price),
               })),
               valid_until: validUntil,
               delivery_terms: null,
@@ -296,39 +316,48 @@ export class QuotesService {
           ),
         );
       }
+      await ensureSections(seq, orderId, t);
       await this.recomputeTotal(orderId, t);
-      if (allPriced && order.status !== 'quote_sent') {
+      const anyReady = readyStores.length > 0;
+      if (anyReady && order.status !== 'quote_sent') {
         await this.orderRepo.update({ status: 'quote_sent' } as any, { where: { id: orderId }, transaction: t });
       }
       await recordOrderEvent({
         order_id: orderId,
         event: 'quote_sent',
         from_status: order.status,
-        to_status: allPriced ? 'quote_sent' : order.status,
+        to_status: anyReady ? 'quote_sent' : order.status,
         actor_type: 'system',
         actor_id: null,
-        note: `Saytda avtomatik (v1), amal muddati ${validUntil}`,
+        note: anyReady
+          ? `Saytda avtomatik (v1, ${readyStores.length}/${byStore.size} bo'lim), amal muddati ${validUntil}`
+          : "Saytda: narxlar do'kondan kutilmoqda",
         transaction: t,
       });
       return made;
     });
 
-    // Narxsiz qator bo'lsa — sotuvchiga aniq so'rov (umumiy "yangi KP
-    // so'rovi" push'i bu oqimda yuborilmaydi, ikki marta bezovta qilmaslik uchun).
-    if (!allPriced) {
-      for (const [storeId, storeRows] of byStore) {
-        const need = storeRows.filter((r) => r.price === null).length;
-        if (!need) continue;
-        // Topshiriq №31: Hamkor ilovasi `quote_request` turini kutadi
-        await pushQuoteRequest(orderId, storeId, need);
-      }
+    const sections = await sectionsOf(seq, orderId);
+    await markReady(seq, orderId, sections);
+
+    // Narxsiz bo'lim — do'konga aniq so'rov (umumiy "yangi KP so'rovi"
+    // push'i bu oqimda yuborilmaydi, ikki marta bezovta qilmaslik uchun).
+    for (const [storeId, storeRows] of byStore) {
+      const need = storeRows.filter((r) => r.price === null).length;
+      if (!need) continue;
+      // Topshiriq №31: Hamkor ilovasi `quote_request` turini kutadi
+      await pushQuoteRequest(orderId, storeId, need);
     }
+    // Tayyor bo'lim bo'lsa — xaridorga `quote_ready` (№33, tekshirish 1).
+    // SMS yo'q: xaridor KP ni ekranda ko'rib turibdi.
+    if (readyStores.length) await this.notifySections(orderId, sections, { firstReady: true, sms: false });
 
     return {
       order_id: orderId,
-      status: allPriced ? 'quote_sent' : order.status,
+      status: readyStores.length ? 'quote_sent' : order.status,
       all_priced: allPriced,
       quotes: created.map((q) => q.get({ plain: true })),
+      quote_sections: sections.map(publicSection),
     };
   }
 
@@ -380,41 +409,122 @@ export class QuotesService {
   }
 
   // ============================================================ 3-band: mijoz qabul qiladi / rad etadi
+  /**
+   * Xaridor KP ni qabul qiladi (№25, 3-band; №33, 4-band).
+   *
+   * Qabul qilinadigani — HUJJAT: barcha TAYYOR bo'limlar. Narxi hali
+   * kelmagan (yoki muddati o'tgan) bo'limlar shu buyurtmada QOLMAYDI — ular
+   * yangi DAVOMI buyurtmaga ko'chadi (`parent_order_id`), u `kind: quote`
+   * bo'lib qoladi va do'kon narx yozganda xaridorga alohida KP bo'lib keladi.
+   *
+   * Nega bitta buyurtma ichida "qabul qilingan bo'limlar ro'yxati" emas:
+   * qabul qilingan buyurtma to'lov, yetkazish va summa bilan yashaydi —
+   * ichida narxsiz qatorlar qolsa summa noma'lum bo'lib qolardi va
+   * yetkazish/hisobotlar har joyda "qisman qabul" ni hisobga olishi kerak edi.
+   *
+   * `dto.quote_ids` — xaridor ko'rgan (qabul qilayotgan) KP versiyalari.
+   * Ular hozirgi tayyor bo'limlarning oxirgi versiyalariga teng bo'lmasa
+   * (yangi bo'lim qo'shildi yoki narx yangilandi) — 409, sahifani yangilasin.
+   */
   async accept(orderId: number, dto: AcceptQuoteDto, requester: { id?: number; is_admin?: boolean }) {
     const order = await this.ownedOrder(orderId, requester);
+    const seq = this.orderRepo.sequelize;
     const quotes = await this.quotesOf(orderId);
-    if (!quotes.length) throw new ConflictException('Bu buyurtma uchun KP yuborilmagan');
 
-    // Topshiriq №28: saytda darhol chiqqan KP da narxsiz qator bo'lishi
-    // mumkin — bunday buyurtma `new` holatida turadi. Sabab TUSHUNARLI
-    // bo'lishi uchun bu tekshiruv holat tekshiruvidan OLDIN turadi
-    // (aks holda mijoz "new holatidagi KP" degan xabarni ko'rardi).
-    const rows = await this.itemsOf(orderId);
-    const unpriced = rows.filter((r) => r.price === null);
-    if (unpriced.length) {
+    await ensureSections(seq, orderId);
+    const sections = await sectionsOf(seq, orderId);
+    const ready = sections.filter((x) => x.state === 'ready');
+    // Tayyor bo'lim yo'q — sabab TUSHUNARLI bo'lishi uchun holat tekshiruvidan OLDIN
+    if (!ready.length) {
+      const unpriced = sections.reduce((n, x) => n + x.unpriced_count, 0);
+      if (!unpriced && !quotes.length) throw new ConflictException('Bu buyurtma uchun KP yuborilmagan');
       throw new ConflictException(
-        `Sotuvchi hali narx bermagan (${unpriced.length} ta qator) — KP to'liq bo'lganda SMS keladi`,
+        `Sotuvchi hali narx bermagan (${unpriced} ta qator) — KP tayyor bo'lganda xabar keladi`,
       );
     }
     if (order.status !== 'quote_sent') {
       throw new ConflictException(`${order.status} holatidagi KP ni qabul qilib bo'lmaydi`);
     }
 
-    // Har do'konning OXIRGI versiyasi. Mijoz eskirgan sahifada turgan
-    // bo'lsa (sotuvchi yangi narx yuborgan) — 409.
-    const latest = this.latestPerStore(quotes);
-    const maxVersion = Math.max(...latest.map((q) => q.version));
+    const readyQuotes = ready.map((x) => quotes.find((q) => q.id === x.quote_id)).filter(Boolean) as OrderQuote[];
+    const maxVersion = Math.max(...readyQuotes.map((q) => q.version));
     if (Number(dto.version) !== maxVersion) {
       throw new ConflictException(
         `KP yangilangan (joriy versiya ${maxVersion}) — sahifani yangilab, qayta ko'rib chiqing`,
       );
     }
-    const expired = latest.find((q) => isQuoteExpired(q.valid_until));
-    if (expired) {
+    if (dto.quote_ids?.length) {
+      const want = [...new Set(dto.quote_ids.map(Number))].sort((a, b) => a - b).join(',');
+      const have = readyQuotes
+        .map((q) => q.id)
+        .sort((a, b) => a - b)
+        .join(',');
+      if (want !== have) {
+        throw new ConflictException(
+          `KP yangilangan (tayyor bo'limlar: ${have}) — sahifani yangilab, qayta ko'rib chiqing`,
+        );
+      }
+    }
+    if (readyQuotes.some((q) => isQuoteExpired(q.valid_until))) {
       throw new ConflictException("KP eskirgan, yangisini so'rang");
     }
 
-    await this.orderRepo.sequelize.transaction(async (t) => {
+    const pending = sections.filter((x) => x.state !== 'ready');
+    const pendingStores = pending.map((x) => x.store_id);
+    const followupId = await seq.transaction(async (t) => {
+      let childId: number | null = null;
+      if (pendingStores.length) {
+        const src: any = order.get({ plain: true });
+        const child = await this.orderRepo.create(
+          {
+            user_id: src.user_id,
+            status: 'new',
+            kind: 'quote',
+            source: src.source ?? null,
+            location: src.location,
+            lat: src.lat ?? null,
+            lng: src.lng ?? null,
+            comment: src.comment ?? null,
+            company_name: dto.company_name?.trim() || src.company_name || null,
+            company_tin: dto.company_tin?.trim() || src.company_tin || null,
+            recipient_name: src.recipient_name ?? null,
+            recipient_phone: src.recipient_phone ?? null,
+            address_details: src.address_details ?? null,
+            parent_order_id: orderId,
+            totalAmount: null,
+          } as any,
+          { transaction: t },
+        );
+        childId = child.id;
+        const rep = { order: orderId, child: childId, stores: pendingStores };
+        // Qatorlar, bo'limlar (muddat sanog'i bilan) va shu do'konlarning
+        // eski KP versiyalari davomi buyurtmaga ko'chadi.
+        await seq.query(
+          `UPDATE "order-items" SET order_id = :child, "updatedAt" = now()
+            WHERE order_id = :order
+              AND product_id IN (SELECT id FROM products WHERE store_id IN (:stores))`,
+          { replacements: rep, transaction: t },
+        );
+        await seq.query(
+          `UPDATE order_quote_sections SET order_id = :child WHERE order_id = :order AND store_id IN (:stores)`,
+          { replacements: rep, transaction: t },
+        );
+        await seq.query(
+          `UPDATE order_quotes SET order_id = :child WHERE order_id = :order AND store_id IN (:stores)`,
+          { replacements: rep, transaction: t },
+        );
+        await this.recomputeTotal(childId, t);
+        await recordOrderEvent({
+          order_id: childId,
+          event: 'created',
+          to_status: 'new',
+          actor_type: 'customer',
+          actor_id: requester?.id ?? null,
+          note: `#${orderId} davomi: narxi kutilayotgan qism`,
+          transaction: t,
+        });
+      }
+
       await this.orderRepo.update(
         {
           // `kind` faqat SHU yo'l bilan quote -> order bo'ladi (№21 dagi
@@ -428,6 +538,14 @@ export class QuotesService {
         } as any,
         { where: { id: orderId }, transaction: t },
       );
+      for (const q of readyQuotes) {
+        await seq.query(
+          `UPDATE order_quote_sections SET accepted_at = now(), accepted_version = :v
+            WHERE order_id = :order AND store_id = :store`,
+          { replacements: { v: q.version, order: orderId, store: q.store_id }, transaction: t },
+        );
+      }
+      await this.recomputeTotal(orderId, t);
       await recordOrderEvent({
         order_id: orderId,
         event: 'quote_accepted',
@@ -435,20 +553,31 @@ export class QuotesService {
         to_status: 'new',
         actor_type: 'customer',
         actor_id: requester?.id ?? null,
-        note: `v${maxVersion}`,
+        note: `v${maxVersion}` + (childId ? `; narxsiz qism davomi #${childId} ga ajratildi` : ''),
         transaction: t,
       });
+      return childId;
     });
 
-    const storeIds = [...new Set(latest.map((q) => q.store_id))];
-    await pushQuoteAccepted(orderId, storeIds);
+    await pushQuoteAccepted(orderId, [...new Set(readyQuotes.map((q) => q.store_id))]);
+    // Narx kutayotgan do'konlar endi DAVOMI buyurtmaning narxini yozadi —
+    // eski push'dagi raqam bo'yicha ular qatorlarini topolmaydi.
+    if (followupId) {
+      for (const x of pending) {
+        if (x.unpriced_count > 0) await pushQuoteRequest(followupId, x.store_id, x.unpriced_count);
+      }
+    }
 
     return {
       order_id: orderId,
       kind: 'order',
       status: 'new',
       accepted_version: maxVersion,
-      message: 'KP qabul qilindi — buyurtma rasmiylashtirildi',
+      accepted_quote_ids: readyQuotes.map((q) => q.id),
+      followup_order_id: followupId,
+      message: followupId
+        ? `KP qabul qilindi — narxi kutilayotgan qism #${followupId} ga ajratildi`
+        : 'KP qabul qilindi — buyurtma rasmiylashtirildi',
     };
   }
 
@@ -636,8 +765,134 @@ export class QuotesService {
     );
   }
 
-  /** KP tayyor: mijozga SMS va (bo'lsa) e-pochta. */
-  private async notifyCustomer(orderId: number, opts: { sms: boolean } = { sms: true }) {
+  /**
+   * Bo'lim tayyor bo'ldi — xaridorga push (topshiriq №33, 1-band).
+   *
+   *   birinchi tayyor bo'lim (yoki bitta do'konli buyurtma) — `quote_ready`
+   *     (+ SMS/e-pochta, `sms` bo'lsa);
+   *   keyingi bo'lim / tayyor bo'limning yangi versiyasi — `quote_updated`.
+   * Bitta do'konli buyurtmada `quote_updated` ketmaydi.
+   */
+  private async notifySections(orderId: number, sections: QuoteSection[], opts: { firstReady: boolean; sms: boolean }) {
+    const ready = sections.filter((x) => x.state === 'ready').length;
+    const total = sections.length;
+    if (!ready) return;
+    if (opts.firstReady || total <= 1) {
+      await this.notifyCustomer(orderId, { sms: opts.sms, kind: 'ready', ready, total });
+    } else {
+      await this.notifyCustomer(orderId, { sms: false, kind: 'updated', ready, total });
+    }
+  }
+
+  // ============================================================ №33, 2-band: eslatma va muddat
+  /**
+   * Fon ishi (`QuoteSectionJobs`, 10 daqiqada bir):
+   *   4 soat  — bo'lim hali narxsiz: do'konga `quote_request_reminder`;
+   *   24 soat — bo'lim `timeout`: xaridorga `quote_timeout`, bo'lim KP dan tushadi.
+   * Belgilash `UPDATE ... WHERE ... IS NULL RETURNING` bilan — ikki nusxa
+   * (replika) bir vaqtda ishlasa ham push bir marta ketadi.
+   */
+  async sweepSections(now: Date = new Date(), only?: { orderIds?: number[] }) {
+    const seq = this.orderRepo.sequelize;
+    // Xavfsizlik to'ri: bo'limi yo'q ochiq KP lar (masalan qatorlar
+    // boshqa yo'l bilan qo'shilgan) — so'ralgan vaqt = buyurtma vaqti.
+    await seq.query(
+      `INSERT INTO order_quote_sections (order_id, store_id, requested_at)
+       SELECT DISTINCT o.id, p.store_id, o."createdAt"
+         FROM orders o
+         JOIN "order-items" i ON i.order_id = o.id
+         JOIN products p ON p.id = i.product_id
+        WHERE o.kind = 'quote' AND o.status IN ('new', 'quote_sent')
+          AND o."createdAt" > :since AND p.store_id IS NOT NULL
+       ON CONFLICT (order_id, store_id) DO NOTHING`,
+      { replacements: { since: new Date(now.getTime() - 3 * SECTION_TIMEOUT_MS) } },
+    );
+    const due: any[] = await seq.query(
+      `SELECT s.id, s.order_id, s.store_id, s.requested_at, s.reminded_at, s.timed_out_at, o.user_id
+         FROM order_quote_sections s JOIN orders o ON o.id = s.order_id
+        WHERE s.accepted_at IS NULL AND s.ready_at IS NULL
+          AND o.kind = 'quote' AND o.status IN ('new', 'quote_sent')
+          AND ((s.reminded_at IS NULL AND s.requested_at < :remind)
+            OR (s.timed_out_at IS NULL AND s.requested_at < :timeout))
+          ${only?.orderIds ? 'AND s.order_id IN (:only)' : ''}
+        ORDER BY s.id LIMIT 200`,
+      {
+        replacements: {
+          // Faqat sinov: haqiqiy buyurtmalarga tegmaslik uchun
+          only: only?.orderIds?.length ? only.orderIds : [0],
+          remind: new Date(now.getTime() - SECTION_REMIND_MS),
+          timeout: new Date(now.getTime() - SECTION_TIMEOUT_MS),
+        },
+        type: QueryTypes.SELECT,
+      },
+    );
+    const result = { reminded: 0, timed_out: 0 };
+    const cache = new Map<number, QuoteSection[]>();
+    for (const row of due) {
+      try {
+        const orderId = Number(row.order_id);
+        if (!cache.has(orderId)) cache.set(orderId, await sectionsOf(seq, orderId));
+        const sections = cache.get(orderId)!;
+        const sec = sections.find((x) => x.store_id === Number(row.store_id));
+        if (!sec) continue;
+        if (sec.state === 'ready') {
+          await markReady(seq, orderId, sections);
+          continue;
+        }
+        const age = now.getTime() - new Date(row.requested_at).getTime();
+        if (age >= SECTION_TIMEOUT_MS && !row.timed_out_at) {
+          const [marked]: any = await seq.query(
+            `UPDATE order_quote_sections SET timed_out_at = :now, reminded_at = COALESCE(reminded_at, :now)
+              WHERE id = :id AND timed_out_at IS NULL RETURNING id`,
+            { replacements: { id: row.id, now }, type: QueryTypes.SELECT },
+          );
+          if (!marked) continue;
+          result.timed_out++;
+          await recordOrderEvent({
+            order_id: orderId,
+            event: 'quote_section_timeout',
+            actor_type: 'system',
+            actor_id: null,
+            // Izoh xaridorga ham ko'rinadi — do'kon ko'rsatilmaydi (№33, 1-qaror)
+            note: `24 soatda narx berilmadi (${sec.unpriced_count} ta qator)`,
+          });
+          await pushQuoteTimeout(
+            orderId,
+            row.user_id,
+            sec.unpriced_count || sec.item_count,
+            sections.some((x) => x.state === 'ready'),
+          );
+        } else if (age >= SECTION_REMIND_MS && !row.reminded_at) {
+          const [marked]: any = await seq.query(
+            `UPDATE order_quote_sections SET reminded_at = :now
+              WHERE id = :id AND reminded_at IS NULL RETURNING id`,
+            { replacements: { id: row.id, now }, type: QueryTypes.SELECT },
+          );
+          if (!marked) continue;
+          result.reminded++;
+          const hoursLeft = Math.max(1, Math.round((SECTION_TIMEOUT_MS - age) / 3_600_000));
+          await pushQuoteRequestReminder(orderId, sec.store_id, sec.unpriced_count || sec.item_count, hoursLeft);
+        }
+      } catch (e) {
+        this.logger.warn(`KP bo'limi (#${row.order_id}, do'kon ${row.store_id}): ${(e as Error).message}`);
+      }
+    }
+    if (result.reminded || result.timed_out) {
+      this.logger.log(`KP bo'limlari: ${result.reminded} ta eslatma, ${result.timed_out} ta muddat o'tdi`);
+    }
+    return result;
+  }
+
+  /** Bo'limlar (xaridor/adminka javobi uchun). */
+  async sectionsFor(orderId: number) {
+    return sectionsOf(this.orderRepo.sequelize, orderId);
+  }
+
+  /** KP tayyor/yangilandi: push har safar; SMS va e-pochta faqat `quote_ready` da. */
+  private async notifyCustomer(
+    orderId: number,
+    opts: { sms: boolean; kind: 'ready' | 'updated'; ready: number; total: number },
+  ) {
     const [row]: any[] = await this.orderRepo.sequelize.query(
       `SELECT u.id AS user_id, u.phone_number, u.email, u.name
          FROM orders o JOIN users u ON u.id = o.user_id WHERE o.id = :id`,
@@ -646,9 +901,12 @@ export class QuotesService {
     if (!row) return;
 
     // Push HAR SAFAR ketadi (topshiriq №29, 4-band): SMS pullik va faqat
-    // birinchi to'liq KP da yuboriladi, push esa bepul — ilova ochiq bo'lsa
-    // xaridor KP yangilanganini ham darhol ko'radi.
-    await pushQuoteReady(orderId, row.user_id);
+    // birinchi tayyor KP da yuboriladi, push esa bepul.
+    if (opts.kind === 'updated') {
+      await pushQuoteUpdated(orderId, row.user_id, opts.ready, opts.total);
+      return;
+    }
+    await pushQuoteReady(orderId, row.user_id, opts.ready, opts.total);
     const link = `${SITE_URL}/profile/orders/${orderId}`;
     // SMS havolasi — **protokolsiz qisqa yo'l** `/p/:id` (sayt uni
     // `/profile/orders/:id` ga yo'naltiradi). Shablon #90540 aynan shunday.

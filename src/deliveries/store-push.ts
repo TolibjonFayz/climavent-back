@@ -161,6 +161,20 @@ export const pushQuoteRequest = (orderId: number, storeId: number, unpriced: num
     data: { type: 'quote_request', order_id: orderId, unpriced },
   }));
 
+/**
+ * 4 soat o'tdi, bo'lim hali narxsiz (topshiriq №33, 2-band). 24 soatda
+ * bo'lim xaridor KP sidan tushib qoladi — matnda qolgan vaqt.
+ */
+export const pushQuoteRequestReminder = (orderId: number, storeId: number, unpriced: number, hoursLeft: number) =>
+  send([storeId], (lang) => ({
+    title: lang === 'ru' ? `Ожидается КП #${orderId}` : `KP so'rovi kutilmoqda #${orderId}`,
+    body:
+      lang === 'ru'
+        ? `${unpriced} поз. без цены — осталось ~${hoursLeft} ч`
+        : `${unpriced} ta qator narxsiz — ~${hoursLeft} soat qoldi`,
+    data: { type: 'quote_request_reminder', order_id: orderId, unpriced, hours_left: hoursLeft },
+  }));
+
 /** Mijoz KP ni qabul qildi. */
 export const pushQuoteAccepted = (orderId: number, storeIds: number[]) =>
   send(storeIds, (lang) => ({

@@ -27,6 +27,7 @@ import { QuotesService } from './quotes.service';
 import { OrderQuote } from './model/order-quote.model';
 import { OrderEvent, publicOrderEvent, recordOrderEvent } from './order-events';
 import { quoteDueAt } from './quote-sla';
+import { publicSection, sectionsOf } from './quote-sections';
 
 @Injectable()
 export class OrdersService {
@@ -52,6 +53,29 @@ export class OrdersService {
     // Mijozga `actor_id` berilmaydi — kim ishlaganini bilishi shart emas.
     plain.events = opts.forCustomer ? events.map(publicOrderEvent) : events.map((e) => e.get({ plain: true }));
     if (plain.kind === 'quote') plain.quote_due_at = quoteDueAt(plain.createdAt);
+
+    // Topshiriq №33, 3-band: bo'lim holati SERVERDAN — ilova, sayt va
+    // adminka taxmin qilmasin. Har `quote` ga o'z do'kon bo'limining holati
+    // qo'shiladi; `quote_sections` — narxi hali kelmagan bo'limlar ham
+    // (ularning `quote` i yo'q). Xaridorga do'kon NOMI berilmaydi.
+    const sections = await sectionsOf(OrderQuote.sequelize, plain.id);
+    const byStore = new Map(sections.map((x) => [x.store_id, x]));
+    plain.quote_sections = sections.map(publicSection);
+    for (const q of plain.quotes) {
+      const sec = byStore.get(q.store_id);
+      if (!sec) continue;
+      const latest = sec.quote_id === q.id;
+      q.state = latest ? sec.state : 'superseded';
+      q.unpriced_count = latest ? sec.unpriced_count : null;
+      q.requested_at = sec.requested_at;
+      q.deadline_at = sec.deadline_at;
+    }
+    // 4-band: qabul qilinganda narxsiz qism ajratilgan davomi buyurtmalar
+    const followups: any[] = await OrderQuote.sequelize.query(
+      'SELECT id, kind, status FROM orders WHERE parent_order_id = :id ORDER BY id',
+      { replacements: { id: plain.id }, type: 'SELECT' as any },
+    );
+    plain.followup_orders = followups;
     return plain;
   }
 
@@ -118,6 +142,7 @@ export class OrdersService {
       // Sayt KP sahifasini shundan chizadi
       response.quotes = quote.quotes;
       response.all_priced = quote.all_priced;
+      response.quote_sections = quote.quote_sections;
     }
     return response;
   }

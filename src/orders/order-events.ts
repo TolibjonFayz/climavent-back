@@ -10,6 +10,8 @@ export const ORDER_EVENTS = [
   'quote_accepted',
   'quote_rejected',
   'quote_requested_again',
+  // №33: do'kon bo'limi 24 soatda narx bermadi
+  'quote_section_timeout',
   'delivery_created',
   'delivery_assigned',
   'delivery_started',

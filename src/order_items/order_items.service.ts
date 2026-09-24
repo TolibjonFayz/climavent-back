@@ -18,6 +18,7 @@ import { OrderPricingService } from './order-pricing.service';
 import { RequestActor } from 'src/guards/customer_or_backoffice.guard';
 import { storeProductIds } from 'src/common/helpers/store-scope';
 import { recordOrderEvent } from 'src/orders/order-events';
+import { ensureSections } from 'src/orders/quote-sections';
 
 @Injectable()
 export class OrderItemsService {
@@ -280,6 +281,9 @@ export class OrderItemsService {
         this.logger.warn(`Push: buyurtma #${orderId} — mahsulot ${productId} do'koni aniqlanmadi, yuborilmadi`);
         return;
       }
+      // KP bo'limi (topshiriq №33): do'kon birinchi marta paydo bo'lganda
+      // muddat sanog'i shu paytdan boshlanadi. Bor bo'lsa — tegilmaydi.
+      if (row.kind === 'quote') await ensureSections(this.OrderItemRepository.sequelize, orderId);
       // Shu do'konning ikkinchi va keyingi qatorlari — push birinchisida ketgan
       if (row.before > 0) return;
       // Saytda chiqarilgan KP (№28) o'z push'ini yuboradi ("N ta qatorga

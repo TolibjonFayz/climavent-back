@@ -86,6 +86,15 @@ export class CreateStoreDto {
   @IsInt()
   sort_order?: number;
 
+  // KP hujjatidagi shartlar (topshiriq №33, 5-band)
+  @ApiProperty({ required: false, nullable: true, example: "Toshkent bo'ylab bepul, 3–5 ish kuni" })
+  @IsOptional() @IsString() @MaxLength(500)
+  default_delivery_terms?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, example: "100% oldindan, bank o'tkazmasi" })
+  @IsOptional() @IsString() @MaxLength(500)
+  default_payment_terms?: string | null;
+
   // ------------------------------------------------ rekvizitlar (№16, 8-band)
   // Ochiq (saytda ko'rinadi): legal_name, tin. Qolganlari yopiq —
   // `store_requisites` jadvalida. Kim o'zgartira olishi — `StoresService.update`.

@@ -57,15 +57,60 @@ export async function orderOwnerId(orderId: number): Promise<number | null> {
   }
 }
 
-/** KP tayyor (№25/№28) — SMS bilan birga. */
-export const pushQuoteReady = (orderId: number, userId?: number | null) =>
+/**
+ * KP pushlari (topshiriq №33, 1-band).
+ *
+ * DO'KON NOMI MATNDA YO'Q: egasining qarori (24.09) — KP Climavent nomidan
+ * bitta hujjat, tovar qaysi do'kondan kelishi xaridorga ko'rsatilmaydi.
+ * Shuning uchun "Jihozvent narxlarni yozdi" o'rniga umumiy matn va "2/3" hisob.
+ *
+ * `ready`/`total` — tayyor bo'limlar soni (`data` da ham, ilova ko'rsatishi uchun).
+ */
+export const pushQuoteReady = (orderId: number, userId?: number | null, ready = 1, total = 1) =>
   send(userId, (lang) => ({
-    title: lang === 'ru' ? 'КП готово' : 'KP tayyor',
+    title: lang === 'ru' ? `КП готово #${orderId}` : `KP tayyor #${orderId}`,
+    body:
+      total > 1
+        ? lang === 'ru'
+          ? `Цены готовы (${ready}/${total}) — посмотрите`
+          : `Narxlar tayyor (${ready}/${total}) — ko'rib chiqing`
+        : lang === 'ru'
+          ? 'Цены готовы — посмотрите'
+          : "Narxlar yozildi — ko'rib chiqing",
+    data: { type: 'quote_ready', order_id: orderId, ready, total, path: `/orders/${orderId}` },
+  }));
+
+/** Keyingi bo'lim tayyor bo'ldi (yoki tayyor bo'lim yangi versiya oldi). */
+export const pushQuoteUpdated = (orderId: number, userId: number | null | undefined, ready: number, total: number) =>
+  send(userId, (lang) => ({
+    title: lang === 'ru' ? `КП обновлено #${orderId}` : `KP yangilandi #${orderId}`,
     body:
       lang === 'ru'
-        ? `#${orderId}: КП готово — посмотрите`
-        : `#${orderId}: KP tayyor — ko'rib chiqing`,
-    data: { type: 'quote_ready', order_id: orderId, path: `/orders/${orderId}` },
+        ? `Добавлены новые цены — ${ready}/${total}`
+        : `Yangi narxlar qo'shildi — ${ready}/${total}`,
+    data: { type: 'quote_updated', order_id: orderId, ready, total, path: `/orders/${orderId}` },
+  }));
+
+/** Bo'lim 24 soatda javob olmadi — tayyor qismi bilan davom etish mumkin. */
+export const pushQuoteTimeout = (
+  orderId: number,
+  userId: number | null | undefined,
+  items: number,
+  hasReady: boolean,
+) =>
+  send(userId, (lang) => ({
+    title:
+      lang === 'ru'
+        ? `Часть КП без ответа #${orderId}`
+        : `KP ning bir qismiga javob bo'lmadi #${orderId}`,
+    body: hasReady
+      ? lang === 'ru'
+        ? `${items} поз. без цены — можно продолжить с готовой частью`
+        : `${items} ta mahsulotga narx berilmadi — tayyor qismi bilan davom etishingiz mumkin`
+      : lang === 'ru'
+        ? `${items} поз. пока без цены — мы уточняем`
+        : `${items} ta mahsulotga hali narx berilmadi — aniqlashtiryapmiz`,
+    data: { type: 'quote_timeout', order_id: orderId, items, path: `/orders/${orderId}` },
   }));
 
 /** Buyurtma holati o'zgardi. */
