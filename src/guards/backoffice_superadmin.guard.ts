@@ -44,7 +44,7 @@ export class BackofficeSuperadminGuard implements CanActivate {
     if (ok && req.storeUser?.role === 'superadmin') return true;
 
     throw new ForbiddenException(
-      "Bu amal faqat superadmin uchun: kategoriyalar butun maydoncha uchun umumiy",
+      "Bu amal faqat superadmin uchun: u butun maydonchaga ta'sir qiladi (kategoriyalar, dollar kursi)",
     );
   }
 }

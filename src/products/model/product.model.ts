@@ -41,6 +41,7 @@ interface ProductAtr {
   isRishotka: boolean;
   is_active: boolean;
   store_id: number;
+  currency?: string;
 }
 
 @Table({ tableName: 'products' })
@@ -139,6 +140,13 @@ export class Product extends Model<Product, ProductAtr> {
   @ApiProperty({ example: true, description: "Mahsulot saytda ko'rinadimi" })
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })
   is_active: boolean;
+
+  // Narx valyutasi (topshiriq №37): modellar, variantlar va aksiya narxi SHU
+  // valyutada saqlanadi. Berilmasa do'konning `default_currency` si
+  // (`ProductsService.createProduct`). Kurs faqat USD narxlarga ta'sir qiladi.
+  @ApiProperty({ example: 'USD', enum: ['USD', 'UZS'], description: 'Narx valyutasi' })
+  @Column({ type: DataType.STRING(3), allowNull: false, defaultValue: 'USD' })
+  currency: string;
 
   @ApiProperty({ example: 'Size info', description: 'Product sizes' })
   @Column({

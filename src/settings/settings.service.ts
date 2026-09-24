@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/sequelize';
 import { Setting } from './model/setting.model';
 import { SettingEvent } from './model/setting-event.model';
 import { CbuService } from './cbu.service';
+import { setCachedRate } from 'src/common/pricing/currency';
 
 export const USD_RATE_KEY = 'usd_rate';
 /**
@@ -81,6 +82,8 @@ export class SettingsService {
       { where: { key: USD_RATE_KEY } },
     );
     await setting.reload();
+    // Javoblardagi so'm narxlari (№37) darhol yangi kurs bilan
+    setCachedRate(Number(setting.value));
 
     if (oldValue !== newValue) {
       await this.eventRepository.create({
@@ -199,6 +202,23 @@ export class SettingsService {
       limit,
       offset: (page - 1) * limit,
     });
-    return { rows, total: count, page, limit };
+    // `changed_by` (topshiriq №37) — `actor` ning o'zi: login, `user:<id>`
+    // (sayt admini) yoki `service-key`. Eski `actor` maydoni qoldi.
+    return {
+      rows: rows.map((r) => ({ ...r.get({ plain: true }), changed_by: r.actor ?? null })),
+      total: count,
+      page,
+      limit,
+    };
+  }
+
+  /** Kurs ta'sir qiladigan (USD) va qilmaydigan (UZS) mahsulotlar soni (№37). */
+  async rateImpact() {
+    const rows: any[] = await this.settingRepository.sequelize.query(
+      `SELECT currency, count(*)::int AS n FROM products GROUP BY currency`,
+      { type: 'SELECT' as any },
+    );
+    const n = (c: string) => rows.find((r) => r.currency === c)?.n ?? 0;
+    return { usd_products: n('USD'), uzs_products: n('UZS') };
   }
 }

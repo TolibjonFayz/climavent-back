@@ -18,7 +18,6 @@ import {
 } from '@nestjs/swagger';
 import { SettingsService } from './settings.service';
 import { UpdateUsdRateDto, UpdateUsdRateAutoDto } from './dto/update-usd-rate.dto';
-import { JwtOrServiceKeyGuard } from 'src/guards/jwt_or_service_key.guard';
 import { BackofficeSuperadminGuard } from 'src/guards/backoffice_superadmin.guard';
 
 @ApiTags('Settings')
@@ -34,13 +33,16 @@ export class SettingsController {
     return this.settingsService.getUsdRate();
   }
 
-  // Faqat admin (yoki xizmat kaliti bilan bot).
+  // Servis kaliti (bot), sayt admini yoki do'kon panelining SUPERADMINI
+  // (topshiriq №37, 1-qism: avval `store-auth` tokeni 401 olardi). Do'kon
+  // admini va xodim — 403. Tarixga `actor` = token egasining logini.
   // Qo'lda yangilash topshiriq №19, 3-bandda ham saqlanib qoldi: avtomatik
   // manba ishlamay qolsa, kursni qo'lda qo'yish imkoni yo'qolmasin.
-  @ApiOperation({ summary: "Kursni qo'lda o'rnatish (admin/bot)" })
+  @ApiOperation({ summary: "Kursni qo'lda o'rnatish (superadmin/bot)" })
   @ApiBearerAuth()
   @ApiSecurity('service-key')
-  @UseGuards(JwtOrServiceKeyGuard)
+  @ApiResponse({ status: 403, description: "Do'kon admini / xodim" })
+  @UseGuards(BackofficeSuperadminGuard)
   @Patch('usd-rate')
   async updateUsdRate(@Body() dto: UpdateUsdRateDto, @Req() req: any) {
     return this.settingsService.updateUsdRate(dto.rate, {
@@ -62,7 +64,7 @@ export class SettingsController {
   @ApiSecurity('service-key')
   @ApiResponse({ status: 200, schema: { example: { rate: 12185, changed: true } } })
   @ApiResponse({ status: 503, description: 'Markaziy bank javob bermadi — eski kurs qoldi' })
-  @UseGuards(JwtOrServiceKeyGuard)
+  @UseGuards(BackofficeSuperadminGuard)
   @HttpCode(200)
   @Post('usd-rate/refresh')
   async refreshUsdRate(@Req() req: any) {
@@ -102,6 +104,20 @@ export class SettingsController {
       actor: this.actor(req),
       ip: req.ip,
     });
+  }
+
+  /**
+   * Kurs nechta mahsulotga ta'sir qiladi (topshiriq №37): faqat USD narxlilar.
+   * Adminka kurs sahifasida "Kurs faqat dollardagi N ta mahsulotga ta'sir qiladi".
+   */
+  @ApiOperation({ summary: "Kurs ta'sir qiladigan mahsulotlar soni (superadmin)" })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @ApiResponse({ status: 200, schema: { example: { usd_products: 150, uzs_products: 27 } } })
+  @UseGuards(BackofficeSuperadminGuard)
+  @Get('usd-rate/impact')
+  async impact() {
+    return this.settingsService.rateImpact();
   }
 
   /** Kim, qachon, qaysi qiymatdan qaysisiga o'zgartirgan (topshiriq №19, 3-band). */

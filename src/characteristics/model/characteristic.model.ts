@@ -43,13 +43,13 @@ export class Characteristic extends Model<Characteristic, CharasteristicAtr> {
   })
   title: string;
 
-  // Narx (USD). NUMERIC(10,2) — `product-model-inside.price` bilan bir xil,
+  // Narx — MAHSULOT VALYUTASIDA (`currency`, №37; standart USD). NUMERIC(14,2) — `product-model-inside.price` bilan bir xil,
   // o'nlik son qabul qilinadi. Sequelize DECIMAL'ni SATR qaytaradi
   // ("120.50"), shuning uchun bu yerda number'ga o'giramiz — mijoz
   // tomonda kursga ko'paytirishda chalkashlik bo'lmasin.
   @ApiProperty({ example: 25000.5, description: 'Price of the character' })
   @Column({
-    type: DataType.DECIMAL(10, 2),
+    type: DataType.DECIMAL(14, 2),
     allowNull: false,
     get(this: Characteristic): number | null {
       const raw = this.getDataValue('price');
@@ -63,7 +63,7 @@ export class Characteristic extends Model<Characteristic, CharasteristicAtr> {
   // (`SalePresentationInterceptor`), adminkaga xom qiymat + `sale_active`.
   @ApiProperty({ example: 103.12, required: false, nullable: true, description: 'Aksiya narxi (USD)' })
   @Column({
-    type: DataType.DECIMAL(10, 2),
+    type: DataType.DECIMAL(14, 2),
     allowNull: true,
     get(this: any): number | null {
       const raw = this.getDataValue('sale_price');
@@ -79,6 +79,12 @@ export class Characteristic extends Model<Characteristic, CharasteristicAtr> {
   @ApiProperty({ required: false, nullable: true, description: 'Aksiya tugashi' })
   @Column({ type: DataType.DATE, allowNull: true })
   sale_ends_at: Date;
+
+  // Valyuta (topshiriq №37) — mahsulotnikining NUSXASI, DB trigger'i yozadi.
+  // Kod uni yozmaydi; javob interceptori narxni shu bo'yicha aylantiradi.
+  @ApiProperty({ example: 'USD', enum: ['USD', 'UZS'], description: "Narx valyutasi (mahsulotdan, faqat o'qiladi)" })
+  @Column({ type: DataType.STRING(3), allowNull: false, defaultValue: 'USD' })
+  currency: string;
 
   @ApiProperty({
     example: 'BO 45 information',

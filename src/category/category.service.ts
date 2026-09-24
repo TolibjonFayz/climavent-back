@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Op } from 'sequelize';
+import { sortPriceUzs } from 'src/common/pricing/sale';
+import { currentUsdRate } from 'src/common/pricing/currency';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { Product } from 'src/products/model/product.model';
@@ -125,18 +127,18 @@ export class CategoryService {
     return this.sortByCharacteristicPrice(products, sortbyCategoryIdProduct.price);
   }
 
-  // Product'ning eng arzon modeli (characteristics ichidagi eng kichik narx)
-  private getMinCharacteristicPrice(product: Product): number {
-    const prices = (product.characters || []).map((c) => c.price);
-    return prices.length ? Math.min(...prices) : 0;
-  }
-
-  private sortByCharacteristicPrice(products: Product[], direction: string) {
-    return [...products].sort((a, b) => {
-      const diff =
-        this.getMinCharacteristicPrice(a) - this.getMinCharacteristicPrice(b);
-      return direction === 'ASC' ? diff : -diff;
+  // Narx bo'yicha saralash — `products/bysort` dagi bilan bir xil qoida:
+  // amaldagi eng arzon narx, SO'MDA taqqoslanadi (topshiriq №37 — USD va UZS
+  // mahsulotlar aralash), narxsizlar har ikki yo'nalishda OXIRIDA.
+  private async sortByCharacteristicPrice(products: Product[], direction: string) {
+    const now = Date.now();
+    const rate = await currentUsdRate(this.productRepository.sequelize);
+    const keyed = products.map((p) => ({ p, k: sortPriceUzs(p as any, rate, now) }));
+    keyed.sort((a, b) => {
+      if (a.k === Infinity || b.k === Infinity) return a.k === b.k ? 0 : a.k === Infinity ? 1 : -1;
+      return direction === 'ASC' ? a.k - b.k : b.k - a.k;
     });
+    return keyed.map((x) => x.p);
   }
 
   //Get category by id

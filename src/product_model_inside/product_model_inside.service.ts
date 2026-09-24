@@ -4,6 +4,7 @@ import { CreateProductModelInsideDto } from './dto/create-product_model_inside.d
 import { UpdateProductModelInsideDto } from './dto/update-product_model_inside.dto';
 import { ProductModelInside } from './models/product_model_inside.model';
 import { resolveSaleUpdate } from 'src/common/pricing/sale-update';
+import { assertPriceInput, isCurrency } from 'src/common/pricing/currency';
 
 @Injectable()
 export class ProductModelInsideService {
@@ -30,7 +31,19 @@ export class ProductModelInsideService {
 
   // Yangi product-model-inside qo'shish
   async create(createProductModelInsideDto: CreateProductModelInsideDto) {
-    return this.productModelInsideRepository.create(createProductModelInsideDto);
+    // Narx mahsulot valyutasida (№37); valyutani trigger modeldan oladi
+    const payload: any = { ...createProductModelInsideDto };
+    assertPriceInput(payload, await this.modelCurrency(payload.product_model_id));
+    delete payload.currency;
+    return this.productModelInsideRepository.create(payload);
+  }
+
+  private async modelCurrency(modelId: unknown) {
+    const [row]: any[] = await this.productModelInsideRepository.sequelize.query(
+      'SELECT currency FROM characteristics WHERE id = :id',
+      { replacements: { id: Number(modelId) || 0 }, type: 'SELECT' as any },
+    );
+    return isCurrency(row?.currency) ? row.currency : 'USD';
   }
 
   // Hammasi (page/limit ixtiyoriy — berilmasa to'liq ro'yxat qaytadi)
@@ -69,6 +82,16 @@ export class ProductModelInsideService {
     updateProductModelInsideDto: UpdateProductModelInsideDto,
   ) {
     const item = await this.findOne(id);
+    const dto: any = updateProductModelInsideDto;
+    assertPriceInput(
+      dto,
+      dto.product_model_id !== undefined
+        ? await this.modelCurrency(dto.product_model_id)
+        : isCurrency(item.currency)
+          ? item.currency
+          : 'USD',
+    );
+    delete dto.currency;
     // Aksiya maydonlari tekshiriladi va sanalar Date ga aylantiriladi (№15)
     const sale = resolveSaleUpdate(item, updateProductModelInsideDto);
     const payload: Record<string, unknown> = { ...updateProductModelInsideDto };

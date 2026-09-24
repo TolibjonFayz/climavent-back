@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateProductDto {
   @ApiProperty({
@@ -81,6 +81,13 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   is_active?: boolean;
+
+  // Topshiriq №37. Berilmasa — do'konning `default_currency` si. Almashtirilsa
+  // narxlar AYLANTIRILMAYDI (javobda `prices_to_review`).
+  @ApiProperty({ example: 'UZS', enum: ['USD', 'UZS'], required: false, description: 'Narx valyutasi' })
+  @IsOptional()
+  @IsIn(['USD', 'UZS'], { message: "currency USD yoki UZS bo'lsin" })
+  currency?: 'USD' | 'UZS';
 
   @ApiProperty({ example: 2, description: "Do'kon id (MAJBURIY)" })
   @IsNumber()

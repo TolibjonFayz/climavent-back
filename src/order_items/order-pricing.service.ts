@@ -8,8 +8,10 @@ import { OrderItem } from './model/order_item.model';
 import { Order } from 'src/orders/model/order.model';
 import { emitOrderUpdated } from 'src/orders/order-signal';
 import { basePrice, effectivePrice, isSaleActive, pricedOptions } from 'src/common/pricing/sale';
+import { Currency, isCurrency, toUzs as convertToUzs } from 'src/common/pricing/currency';
 
-const PRICE_ATTRS = ['price', 'sale_price', 'sale_starts_at', 'sale_ends_at'];
+// `currency` — narx qatorining valyutasi (№37, trigger mahsulotdan yozadi)
+const PRICE_ATTRS = ['price', 'currency', 'sale_price', 'sale_starts_at', 'sale_ends_at'];
 
 export interface PricingInput {
   product_id: number;
@@ -49,7 +51,8 @@ export interface PricingResult {
  *      `null`: boshqa variantning narxini olish noto'g'ri bo'lardi);
  *   2. aks holda model: variantlaridan eng arzoni, bo'lmasa modelning
  *      o'z narxi;
- *   3. so'm = Math.round(usd * kurs).
+ *   3. so'm = Math.round(usd * kurs); mahsulot narxi SO'MDA kiritilgan bo'lsa
+ *      (topshiriq №37, `currency: UZS`) — kiritilganicha, kurssiz.
  *
  * AKSIYA (topshiriq №15, 5-band): "narx" — AMALDAGI narx: faol aksiya bo'lsa
  * aksiya narxi. Faollik shu yerda, buyurtma paytida qayta hisoblanadi — savatga
@@ -114,8 +117,10 @@ export class OrderPricingService {
       }
     }
 
-    const rate = usd === null ? null : await this.kurs();
-    const toUzs = (v: number | null) => (v !== null && rate !== null ? Math.round(v * rate) : null);
+    // Nomlar tarixiy (`usd`): aslida mahsulot valyutasidagi qiymat (№37)
+    const currency: Currency = isCurrency(characteristic?.currency) ? (characteristic!.currency as Currency) : 'USD';
+    const rate = usd === null || currency === 'UZS' ? null : await this.kurs();
+    const toUzs = (v: number | null) => convertToUzs(v, currency, rate);
     const endsAt = saleRow?.sale_ends_at ? new Date(saleRow.sale_ends_at as string) : null;
 
     return {

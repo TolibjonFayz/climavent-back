@@ -86,6 +86,13 @@ export class CreateStoreDto {
   @IsInt()
   sort_order?: number;
 
+  // Topshiriq №37: yangi mahsulotning standart narx valyutasi. Do'kon admini
+  // o'z do'konida o'zgartira oladi. Mavjud mahsulotlarga TA'SIR QILMAYDI.
+  @ApiProperty({ required: false, enum: ['USD', 'UZS'], default: 'USD' })
+  @IsOptional()
+  @IsIn(['USD', 'UZS'], { message: "default_currency USD yoki UZS bo'lsin" })
+  default_currency?: 'USD' | 'UZS';
+
   // KP hujjatidagi shartlar (topshiriq №33, 5-band)
   @ApiProperty({ required: false, nullable: true, example: "Toshkent bo'ylab bepul, 3–5 ish kuni" })
   @IsOptional() @IsString() @MaxLength(500)

@@ -87,6 +87,12 @@ export class Store extends Model<Store, StoreAtr> {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
   sort_order: number;
 
+  // Yangi mahsulotning standart narx valyutasi (topshiriq №37). O'zgartirish:
+  // do'kon admini (o'z do'koni) va superadmin.
+  @ApiProperty({ example: 'USD', enum: ['USD', 'UZS'], description: 'Narxlar odatda qaysi valyutada' })
+  @Column({ type: DataType.STRING(3), allowNull: false, defaultValue: 'USD' })
+  default_currency: string;
+
   // OCHIQ rekvizitlar (topshiriq №16, 8-band): saytda sotuvchining yuridik
   // nomi va STIR ko'rinishi elektron tijorat talabi bo'lishi mumkin.
   // Bank, rahbar, QQS esa `store_requisites` da — pastdagi eslatmaga qarang.

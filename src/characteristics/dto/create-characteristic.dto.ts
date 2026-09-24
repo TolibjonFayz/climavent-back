@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -44,9 +45,17 @@ export class CreateCharacteristicDto {
   @IsNotEmpty()
   contentJson: any;
 
-  @ApiProperty({ example: '25000', description: 'Price of the character' })
+  @ApiProperty({ example: '25000', description: "Narx — mahsulot valyutasida (USD yoki UZS; UZS da butun son >= 1000)" })
   @IsNumber()
   price: number;
+
+  // Topshiriq №37: narx MAHSULOT valyutasida. `currency` ixtiyoriy — faqat
+  // tekshiruv uchun: mahsulotnikidan farq qilsa 400 (valyuta shu yerda
+  // o'zgarmaydi — `PATCH /products/update/:id {currency}`).
+  @ApiProperty({ example: 'UZS', enum: ['USD', 'UZS'], required: false, description: "Tekshiruv: narx qaysi valyutada yuborilgan" })
+  @IsOptional()
+  @IsIn(['USD', 'UZS'], { message: "currency USD yoki UZS bo'lsin" })
+  currency?: 'USD' | 'UZS';
 
   @ApiProperty({ example: 1, description: 'Product id' })
   @IsNumber()

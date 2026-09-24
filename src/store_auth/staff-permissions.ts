@@ -157,6 +157,20 @@ const priceGuarded =
     return sent.some((f) => !same(body[f], row[f])) ? WITH_PRICE : 'products.edit';
   };
 
+/**
+ * Mahsulot valyutasi (№37) — narxlarning MA'NOSINI o'zgartiradi (5 000 000 $
+ * <-> 5 000 000 so'm), shuning uchun almashtirish `prices.edit` talab qiladi.
+ */
+const productUpdate = async (req: any): Promise<Need> => {
+  const cur = req.body?.currency;
+  if (cur === undefined || cur === null) return 'products.edit';
+  const [row] = (await StoreUser.sequelize.query('SELECT currency FROM products WHERE id = :id', {
+    replacements: { id: Number(req.params?.id) },
+    type: QueryTypes.SELECT,
+  })) as any[];
+  return row && row.currency !== cur ? WITH_PRICE : 'products.edit';
+};
+
 export const STAFF_ROUTES: Record<string, Rule> = {
   // --- o'z hisobi, kirish, qurilma (har qanday xodim)
   'POST /api/store-auth/login': 'any',
@@ -240,7 +254,7 @@ export const STAFF_ROUTES: Record<string, Rule> = {
   // --- mahsulotlar (narx — prices.edit)
   'GET /api/products/alladmin': 'products.view',
   'POST /api/products/create': priceGuarded(null),
-  'PATCH /api/products/update/:id': 'products.edit',
+  'PATCH /api/products/update/:id': productUpdate,
   'DELETE /api/products/delete/:id': 'products.edit',
   'POST /api/characteristics/create': priceGuarded(null),
   'PATCH /api/characteristics/update/:id': priceGuarded('characteristics'),

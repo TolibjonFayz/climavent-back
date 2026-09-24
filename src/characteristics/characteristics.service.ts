@@ -7,6 +7,7 @@ import { Op } from 'sequelize';
 import { R2Service } from 'src/r2/r2.service';
 import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
 import { resolveSaleUpdate } from 'src/common/pricing/sale-update';
+import { assertPriceInput, isCurrency } from 'src/common/pricing/currency';
 
 @Injectable()
 export class CharacteristicsService {
@@ -68,6 +69,9 @@ export class CharacteristicsService {
   ) {
     // update bilan AYNAN bir xil qoida (topshiriq №9, 2-band).
     const payload: any = { ...createCharacteristicsDto };
+    // Narx mahsulot valyutasida (№37); valyutani trigger mahsulotdan oladi
+    assertPriceInput(payload, await this.productCurrency(payload.product_id));
+    delete payload.currency;
     payload.content = await this.resolveContentField(payload.content);
     payload.contentJson = await this.resolveContentField(payload.contentJson);
 
@@ -153,6 +157,11 @@ export class CharacteristicsService {
         );
       }
     }
+    assertPriceInput(
+      payload as any,
+      payload.product_id !== undefined ? await this.productCurrency(payload.product_id) : this.rowCurrency(existing),
+    );
+    delete (payload as any).currency;
     const sale = resolveSaleUpdate(existing, payload);
     delete payload.sale_price;
     delete payload.sale_starts_at;
@@ -175,6 +184,18 @@ export class CharacteristicsService {
   // Modelni tanlash sonini +1 qiladi.
   // Atomik SQL increment (o'qib-yozish emas) — bir vaqtda kelgan so'rovlar
   // bir-birini bosib ketmaydi. Mavjud bo'lmagan id'da 404.
+  private async productCurrency(productId: unknown) {
+    const [row]: any[] = await this.charecteristicRepository.sequelize.query(
+      'SELECT currency FROM products WHERE id = :id',
+      { replacements: { id: Number(productId) || 0 }, type: 'SELECT' as any },
+    );
+    return isCurrency(row?.currency) ? row.currency : 'USD';
+  }
+
+  private rowCurrency(row: Characteristic) {
+    return isCurrency(row.currency) ? row.currency : 'USD';
+  }
+
   async incrementViews(id: number) {
     const existing = await this.charecteristicRepository.findByPk(id, {
       attributes: ['id'],

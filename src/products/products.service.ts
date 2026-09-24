@@ -22,7 +22,8 @@ import { Store } from 'src/stores/model/store.model';
 import { ProductImages } from 'src/product_images/model/product_image.model';
 import { ProductModelInside } from 'src/product_model_inside/models/product_model_inside.model';
 import { OrderItem } from 'src/order_items/model/order_item.model';
-import { ON_SALE_PRODUCT_IDS_SQL, sortPrice } from 'src/common/pricing/sale';
+import { ON_SALE_PRODUCT_IDS_SQL, sortPriceUzs } from 'src/common/pricing/sale';
+import { currentUsdRate, isCurrency } from 'src/common/pricing/currency';
 import {
   CatalogScope,
   PUBLIC_SCOPE,
@@ -44,6 +45,7 @@ const CARD_PRODUCT_ATTRIBUTES = [
   'producer',
   'quantity',
   'is_active',
+  'currency',
   'createdAt',
   'updatedAt',
 ];
@@ -74,6 +76,8 @@ export class ProductsService {
     const newProduct = await this.productRepository.create({
       ...createProductDto,
       producer: createProductDto.producer?.trim() || store.name,
+      // Topshiriq №37: berilmasa do'konning standart valyutasi
+      currency: isCurrency(createProductDto.currency) ? createProductDto.currency : store.default_currency || 'USD',
     } as any);
 
     return {
@@ -161,16 +165,16 @@ export class ProductsService {
         // yashirin do'kon tovarini qidiruvdan ham topmaydi.
         ...productVisibilityWhere(scope),
       },
-      attributes: ['id', 'name_uz', 'name_en', 'name_ru'],
+      attributes: ['id', 'name_uz', 'name_en', 'name_ru', 'currency'],
       include: [
         {
           model: Characteristic,
           as: 'characters',
-          attributes: ['id', 'title', 'price', ...SALE_ATTRS],
+          attributes: ['id', 'title', 'price', 'currency', ...SALE_ATTRS],
           required: false,
           // Narx SAP variantlarida — qidiruv ro'yxatida ham "dan"
           // narxini va aksiyani (№15) ko'rsatish uchun kerak.
-          include: [{ model: ProductModelInside, attributes: ['price', ...SALE_ATTRS] }],
+          include: [{ model: ProductModelInside, attributes: ['price', 'currency', ...SALE_ATTRS] }],
         },
         // Qidiruv ro'yxatida rasm va do'kon nomi ko'rsatiladi — faqat
         // matnli ro'yxat foydalanuvchiga kam narsa aytadi.
@@ -254,6 +258,8 @@ export class ProductsService {
         // Ro'yxatda do'konni ko'rsatish uchun — ilgari faqat `producer`
         // matni bor edi va adminka do'konni undan taxmin qilardi.
         'store_id',
+        // Tez narx kiritish mahsulot valyutasida (№37)
+        'currency',
       ],
       include: [
         'category',
@@ -352,7 +358,7 @@ export class ProductsService {
    * `min_sale_price` ni global interceptor shulardan hisoblaydi.
    */
   private cardInclude(): any[] {
-    const sale = ['price', 'sale_price', 'sale_starts_at', 'sale_ends_at'];
+    const sale = ['price', 'currency', 'sale_price', 'sale_starts_at', 'sale_ends_at'];
     return [
       {
         model: Characteristic,
@@ -377,9 +383,12 @@ export class ProductsService {
   // aksiyadagi mahsulot "arzondan qimmatga" ro'yxatida aksiya narxi o'rnida
   // turadi. Narx qoidasi kartadagidek (variant, bo'lmasa model). Narxsiz
   // mahsulotlar har ikki yo'nalishda ham OXIRIDA.
-  private sortByPrice(products: Product[], direction: string) {
+  //
+  // Taqqoslash SO'MDA (topshiriq №37): USD va UZS mahsulotlar aralash turadi.
+  private async sortByPrice(products: Product[], direction: string) {
     const now = Date.now();
-    const keyed = products.map((p) => ({ p, k: sortPrice(p as any, now) }));
+    const rate = await currentUsdRate(this.productRepository.sequelize);
+    const keyed = products.map((p) => ({ p, k: sortPriceUzs(p as any, rate, now) }));
     keyed.sort((a, b) => {
       if (a.k === Infinity || b.k === Infinity) {
         return a.k === b.k ? 0 : a.k === Infinity ? 1 : -1;
@@ -405,7 +414,7 @@ export class ProductsService {
         where,
         include: this.catalogInclude(),
       });
-      const sorted = this.sortByPrice(all, searchProductDto.price);
+      const sorted = await this.sortByPrice(all, searchProductDto.price);
       return sorted.slice(offset, offset + searchProductDto.limit);
     }
 
@@ -448,7 +457,7 @@ export class ProductsService {
         },
         include: this.catalogInclude(),
       });
-      const sorted = this.sortByPrice(all, sortbyCategoryIdProduct.price);
+      const sorted = await this.sortByPrice(all, sortbyCategoryIdProduct.price);
       return sorted.slice(0, sortbyCategoryIdProduct.limit);
     }
 
@@ -517,7 +526,7 @@ export class ProductsService {
   }
 
   //Update product by id
-  async updateProductById(id: number, updateProductDto: UpdateProductDto) {
+  async updateProductById(id: number, updateProductDto: UpdateProductDto): Promise<Record<string, any>> {
     const existing = await this.productRepository.findByPk(id);
     if (!existing) {
       throw new NotFoundException('Product not found or something wrong');
@@ -604,8 +613,25 @@ export class ProductsService {
       where: { id: id },
       returning: true,
     });
-    if (updated[1][0]?.dataValues) return updated[1][0].dataValues;
-    else throw new NotFoundException('Product not found or something wrong');
+    if (!updated[1][0]?.dataValues) throw new NotFoundException('Product not found or something wrong');
+
+    // Valyuta almashdi (topshiriq №37): narxlar AYLANTIRILMAYDI — sotuvchi
+    // qayta yozadi. Modellar/variantlar valyutasini trigger yangiladi;
+    // adminka ogohlantirishi uchun qayta ko'rilishi kerak bo'lgan narxlar soni.
+    if (updateProductDto.currency && updateProductDto.currency !== existing.currency) {
+      const [row]: any[] = await this.productRepository.sequelize.query(
+        `SELECT (SELECT count(*) FROM characteristics c WHERE c.product_id = :id AND c.price > 0)
+              + (SELECT count(*) FROM "product-model-inside" i JOIN characteristics c ON c.id = i.product_model_id
+                  WHERE c.product_id = :id AND i.price > 0) AS n`,
+        { replacements: { id }, type: Sequelize.QueryTypes.SELECT },
+      );
+      return {
+        ...updated[1][0].dataValues,
+        currency_changed: { from: existing.currency, to: updateProductDto.currency },
+        prices_to_review: Number(row?.n || 0),
+      };
+    }
+    return updated[1][0].dataValues;
   }
 
   //Delete product by id.

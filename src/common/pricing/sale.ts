@@ -5,7 +5,10 @@
 // Narx qoidasi (sayt va `OrderPricingService` bilan bir xil):
 //   modelda narxli SAP varianti bo'lsa — narx variantlardan;
 //   bo'lmasa — modelning o'zidan.
-// Hamma narxlar DOLLARDA.
+// Narxlar MAHSULOT VALYUTASIDA (№37: USD yoki UZS, bitta mahsulot ichida bitta).
+// Shu fayldagi hisoblar valyutadan qat'i nazar to'g'ri (bir valyuta ichida
+// taqqoslaydi); mahsulotlarni O'ZARO taqqoslash — `sortPriceUzs`.
+import { isCurrency, toUzs } from './currency';
 
 export interface SaleSource {
   price?: unknown;
@@ -128,6 +131,26 @@ export function productPriceSummary(p: ProductSource, now: number = Date.now()):
 export function sortPrice(p: ProductSource, now: number = Date.now()): number {
   const s = productPriceSummary(p, now);
   return s.min_sale_price ?? s.min_price ?? Infinity;
+}
+
+/**
+ * Turli valyutadagi mahsulotlarni taqqoslash uchun — SO'MDA (№37). Aks holda
+ * 1 000 so'm va 1 000 $ bir xil hisoblanardi. Kurs yo'q bo'lsa USD mahsulot
+ * dollar qiymati bilan qoladi (hammasi USD bo'lgan eski holatdagidek).
+ */
+export function sortPriceUzs(
+  p: ProductSource & { currency?: unknown },
+  rate: number | null,
+  now: number = Date.now(),
+): number {
+  const v = sortPrice(p, now);
+  if (v === Infinity) return v;
+  const cur = isCurrency(p.currency)
+    ? p.currency
+    : isCurrency((p.characters?.[0] as any)?.currency)
+      ? (p.characters![0] as any).currency
+      : 'USD';
+  return toUzs(v, cur, rate) ?? v;
 }
 
 /**

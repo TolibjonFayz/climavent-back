@@ -41,13 +41,14 @@ export class ProductModelInside extends Model<
   @ApiProperty({
     example: 120.5,
     description:
-      "Narx, DOLLARDA (USD). Diqqat: characteristics.price — SO'MDA. " +
+      "Narx, mahsulot valyutasida (`currency`: USD yoki UZS, topshiriq №37). " +
+      "Javobda `price` doim USD ekvivalenti, kiritilgani `price_input`, so'mda `price_uzs`. " +
       'NULL = narx kiritilmagan.',
     required: false,
     nullable: true,
   })
   @Column({
-    type: DataType.DECIMAL(10, 2),
+    type: DataType.DECIMAL(14, 2),
     allowNull: true,
     // Sequelize DECIMAL'ni string qaytaradi ("120.50"). Boshqa narx
     // ustunlari (INTEGER) number qaytargani uchun, mijoz tomonda kursga
@@ -64,7 +65,7 @@ export class ProductModelInside extends Model<
   // (`SalePresentationInterceptor`), adminkaga xom qiymat + `sale_active`.
   @ApiProperty({ example: 103.12, required: false, nullable: true, description: 'Aksiya narxi (USD)' })
   @Column({
-    type: DataType.DECIMAL(10, 2),
+    type: DataType.DECIMAL(14, 2),
     allowNull: true,
     get(this: any): number | null {
       const raw = this.getDataValue('sale_price');
@@ -80,6 +81,12 @@ export class ProductModelInside extends Model<
   @ApiProperty({ required: false, nullable: true, description: 'Aksiya tugashi' })
   @Column({ type: DataType.DATE, allowNull: true })
   sale_ends_at: Date;
+
+  // Valyuta (topshiriq №37) — mahsulotnikining NUSXASI, DB trigger'i yozadi.
+  // Kod uni yozmaydi; javob interceptori narxni shu bo'yicha aylantiradi.
+  @ApiProperty({ example: 'USD', enum: ['USD', 'UZS'], description: "Narx valyutasi (mahsulotdan, faqat o'qiladi)" })
+  @Column({ type: DataType.STRING(3), allowNull: false, defaultValue: 'USD' })
+  currency: string;
 
   // SAP varianti bo'yicha statistika — qaysi aniq variant qiziqish
   // uyg'otyapti va qaysisi savatga tushyapti.

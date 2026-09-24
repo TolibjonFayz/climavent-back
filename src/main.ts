@@ -9,6 +9,7 @@ import { BadInputFilter } from './common/filters/bad-input.filter';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { stripSensitiveFields } from './common/serialization/sensitive-fields';
 import { SalePresentationInterceptor } from './common/pricing/sale-presentation.interceptor';
+import { Sequelize } from 'sequelize-typescript';
 import { responseTime } from './common/middleware/response-time';
 import { logFcmStatus } from './deliveries/push';
 
@@ -143,7 +144,8 @@ const start = async () => {
     app.useGlobalFilters(new BadInputFilter(httpAdapterHost.httpAdapter));
     // Aksiya: mehmonga faqat FAOL aksiya, adminkaga xom qiymat + sale_active;
     // mahsulotga on_sale / min_price / min_sale_price (topshiriq №15).
-    app.useGlobalInterceptors(new SalePresentationInterceptor());
+    // Valyuta: price (USD), price_input, price_uzs (topshiriq №37) — kurs kerak.
+    app.useGlobalInterceptors(new SalePresentationInterceptor(app.get(Sequelize)));
 
     app.use(cookieParser());
     app.useGlobalPipes(
