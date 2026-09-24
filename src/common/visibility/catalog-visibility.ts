@@ -51,6 +51,10 @@ export function catalogScope(
   const kind = viewer?.kind ?? null;
   if (kind === 'service' || kind === 'superadmin') return { kind: 'all' };
   if (kind === 'site_admin' && opts.siteAdminSeesAll) return { kind: 'all' };
+  // Xodim `products.view` siz — mehmon kabi (№35)
+  if (kind === 'store_admin' && viewer?.permissions && !viewer.permissions.includes('products.view')) {
+    return PUBLIC_SCOPE;
+  }
   if (kind === 'store_admin' && viewer?.store_id) {
     return { kind: 'store', storeId: viewer.store_id };
   }

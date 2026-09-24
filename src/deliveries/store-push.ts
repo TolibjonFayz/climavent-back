@@ -6,7 +6,8 @@ import { emptyPushResult, logPush, mergeResults, pushTo, PushMessage } from './p
 /**
  * SOTUVCHIGA PUSH — "CV Hamkor" ilovasi (topshiriq №31).
  *
- * Kimga: do'konning barcha FAOL `store_admin` hisoblarining qurilmalariga.
+ * Kimga: do'konning barcha FAOL `store_admin` hisoblari + buyurtma/KP ruxsatli
+ * (`orders.view` yoki `carts.view`) faol XODIMLARI (topshiriq №35).
  * Matnlar SHU YERDA (uz/ru) — ilova faqat `data.type` ni o'qiydi.
  *
  * Har xabarda:
@@ -37,8 +38,11 @@ async function adminsByLang(storeIds: number[]): Promise<Map<Lang, number[]>> {
   let rows: any[] = [];
   try {
     rows = (await DeviceToken.sequelize.query(
-      `SELECT id, lang FROM store_users
-        WHERE role = 'store_admin' AND is_active AND store_id IN (:ids)`,
+      `SELECT su.id, su.lang FROM store_users su
+         LEFT JOIN store_roles r ON r.id = su.store_role_id
+        WHERE su.is_active AND su.store_id IN (:ids)
+          AND (su.role = 'store_admin'
+            OR (su.role = 'store_staff' AND r.permissions && ARRAY['orders.view', 'carts.view']::text[]))`,
       { replacements: { ids }, type: QueryTypes.SELECT },
     )) as any[];
   } catch {

@@ -15,6 +15,12 @@ import { resolveUserSession } from 'src/users/user-session';
 export interface Viewer {
   kind: 'service' | 'site_admin' | 'superadmin' | 'store_admin' | null;
   store_id: number | null;
+  /**
+   * Do'kon XODIMI ruxsatlari (№35). `undefined` — cheklovsiz (do'kon admini).
+   * Xodim yashirilgan mahsulotlarni faqat `products.view` bilan, bank
+   * rekvizitlarini faqat `store.view` bilan ko'radi.
+   */
+  permissions?: readonly string[];
 }
 
 declare module 'express' {
@@ -62,7 +68,10 @@ export class ViewerScopeMiddleware implements NestMiddleware {
     // (`products/alladmin`, `products/one/:id`) — `catalogScope(..., {
     // siteAdminSeesAll: true })` orqali.
     const kind = req.viewer.kind;
-    req.isPrivileged = kind === 'service' || kind === 'superadmin' || kind === 'store_admin';
+    req.isPrivileged =
+      kind === 'service' ||
+      kind === 'superadmin' ||
+      (kind === 'store_admin' && (!req.viewer.permissions || req.viewer.permissions.includes('products.view')));
     next();
   }
 
@@ -114,7 +123,11 @@ export class ViewerScopeMiddleware implements NestMiddleware {
     }
     return session.role === 'superadmin'
       ? { kind: 'superadmin', store_id: null }
-      : { kind: 'store_admin', store_id: session.store_id };
+      : {
+          kind: 'store_admin',
+          store_id: session.store_id,
+          ...(session.staff ? { permissions: session.staff.permissions } : {}),
+        };
   }
 
   private servisKaliti(req: Request): boolean {

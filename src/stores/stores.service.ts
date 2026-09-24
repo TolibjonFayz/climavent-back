@@ -112,7 +112,11 @@ export class StoresService {
 
   canSeeRequisites(storeId: number, viewer?: Viewer): boolean {
     if (!viewer?.kind) return false;
-    if (viewer.kind === 'store_admin') return viewer.store_id === storeId;
+    if (viewer.kind === 'store_admin') {
+      // Xodim bank rekvizitlarini faqat `store.view` bilan ko'radi (№35)
+      if (viewer.permissions && !viewer.permissions.includes('store.view')) return false;
+      return viewer.store_id === storeId;
+    }
     return true; // service, site_admin, superadmin
   }
 

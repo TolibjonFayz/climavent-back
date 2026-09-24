@@ -59,7 +59,7 @@ export class StoreUser extends Model<StoreUser, StoreUserAtr> {
   @Column({ type: DataType.STRING, allowNull: true })
   full_name: string;
 
-  @ApiProperty({ example: 'store_admin', enum: ['superadmin', 'store_admin'] })
+  @ApiProperty({ example: 'store_admin', enum: ['superadmin', 'store_admin', 'courier', 'store_staff'] })
   @Column({
     type: DataType.STRING,
     allowNull: false,
@@ -75,6 +75,15 @@ export class StoreUser extends Model<StoreUser, StoreUserAtr> {
   @ApiProperty({ required: false })
   @Column({ type: DataType.DATE, allowNull: true })
   last_login_at: Date;
+
+  // Do'kon xodimi (topshiriq №35): roli va telefoni. Faqat `store_staff` da.
+  @ApiProperty({ required: false, nullable: true, example: 3 })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  store_role_id: number;
+
+  @ApiProperty({ required: false, nullable: true, example: '+998901234567' })
+  @Column({ type: DataType.STRING(13), allowNull: true })
+  phone: string;
 
   // Parol almashganda oshadi — eski tokenlar (`tv` boshqa) 401 oladi (№17, 3-band)
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })

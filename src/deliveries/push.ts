@@ -243,6 +243,11 @@ export interface PushMessage {
    * kanali aniq bilingan ilovalar uchun beriladi.
    */
   channel?: string;
+  /**
+   * Android `tag` (topshiriq №34: `chat-<id>`) — bir suhbatning ketma-ket
+   * xabarlari bitta bildirishnomaga yig'iladi (yangisi eskisini almashtiradi).
+   */
+  tag?: string;
 }
 
 type SendOutcome = { status: 'ok' } | { status: 'gone' | 'error'; error: string };
@@ -270,7 +275,14 @@ async function sendToToken(token: string, msg: PushMessage): Promise<SendOutcome
         android: {
           // Buyurtma/KP xabari kechikmasin (ilova uxlab yotgan bo'lsa ham)
           priority: 'HIGH',
-          ...(msg.channel ? { notification: { channel_id: msg.channel } } : {}),
+          ...(msg.channel || msg.tag
+            ? {
+                notification: {
+                  ...(msg.channel ? { channel_id: msg.channel } : {}),
+                  ...(msg.tag ? { tag: msg.tag } : {}),
+                },
+              }
+            : {}),
         },
       },
     }),

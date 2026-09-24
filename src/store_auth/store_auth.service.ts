@@ -13,6 +13,7 @@ import { StoreUser } from 'src/store_users/model/store_user.model';
 import { Store } from 'src/stores/model/store.model';
 import { StoreLoginDto } from './dto/store-login.dto';
 import { ConsentService } from 'src/offers/consent.service';
+import { staffInfo } from './staff-permissions';
 import { journal, recentFailures, RequestMeta } from './login-journal';
 import {
   findRefreshToken,
@@ -60,6 +61,11 @@ export class StoreAuthService {
     const ok = await bcrypt.compare(dto.password, user.password_hash);
     if (!ok) throw await fail();
 
+    // Xodim (№35, 4-band): roli o'chirilgan / yo'q yoki do'kon nofaol — kira
+    // olmaydi. Parol to'g'ri bo'lgandan KEYIN tekshiriladi: login mavjudligi oshkor bo'lmasin.
+    const staff = user.role === 'store_staff' ? await staffInfo(user) : null;
+    if (user.role === 'store_staff' && !staff) throw await fail();
+
     await this.storeUserRepository.update(
       { last_login_at: new Date() },
       { where: { id: user.id }, silent: true },
@@ -94,6 +100,8 @@ export class StoreAuthService {
       },
       // `null` — tasdiqlash kerak emas
       offer_pending: offerPending,
+      // Xodim: roli va ruxsatlari (bog'liqliklari to'ldirilgan) — №35, 4-band
+      ...this.staffFields(staff),
       // Faqat `client: "mobile"` (№22, 8-band). Nomi `refreshToken`: `refresh_token`
       // kaliti global maxfiylik filtrida (mijozning xeshini himoya qiladi) — javobdan
       // olib tashlanardi. Mijoz API'sidagi `tokens.refreshToken` bilan bir xil.
@@ -117,6 +125,11 @@ export class StoreAuthService {
     const user = await this.storeUserRepository.findByPk(row.store_user_id);
     if (!user || !user.is_active || Number(user.token_version ?? 0) !== Number(row.token_version)) {
       await revokeAllRefreshTokens(row.store_user_id);
+      throw denied;
+    }
+    const staff = user.role === 'store_staff' ? await staffInfo(user) : null;
+    if (user.role === 'store_staff' && !staff) {
+      await revokeAllRefreshTokens(user.id);
       throw denied;
     }
     if (user.role === 'courier') {
@@ -151,7 +164,16 @@ export class StoreAuthService {
       refreshToken: next.raw,
       refresh_expires_at: next.row.expires_at,
       expires_in: MOBILE_ACCESS_TTL,
+      role: user.role,
+      ...this.staffFields(staff),
     };
+  }
+
+  /** Xodim javobi: `store_role` va `permissions` (do'kon admini uchun qo'shilmaydi). */
+  private staffFields(staff: { role_id: number; role_name: string; permissions: string[] } | null) {
+    return staff
+      ? { store_role: { id: staff.role_id, name: staff.role_name }, permissions: staff.permissions }
+      : {};
   }
 
   /** Joriy qurilmadan chiqish: refresh token bekor qilinadi. */
@@ -243,12 +265,14 @@ export class StoreAuthService {
     if (!user || !user.is_active) {
       throw new UnauthorizedException('Hisob faol emas');
     }
+    const staff = user.role === 'store_staff' ? await staffInfo(user) : null;
+    if (user.role === 'store_staff' && !staff) throw new UnauthorizedException('Hisob faol emas');
     const offerPending =
       user.role === 'store_admin'
         ? await this.consent.pendingForStoreUser(user.id, user.store_id ?? null)
         : user.role === 'courier'
           ? await this.consent.pendingForStoreUser(user.id, user.store_id ?? null, 'courier')
           : null;
-    return { ...user.get({ plain: true }), offer_pending: offerPending };
+    return { ...user.get({ plain: true }), offer_pending: offerPending, ...this.staffFields(staff) };
   }
 }

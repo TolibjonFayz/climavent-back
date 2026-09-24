@@ -1,5 +1,6 @@
 import { StoreUser } from 'src/store_users/model/store_user.model';
 import type { StoreRequester } from './store_auth.guard';
+import { staffInfo } from './staff-permissions';
 
 /**
  * Do'kon paneli tokenidan so'rov egasini BAZA bo'yicha aniqlaydi (topshiriq №17, 3-band).
@@ -29,7 +30,23 @@ export async function resolveStoreSession(payload: any): Promise<StoreRequester 
   });
   if (!user || !user.is_active) return null;
   if (Number(payload?.tv ?? 0) !== Number(user.token_version ?? 0)) return null;
-  if (user.role !== 'superadmin' && user.role !== 'store_admin' && user.role !== 'courier') return null;
+  if (!['superadmin', 'store_admin', 'courier', 'store_staff'].includes(user.role)) return null;
+
+  // Xodim (topshiriq №35): roli bazadan; rol yo'q/o'chirilgan yoki do'kon
+  // nofaol — token o'lik. Ma'lumot doirasi — o'z do'konining admini kabi
+  // (`role: 'store_admin'`), endpoint ruxsatlari — `staff` (StaffPermissionGuard).
+  if (user.role === 'store_staff') {
+    if (!user.store_id) return null;
+    const staff = await staffInfo({ id: user.id, store_id: user.store_id });
+    if (!staff) return null;
+    return {
+      role: 'store_admin',
+      store_id: user.store_id,
+      user_id: user.id,
+      login: user.login,
+      staff,
+    };
+  }
 
   // Kuryer (topshiriq №22): profili o'chirilgan bo'lsa token ham o'lik.
   if (user.role === 'courier') {

@@ -31,6 +31,9 @@ import { StoreAuthModule } from './store_auth/store_auth.module';
 import { StoreScopeModule } from './store_auth/store_scope.module';
 import { SellerApplicationsModule } from './seller_applications/seller-applications.module';
 import { DeliveriesModule } from './deliveries/deliveries.module';
+import { ChatsModule } from './chats/chats.module';
+import { StaffPermissionGuard } from './store_auth/staff-permission.guard';
+import { StoreStaffModule } from './store_staff/store_staff.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
@@ -117,10 +120,16 @@ import { ViewerScopeMiddleware } from './common/middleware/viewer_scope.middlewa
     StoreScopeModule,
     SellerApplicationsModule,
     DeliveriesModule,
+    // Xaridor ↔ do'kon chati (topshiriq №34)
+    ChatsModule,
+    // Do'kon xodimlari va rollar (topshiriq №35)
+    StoreStaffModule,
   ],
   controllers: [],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Do'kon xodimi ruxsatlari — har so'rovda, deny by default (topshiriq №35)
+    { provide: APP_GUARD, useClass: StaffPermissionGuard },
     ViewerScopeMiddleware,
   ],
 })

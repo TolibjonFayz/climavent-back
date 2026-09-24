@@ -18,6 +18,15 @@ export interface StoreRequester {
   store_id: number | null;
   user_id?: number;
   login?: string;
+  /**
+   * Do'kon XODIMI (topshiriq №35, bazada `role = 'store_staff'`). Ma'lumot
+   * doirasi bo'yicha u o'z do'konining admini kabi ishlaydi (`role:
+   * 'store_admin'`), shuning uchun mavjud do'kon izolyatsiyasi o'zgarishsiz
+   * qo'llanadi. QAYSI ENDPOINT ochiqligini esa `StaffPermissionGuard`
+   * (global) `permissions` bo'yicha hal qiladi — ro'yxatda yo'q yo'l xodimga
+   * yopiq (deny by default).
+   */
+  staff?: { role_id: number; role_name: string; permissions: string[] };
 }
 
 // Do'kon paneli tokeni YOKI servis kaliti.
