@@ -6,6 +6,7 @@ import { Setting } from 'src/settings/model/setting.model';
 import { USD_RATE_KEY } from 'src/settings/settings.service';
 import { OrderItem } from './model/order_item.model';
 import { Order } from 'src/orders/model/order.model';
+import { emitOrderUpdated } from 'src/orders/order-signal';
 import { basePrice, effectivePrice, isSaleActive, pricedOptions } from 'src/common/pricing/sale';
 
 const PRICE_ATTRS = ['price', 'sale_price', 'sale_starts_at', 'sale_ends_at'];
@@ -148,6 +149,8 @@ export class OrderPricingService {
       { totalAmount: total } as any,
       { where: { id: orderId }, silent: true },
     );
+    // Qator qo'shildi / o'zgardi / o'chirildi — hammasi shu yerdan o'tadi (№36)
+    emitOrderUpdated(orderId);
   }
 
   private async findCharacteristic(input: PricingInput) {

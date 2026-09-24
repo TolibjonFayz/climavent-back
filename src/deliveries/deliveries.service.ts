@@ -51,6 +51,7 @@ import {
 import { CourierVehiclesService } from './courier-vehicles.service';
 import { CourierWorkService } from './courier-work.service';
 import { recordOrderEvent, OrderEventName } from 'src/orders/order-events';
+import { emitOrderUpdated } from 'src/orders/order-signal';
 import { ProofStorageService } from './proof-storage.service';
 import { haversineKm, newTrackingToken, trackingSmsLink, trackingUrl } from './tracking.service';
 import { pushToCourier, pushToStoreAdmins } from './push';
@@ -1060,6 +1061,8 @@ export class DeliveriesService {
         `UPDATE orders SET status = 'shipping', "updatedAt" = now() WHERE id = :id AND status IN ('new', 'paid', 'quote_sent')`,
         { replacements: { id: d.order_id } },
       );
+      // Holat hodisasiz o'zgaradi — signal alohida (№36)
+      emitOrderUpdated(d.order_id);
     } catch (e) {
       this.logger.error(`Buyurtma holati (shipping) yozilmadi: ${(e as Error).message}`);
     }
@@ -1120,6 +1123,7 @@ export class DeliveriesService {
           `UPDATE orders SET status = 'done', "updatedAt" = now() WHERE id = :id AND status <> 'cancelled'`,
           { replacements: { id: orderId } },
         );
+        emitOrderUpdated(orderId);
       }
     } catch (e) {
       this.logger.error(`Buyurtma holati (done) yozilmadi: ${(e as Error).message}`);

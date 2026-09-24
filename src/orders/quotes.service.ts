@@ -23,6 +23,7 @@ import {
 import { Order } from './model/order.model';
 import { OrderQuote, QuoteItem } from './model/order-quote.model';
 import { OrderEvent, recordOrderEvent } from './order-events';
+import { emitOrderUpdated } from './order-signal';
 import { AcceptQuoteDto, RejectQuoteDto, SendQuoteDto } from './dto/quote.dto';
 import { defaultValidUntil, isQuoteExpired, quoteDueAt } from './quote-sla';
 import {
@@ -559,6 +560,9 @@ export class QuotesService {
       return childId;
     });
 
+    // Narxsiz qismi davomiga ko'chgan do'konlarning ro'yxatidan bu buyurtma
+    // yo'qoladi — ular ham signal olsin (№36; davomi `created` hodisasi bilan keladi).
+    if (pendingStores.length) emitOrderUpdated(orderId, { extraStores: pendingStores });
     await pushQuoteAccepted(orderId, [...new Set(readyQuotes.map((q) => q.store_id))]);
     // Narx kutayotgan do'konlar endi DAVOMI buyurtmaning narxini yozadi —
     // eski push'dagi raqam bo'yicha ular qatorlarini topolmaydi.

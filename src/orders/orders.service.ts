@@ -26,6 +26,7 @@ import { OrderItemsService } from 'src/order_items/order_items.service';
 import { QuotesService } from './quotes.service';
 import { OrderQuote } from './model/order-quote.model';
 import { OrderEvent, publicOrderEvent, recordOrderEvent } from './order-events';
+import { emitOrderUpdated, orderRecipients } from './order-signal';
 import { quoteDueAt } from './quote-sla';
 import { publicSection, sectionsOf } from './quote-sections';
 
@@ -367,6 +368,9 @@ export class OrdersService {
         id: actor?.user_id ?? null,
       });
     }
+    // Holatsiz tahrir (manzil, izoh, kompaniya...) tarixga yozilmaydi — signal
+    // shu yerdan (№36). Holat o'zgargan bo'lsa hodisa bilan birlashadi.
+    emitOrderUpdated(id);
     return updated[1][0].dataValues;
   }
 
@@ -397,10 +401,15 @@ export class OrdersService {
   //Delete order by id — faqat egasi yoki admin
   async deleteOrderById(id: number, actor: RequestActor) {
     await this.ensureCanWrite(id, actor);
+    // O'chirilgandan keyin egasi va do'konlari bazada topilmaydi (№36)
+    const recipients = await orderRecipients(id);
 
     const deleting = await this.OrderRepository.destroy({ where: { id: id } });
     await this.OrderItemsRepository.destroy({ where: { order_id: id } });
-    if (deleting) return deleting;
+    if (deleting) {
+      emitOrderUpdated(id, { recipients });
+      return deleting;
+    }
     else throw new NotFoundException('Order not found or something wrong');
   }
 }

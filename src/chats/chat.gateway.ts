@@ -9,8 +9,8 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { Namespace, Socket } from 'socket.io';
-import { ChatActor, resolveChatActor, storeCan } from './chat-auth';
-import { ChatHub, clientRoom, storeRoom } from './chat-hub';
+import { ChatActor, resolveChatActor, storeCan, storeSeesOrders } from './chat-auth';
+import { ChatHub, clientRoom, storeOrdersRoom, storeRoom } from './chat-hub';
 import { ChatsService } from './chats.service';
 
 const TYPING_MIN_MS = 1000;
@@ -22,9 +22,12 @@ const TYPING_MIN_MS = 1000;
  * Kirish: `handshake.auth.token` — oddiy access token. Yaroqsiz / muddati
  * o'tgan bo'lsa `connect_error: unauthorized` — ilova tokenni yangilab qayta
  * ulanadi. Xaridor `client:<id>`, do'kon admini/xodimi `store:<store_id>`
- * xonasiga qo'shiladi. Superadmin va kuryer socketga ulanmaydi (`forbidden`).
+ * (chat, `chat.view`) va `store-orders:<store_id>` (buyurtma signali,
+ * `orders.view` yoki `carts.view`) xonalariga qo'shiladi. Superadmin va
+ * kuryer socketga ulanmaydi (`forbidden`).
  *
- * Server faqat `typing` ni qabul qiladi; xabar yuborish — REST.
+ * Serverdan: `message`, `read`, `typing` (chat) va `order_updated` (№36,
+ * `order-signal.ts`). Server faqat `typing` ni qabul qiladi; xabar yuborish — REST.
  */
 @WebSocketGateway({ namespace: '/chat', cors: { origin: '*' } })
 export class ChatGateway implements OnGatewayInit {
@@ -45,12 +48,20 @@ export class ChatGateway implements OnGatewayInit {
         const token = socket.handshake.auth?.token ?? socket.handshake.headers?.authorization;
         const actor = await resolveChatActor(this.jwt, token as string);
         if (!actor) return next(new Error('unauthorized'));
-        if (actor.kind === 'super' || (actor.kind === 'store' && !storeCan(actor, 'chat.view'))) {
-          return next(new Error('forbidden'));
-        }
+        if (actor.kind === 'super') return next(new Error('forbidden'));
         socket.data.actor = actor;
         socket.data.lastTyping = 0;
-        await socket.join(actor.kind === 'client' ? clientRoom(actor.user_id) : storeRoom(actor.store_id));
+        if (actor.kind === 'client') {
+          await socket.join(clientRoom(actor.user_id));
+          return next();
+        }
+        // Do'kon: chat va buyurtma signallari ALOHIDA xonalarda (№36) —
+        // xodim faqat ruxsati bor xonaga kiradi, ikkalasi ham yo'q bo'lsa `forbidden`.
+        const rooms: string[] = [];
+        if (storeCan(actor, 'chat.view')) rooms.push(storeRoom(actor.store_id));
+        if (storeSeesOrders(actor)) rooms.push(storeOrdersRoom(actor.store_id));
+        if (!rooms.length) return next(new Error('forbidden'));
+        await socket.join(rooms);
         next();
       } catch (e) {
         this.logger.warn(`Socket kirishida xato: ${(e as Error).message}`);

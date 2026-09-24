@@ -60,5 +60,12 @@ export async function resolveChatActor(jwt: JwtService, token: string | null | u
 }
 
 /** Do'kon tomonining ruxsati (admin — hammasi; xodim — rolidagi kodlar). */
-export const storeCan = (a: ChatActor, perm: 'chat.view' | 'chat.reply') =>
+export const storeCan = (a: ChatActor, perm: 'chat.view' | 'chat.reply' | 'orders.view' | 'carts.view') =>
   a.kind === 'store' && (a.perms === null || a.perms.has(perm));
+
+/**
+ * Buyurtma signalini (`order_updated`, №36) olishi mumkinmi: buyurtmalar
+ * yoki KP (savatlar) ro'yxatini ko'radigan hisob — REST dagi
+ * `GET /orders/all` ruxsati bilan bir xil (`staff-permissions.ts`).
+ */
+export const storeSeesOrders = (a: ChatActor) => storeCan(a, 'orders.view') || storeCan(a, 'carts.view');

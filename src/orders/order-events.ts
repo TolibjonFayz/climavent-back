@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { ApiProperty } from '@nestjs/swagger';
 import { Column, DataType, Model, Table } from 'sequelize-typescript';
+import { emitOrderUpdated } from './order-signal';
 
 /** Buyurtma yo'lidagi hodisa turlari (topshiriq №25, 4-band). */
 export const ORDER_EVENTS = [
@@ -83,6 +84,9 @@ export async function recordOrderEvent(input: OrderEventInput): Promise<void> {
       } as any,
       transaction ? { transaction } : {},
     );
+    // Tarixga tushgan har o'zgarish — ilovalarga socket signali (№36).
+    // Tranzaksiyada bo'lsa commit'dan keyin ketadi.
+    emitOrderUpdated(row.order_id, { transaction });
   } catch (e) {
     if (transaction) throw e;
     logger.error(`Buyurtma tarixiga yozib bo'lmadi (#${row.order_id}): ${(e as Error).message}`);
