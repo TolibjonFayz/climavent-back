@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -32,6 +33,10 @@ import {
 
 const PHONE = /^\+998\d{9}$/;
 const PHONE_MSG = "telefon +998XXXXXXXXX ko'rinishida bo'lsin";
+// Ko'nikma kaliti (№39): `delivery` yoki `service_categories.key`. Ro'yxatda
+// borligini servis bazadan tekshiradi (tur superadmin tomonidan qo'shilishi mumkin).
+const SKILL = /^[a-z][a-z0-9_]{1,29}$/;
+const SKILL_MSG = "skills: kichik lotin harflari va _ (masalan delivery, installation)";
 // multipart/form-data da hamma maydon satr bo'lib keladi
 const toNumber = ({ value }: { value: any }) => (value === '' || value === null || value === undefined ? undefined : Number(value));
 const toBool = ({ value }: { value: any }) => (value === 'true' ? true : value === 'false' ? false : value);
@@ -54,9 +59,39 @@ export class CreateCourierDto {
   @Matches(PHONE, { message: PHONE_MSG })
   phone: string;
 
-  @ApiProperty({ example: 'car', enum: VEHICLES })
+  @ApiProperty({
+    example: 'car',
+    enum: VEHICLES,
+    required: false,
+    description: "Majburiy, agar `skills` da `delivery` bo'lsa (№39: faqat usta — ixtiyoriy)",
+  })
+  @IsOptional()
   @IsIn(VEHICLES as unknown as string[])
-  vehicle_type: string;
+  vehicle_type?: string;
+
+  @ApiProperty({
+    required: false,
+    example: ['delivery', 'installation'],
+    type: [String],
+    description: "Ko'nikmalar (№39): `delivery` va xizmat turlari kalitlari. Standart ['delivery']",
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @Matches(SKILL, { each: true, message: SKILL_MSG })
+  skills?: string[];
+
+  @ApiProperty({
+    required: false,
+    example: 57,
+    description:
+      "Yakka usta (№39, 2-band): mavjud do'kon admini hisobiga usta profilini ULASH — yangi login ochilmaydi, " +
+      "bitta telefon, bitta hisob. Hisob shu do'konniki bo'lishi shart",
+  })
+  @IsOptional()
+  @IsInt()
+  store_user_id?: number;
 
   @ApiProperty({ example: 2, required: false, nullable: true, description: "null — platforma kuryeri (faqat superadmin). Do'kon admini uchun o'z do'koni" })
   @IsOptional()
@@ -104,6 +139,14 @@ export class UpdateCourierDto {
   @IsOptional()
   @IsIn(VEHICLES as unknown as string[])
   vehicle_type?: string;
+
+  @ApiProperty({ required: false, example: ['delivery', 'installation'], type: [String], description: "Ko'nikmalar (№39)" })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @Matches(SKILL, { each: true, message: SKILL_MSG })
+  skills?: string[];
 
   @ApiProperty({ required: false, description: "false — tokenlari ham bekor bo'ladi" })
   @IsOptional()

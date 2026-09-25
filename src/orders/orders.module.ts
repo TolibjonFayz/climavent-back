@@ -8,6 +8,7 @@ import { Product } from 'src/products/model/product.model';
 import { JwtModule } from '@nestjs/jwt';
 import { OrderQuote } from './model/order-quote.model';
 import { OrderEvent } from './order-events';
+import { OrderStoreProgress } from './order-progress';
 import { QuotesService } from './quotes.service';
 import { QuoteSectionJobs } from './quote-section.jobs';
 import { OtpModule } from 'src/otp/otp.module';
@@ -15,7 +16,7 @@ import { OrderItemsModule } from 'src/order_items/order_items.module';
 
 @Module({
   imports: [
-    SequelizeModule.forFeature([Order, OrderItem, Product, OrderQuote, OrderEvent]),
+    SequelizeModule.forFeature([Order, OrderItem, Product, OrderQuote, OrderEvent, OrderStoreProgress]),
     JwtModule.register({}),
     // KP tayyor bo'lganda mijozga SMS (topshiriq №25, 2-band)
     OtpModule,

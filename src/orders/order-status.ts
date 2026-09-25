@@ -10,12 +10,22 @@ export const ORDER_STATUSES = [
   'new', // yaratildi, to'lanmagan
   'quote_sent', // faqat KP so'rovida: sotuvchi KP yubordi (№21, 3-band)
   'paid', // to'landi, hali jo'natilmagan
+  'packing', // kamida bitta do'kon yig'yapti (№38) — AVTOMATIK
+  'ready', // hamma do'konlar yig'ib bo'ldi (№38) — AVTOMATIK
   'shipping', // yetkazilyapti
+  'in_progress', // usta yo'lda yoki ishlayapti (№39) — AVTOMATIK
   'done', // xaridorga topshirildi
   'cancelled', // bekor qilindi
 ] as const;
 
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+/**
+ * Qo'lda qo'yib bo'lmaydigan holatlar (№38, 1-band; №39, 7-band): ular
+ * yig'ish bosqichi, yetkazish va ishlardan AVTOMATIK kelib chiqadi.
+ * `PATCH /orders/update/:id` va `POST /orders/create` da — 400.
+ */
+export const AUTO_ORDER_STATUSES: readonly string[] = ['packing', 'ready', 'in_progress'];
 
 // Eski (o'zbekcha) qiymatlar — migratsiyagacha yozilgan mijozlar
 // buzilmasligi uchun bir muddat qabul qilinadi va yangisiga aylantiriladi.

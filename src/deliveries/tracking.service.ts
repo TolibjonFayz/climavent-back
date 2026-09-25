@@ -103,94 +103,12 @@ export class TrackingService {
     if (finishedAt && Date.now() - new Date(finishedAt).getTime() > TRACKING_AFTER_FINISH_MS) {
       throw new GoneException("Havola muddati o'tgan");
     }
-    const finished = !!finishedField;
-
     const [store] = (await Delivery.sequelize.query(
       'SELECT name, phone FROM stores WHERE id = :id',
       { replacements: { id: d.store_id }, type: QueryTypes.SELECT },
     )) as any[];
 
-    const events = await DeliveryEvent.findAll({
-      where: { delivery_id: d.id, event: null },
-      attributes: ['from_status', 'to_status', 'created_at'],
-      order: [['id', 'ASC']],
-    });
-    // Har holat — BIRINCHI marta kirilgan vaqti bilan. Tahrir yozuvlari
-    // (from === to) ko'rsatilmaydi; `pending` va `assigned` ham — ular
-    // ICHKI qadamlar (operator kuryer izlayapti), mijoz uchun qadam
-    // "Qabul qilindi" dan boshlanadi (topshiriq №24, 2-band namunasi).
-    const HIDDEN: string[] = ['pending', 'assigned'];
-    const seen = new Set<string>();
-    const steps: { status: string; at: Date }[] = [];
-    for (const e of events) {
-      if (e.from_status === e.to_status || HIDDEN.includes(e.to_status)) continue;
-      if (seen.has(e.to_status)) continue;
-      seen.add(e.to_status);
-      steps.push({ status: e.to_status, at: e.created_at });
-    }
-
-    const showLocation = !finished && (d.status === 'picked_up' || d.status === 'on_the_way');
-    const showPhone = !finished && d.status === 'on_the_way';
-
-    let courier: any = null;
-    let courierLocation: any = null;
-    let etaMinutes: number | null = null;
-
-    if (d.courier_id) {
-      const c = await Courier.findByPk(d.courier_id, {
-        attributes: [
-          'full_name', 'phone', 'vehicle_type', 'active_vehicle_id',
-          'last_lat', 'last_lng', 'last_heading', 'last_speed', 'last_seen_at',
-        ],
-      });
-      if (c) {
-        // Faol transport (topshiriq №26, 1a-band): mijoz mashinani
-        // tanishi uchun rusum va rang; DAVLAT RAQAMI faqat `on_the_way` da
-        // — kuryer yo'lga chiqmaguncha uni bilishning hojati yo'q.
-        const v = c.active_vehicle_id ? await CourierVehicle.findByPk(c.active_vehicle_id) : null;
-        courier = {
-          // Faqat ism — familiya mijozga kerak emas
-          first_name: String(c.full_name || '').trim().split(/\s+/)[0] || null,
-          vehicle_type: v?.vehicle_type ?? c.vehicle_type,
-          vehicle: v
-            ? {
-                type: v.vehicle_type,
-                model: v.model,
-                color: v.color,
-                plate: showPhone ? v.plate : null,
-              }
-            : null,
-          phone: showPhone ? c.phone : null,
-        };
-        if (showLocation && c.last_lat !== null && c.last_lng !== null && c.last_seen_at) {
-          const stale = Date.now() - new Date(c.last_seen_at).getTime() > LOCATION_STALE_MS;
-          courierLocation = {
-            lat: round4(c.last_lat),
-            lng: round4(c.last_lng),
-            at: c.last_seen_at,
-            stale,
-            // GPS'dan kelgan yo'nalish — xaritadagi mashinacha to'g'ri
-            // tomonga burilsin (topshiriq №26, 5-band)
-            heading: c.last_heading ?? null,
-          };
-          // Baho: to'g'ri masofa x 1,4 (shahar yo'llari) / 25 km/soat.
-          // Joylashuv eskirgan bo'lsa baho ham ishonchsiz — `null`.
-          if (!stale && d.dropoff_lat !== null && d.dropoff_lng !== null) {
-            const km = haversineKm(
-              Number(c.last_lat),
-              Number(c.last_lng),
-              Number(d.dropoff_lat),
-              Number(d.dropoff_lng),
-            );
-            etaMinutes = Math.max(
-              ETA_MIN_MINUTES,
-              Math.round(((km * ETA_CITY_FACTOR) / ETA_SPEED_KMH) * 60),
-            );
-          }
-        }
-      }
-    }
-
+    const view = await customerDeliveryView(d);
     const items = d.items?.length
       ? ((await Delivery.sequelize.query(
           `SELECT COALESCE(p.name_uz, p.name_ru, p.name_en) AS name, i.product_model AS model, i.quantity
@@ -201,26 +119,148 @@ export class TrackingService {
       : [];
 
     return {
-      status: d.status,
+      status: view.status,
       // Holat `on_the_way` da qoladi, lekin sahifa "Kuryer yetib keldi"
       // deb ko'rsatishi kerak (topshiriq №26, 4-band). SMS yuborilmaydi.
-      arrived_at: finished ? null : d.arrived_at,
-      steps,
+      arrived_at: view.arrived_at,
+      steps: view.steps,
       order_id: d.order_id,
       store: store ? { name: store.name, phone: store.phone ?? null } : null,
-      courier,
-      courier_location: courierLocation,
-      destination: {
-        lat: d.dropoff_lat,
-        lng: d.dropoff_lng,
-        // `dropoff_details` (kirish, qavat, xonadon) ATAYLAB berilmaydi
-        address: d.dropoff_address,
-      },
-      window: { from: d.window_from, to: d.window_to },
-      eta_minutes: etaMinutes,
-      cod_amount: d.cod_amount,
+      courier: view.courier,
+      courier_location: view.courier_location,
+      destination: view.destination,
+      window: view.window,
+      eta_minutes: view.eta_minutes,
+      cod_amount: view.cod_amount,
       items: items.map((i) => ({ name: i.name, model: i.model, quantity: Number(i.quantity) })),
-      delivered_at: d.delivered_at,
+      delivered_at: view.delivered_at,
     };
   }
+}
+
+/**
+ * Yetkazishning mijozga ko'rinadigan qismi — YAGONA funksiya (№24 va №38):
+ * SMS havolasidagi sahifa ham, ilovadagi `GET /orders/:id/tracking` ham
+ * shundan foydalanadi, maxfiylik qoidalari ikki joyda takrorlanmaydi.
+ *
+ *   - kuryer joylashuvi — faqat `picked_up` / `on_the_way` da, 4 xonagacha
+ *     yumaloqlangan; `last_seen_at` 5 daqiqadan eski bo'lsa `stale: true`;
+ *   - kuryer — faqat ism; telefoni va davlat raqami — faqat `on_the_way` da;
+ *   - `dropoff_details` (kvartira, qavat) BERILMAYDI;
+ *   - yakunlangandan keyin joylashuv ham, telefon ham `null`;
+ *   - kuryer, xodim, actor ID lari YO'Q.
+ */
+export async function customerDeliveryView(d: Delivery) {
+  const finished = !!FINISHED[d.status];
+
+  const events = await DeliveryEvent.findAll({
+    where: { delivery_id: d.id, event: null },
+    attributes: ['from_status', 'to_status', 'created_at'],
+    order: [['id', 'ASC']],
+  });
+  // Har holat — BIRINCHI marta kirilgan vaqti bilan. Tahrir yozuvlari
+  // (from === to) ko'rsatilmaydi; `pending` va `assigned` ham — ular
+  // ICHKI qadamlar (operator kuryer izlayapti), mijoz uchun qadam
+  // "Qabul qilindi" dan boshlanadi (topshiriq №24, 2-band namunasi).
+  const HIDDEN: string[] = ['pending', 'assigned'];
+  const seen = new Set<string>();
+  const steps: { status: string; at: Date }[] = [];
+  for (const e of events) {
+    if (e.from_status === e.to_status || HIDDEN.includes(e.to_status)) continue;
+    if (seen.has(e.to_status)) continue;
+    seen.add(e.to_status);
+    steps.push({ status: e.to_status, at: e.created_at });
+  }
+
+  const showLocation = !finished && (d.status === 'picked_up' || d.status === 'on_the_way');
+  const showPhone = !finished && d.status === 'on_the_way';
+
+  let courier: any = null;
+  let courierLocation: any = null;
+  let etaMinutes: number | null = null;
+
+  if (d.courier_id) {
+    const c = await Courier.findByPk(d.courier_id, {
+      attributes: [
+        'full_name', 'phone', 'vehicle_type', 'active_vehicle_id',
+        'last_lat', 'last_lng', 'last_heading', 'last_speed', 'last_seen_at',
+      ],
+    });
+    if (c) {
+      // Faol transport (topshiriq №26, 1a-band): mijoz mashinani
+      // tanishi uchun rusum va rang; DAVLAT RAQAMI faqat `on_the_way` da
+      // — kuryer yo'lga chiqmaguncha uni bilishning hojati yo'q.
+      const v = c.active_vehicle_id ? await CourierVehicle.findByPk(c.active_vehicle_id) : null;
+      courier = {
+        // Faqat ism — familiya mijozga kerak emas
+        first_name: String(c.full_name || '').trim().split(/\s+/)[0] || null,
+        vehicle_type: v?.vehicle_type ?? c.vehicle_type,
+        vehicle: v
+          ? {
+              type: v.vehicle_type,
+              model: v.model,
+              color: v.color,
+              plate: showPhone ? v.plate : null,
+            }
+          : null,
+        phone: showPhone ? c.phone : null,
+      };
+      if (showLocation) {
+        const loc = workerLocationView(c, { lat: d.dropoff_lat, lng: d.dropoff_lng });
+        courierLocation = loc.location;
+        etaMinutes = loc.eta_minutes;
+      }
+    }
+  }
+
+  return {
+    id: d.id,
+    status: d.status,
+    // Holat `on_the_way` da qoladi, lekin sahifa "Kuryer yetib keldi"
+    // deb ko'rsatishi kerak (topshiriq №26, 4-band). SMS yuborilmaydi.
+    arrived_at: finished ? null : d.arrived_at,
+    steps,
+    courier,
+    courier_location: courierLocation,
+    destination: {
+      lat: d.dropoff_lat,
+      lng: d.dropoff_lng,
+      // `dropoff_details` (kirish, qavat, xonadon) ATAYLAB berilmaydi
+      address: d.dropoff_address,
+    },
+    window: { from: d.window_from, to: d.window_to },
+    eta_minutes: etaMinutes,
+    cod_amount: d.cod_amount,
+    delivered_at: d.delivered_at,
+  };
+}
+
+/**
+ * Kuryer/usta joylashuvi va yetib borish bahosi (№24; №39 dagi ishlar ham).
+ * Chaqiruvchi faqat ko'rsatish mumkin bo'lgan holatda chaqiradi.
+ *   - 4 xonagacha yaxlitlanadi (~11 m);
+ *   - `last_seen_at` 5 daqiqadan eski bo'lsa `stale: true` va ETA yo'q;
+ *   - ETA: to'g'ri masofa x 1,4 (shahar yo'llari) / 25 km/soat.
+ */
+export function workerLocationView(
+  c: { last_lat: number | null; last_lng: number | null; last_seen_at: Date | null; last_heading?: number | null },
+  dest: { lat: number | null; lng: number | null },
+) {
+  if (c.last_lat === null || c.last_lng === null || !c.last_seen_at) return { location: null, eta_minutes: null };
+  const stale = Date.now() - new Date(c.last_seen_at).getTime() > LOCATION_STALE_MS;
+  const location = {
+    lat: round4(c.last_lat),
+    lng: round4(c.last_lng),
+    at: c.last_seen_at,
+    stale,
+    // GPS'dan kelgan yo'nalish — xaritadagi mashinacha to'g'ri
+    // tomonga burilsin (topshiriq №26, 5-band)
+    heading: c.last_heading ?? null,
+  };
+  let eta: number | null = null;
+  if (!stale && dest.lat !== null && dest.lat !== undefined && dest.lng !== null && dest.lng !== undefined) {
+    const km = haversineKm(Number(c.last_lat), Number(c.last_lng), Number(dest.lat), Number(dest.lng));
+    eta = Math.max(ETA_MIN_MINUTES, Math.round(((km * ETA_CITY_FACTOR) / ETA_SPEED_KMH) * 60));
+  }
+  return { location, eta_minutes: eta };
 }

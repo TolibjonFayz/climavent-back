@@ -115,9 +115,8 @@ async function fire(id: number, p: Pending) {
 async function loadTargets(id: number): Promise<{ status: string; user_id: number | null; store_ids: number[] } | null> {
   const [row]: any[] = await Order.sequelize!.query(
     `SELECT o.status, o.user_id,
-            ARRAY(SELECT DISTINCT p.store_id FROM "order-items" i
-                    JOIN products p ON p.id = i.product_id
-                   WHERE i.order_id = o.id AND p.store_id IS NOT NULL) AS store_ids
+            ARRAY(SELECT DISTINCT i.store_id FROM "order-items" i
+                   WHERE i.order_id = o.id AND i.store_id IS NOT NULL) AS store_ids
        FROM orders o WHERE o.id = :id`,
     { replacements: { id }, type: QueryTypes.SELECT },
   );

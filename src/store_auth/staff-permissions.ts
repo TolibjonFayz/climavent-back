@@ -25,6 +25,11 @@ export const PERMISSIONS = [
   'deliveries.edit',
   'couriers.view',
   'couriers.edit',
+  // №39: xizmatlar va ishlar. Xizmat NARXI (`price_uzs`, `visit_fee_uzs`) — `prices.edit`
+  'services.view',
+  'services.edit',
+  'jobs.view',
+  'jobs.edit',
   'analytics.view',
   'store.view',
   'store.edit',
@@ -171,6 +176,48 @@ const productUpdate = async (req: any): Promise<Need> => {
   return row && row.currency !== cur ? WITH_PRICE : 'products.edit';
 };
 
+const SERVICE_WITH_PRICE: Need = { all: ['services.edit', 'prices.edit'] };
+const hasPrice = (v: unknown) => v !== undefined && v !== null && v !== '';
+
+/**
+ * Xizmat narxi (№39, 3-band): `price_uzs`, `visit_fee_uzs` va narx turi
+ * (`price_type` — narxning ma'nosini o'zgartiradi) `prices.edit` bilan.
+ */
+const serviceCreate = async (req: any): Promise<Need> => {
+  const b = req.body || {};
+  const priced =
+    hasPrice(b.price_uzs) ||
+    hasPrice(b.visit_fee_uzs) ||
+    (Array.isArray(b.variants) && b.variants.some((v: any) => hasPrice(v?.price_uzs)));
+  return priced ? SERVICE_WITH_PRICE : 'services.edit';
+};
+
+const serviceUpdate = async (req: any): Promise<Need> => {
+  const b = req.body || {};
+  const sent = ['visit_fee_uzs', 'price_type'].filter((f) => f in b);
+  if (!sent.length) return 'services.edit';
+  const [row] = (await StoreUser.sequelize.query('SELECT visit_fee_uzs, price_type FROM services WHERE id = :id', {
+    replacements: { id: Number(req.params?.id) },
+    type: QueryTypes.SELECT,
+  })) as any[];
+  if (!row) return 'services.edit';
+  return sent.some((f) => !same(b[f], row[f])) ? SERVICE_WITH_PRICE : 'services.edit';
+};
+
+const variantCreate = async (req: any): Promise<Need> =>
+  hasPrice(req.body?.price_uzs) ? SERVICE_WITH_PRICE : 'services.edit';
+
+const variantUpdate = async (req: any): Promise<Need> => {
+  const b = req.body || {};
+  if (!('price_uzs' in b)) return 'services.edit';
+  const [row] = (await StoreUser.sequelize.query('SELECT price_uzs FROM service_variants WHERE id = :id', {
+    replacements: { id: Number(req.params?.variantId) },
+    type: QueryTypes.SELECT,
+  })) as any[];
+  if (!row) return 'services.edit';
+  return !same(b.price_uzs, row.price_uzs) ? SERVICE_WITH_PRICE : 'services.edit';
+};
+
 export const STAFF_ROUTES: Record<string, Rule> = {
   // --- o'z hisobi, kirish, qurilma (har qanday xodim)
   'POST /api/store-auth/login': 'any',
@@ -217,11 +264,21 @@ export const STAFF_ROUTES: Record<string, Rule> = {
   'GET /api/stores/slug/:slug': 'any',
   'GET /api/r2/r2-content': 'any',
   'GET /api/tracking/:token': 'any',
+  // №39: ochiq katalog (tokensiz ham). Xodimga orqa ofis ko'rinishi faqat `services.view` bilan
+  'GET /api/regions': 'any',
+  'GET /api/service-categories': 'any',
+  'GET /api/services': 'any',
+  'GET /api/services/:id': 'any',
+  'GET /api/products/:id/services': 'any',
+  'GET /api/stores/:id/service-areas': 'any',
+  'GET /api/stores/:id/service-reviews': 'any',
 
   // --- buyurtmalar
   'GET /api/orders/all': (req) => (req.query?.kind === 'quote' ? 'carts.view' : 'orders.view'),
   'GET /api/orders/:id': ['orders.view', 'carts.view'],
   'PATCH /api/orders/update/:id': 'orders.edit',
+  // №38: yig'ish bosqichi (o'z do'koni qismi)
+  'PATCH /api/orders/:id/stores/:storeId/stage': 'orders.edit',
   'DELETE /api/orders/delete/:id': 'orders.edit',
   'GET /api/order-items/all': ['orders.view', 'carts.view'],
   'GET /api/order-items/one/:id': ['orders.view', 'carts.view'],
@@ -309,6 +366,48 @@ export const STAFF_ROUTES: Record<string, Rule> = {
   'POST /api/couriers/:id/vehicles/:vid/approve': 'couriers.edit',
   'POST /api/couriers/:id/vehicles/:vid/reject': 'couriers.edit',
   'PUT /api/courier-rates': 'couriers.edit',
+
+  // --- xizmatlar (№39, 3-band)
+  'POST /api/services': serviceCreate,
+  'PATCH /api/services/:id': serviceUpdate,
+  'DELETE /api/services/:id': 'services.edit',
+  'POST /api/services/:id/variants': variantCreate,
+  'PATCH /api/services/:id/variants/:variantId': variantUpdate,
+  'DELETE /api/services/:id/variants/:variantId': 'services.edit',
+  'PUT /api/services/:id/links': 'services.edit',
+  'PUT /api/stores/:id/service-areas': 'store.edit',
+
+  // --- ishlar (№39, 5- va 7-band)
+  'GET /api/jobs': 'jobs.view',
+  'GET /api/jobs/:id': 'jobs.view',
+  'PATCH /api/jobs/:id': 'jobs.edit',
+  'POST /api/jobs/:id/assign': 'jobs.edit',
+  'POST /api/jobs/:id/schedule': 'jobs.edit',
+  'POST /api/jobs/:id/cancel': 'jobs.edit',
+  'POST /api/jobs/:id/retry': 'jobs.edit',
+  // Ilovasi yo'q mijoz bilan telefonda kelishilgan narx (5-band) — izoh majburiy
+  'POST /api/jobs/:id/price/accept': 'jobs.edit',
+  'POST /api/jobs/:id/price/reject': 'jobs.edit',
+
+  // --- xizmat sharhlari (№39, 10-band)
+  'GET /api/service-reviews': 'reviews.view',
+  'PATCH /api/service-reviews/:id': 'reviews.edit',
+
+  // --- usta ilovasi (№39, 7-band): kirish `WorkerGuard` da — usta profili bo'lsa bas
+  'GET /api/worker/me': 'any',
+  'PATCH /api/worker/me': 'any',
+  'GET /api/worker/tasks': 'any',
+  'GET /api/worker/jobs/:id': 'any',
+  'POST /api/worker/jobs/:id/accept': 'any',
+  'POST /api/worker/jobs/:id/reject': 'any',
+  'POST /api/worker/jobs/:id/start': 'any',
+  'POST /api/worker/jobs/:id/arrive': 'any',
+  'POST /api/worker/jobs/:id/begin': 'any',
+  'POST /api/worker/jobs/:id/price': 'any',
+  'POST /api/worker/jobs/:id/complete': 'any',
+  'POST /api/worker/jobs/:id/fail': 'any',
+  'POST /api/worker/location': 'any',
+  'POST /api/worker/photos': 'any',
 
   // --- do'kon profili (is_active/name/slug — baribir faqat superadmin, №16)
   'PATCH /api/stores/update/:id': 'store.edit',

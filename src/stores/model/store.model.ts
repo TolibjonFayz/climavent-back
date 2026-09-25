@@ -116,6 +116,37 @@ export class Store extends Model<Store, StoreAtr> {
   @Column({ type: DataType.TEXT, allowNull: true })
   default_payment_terms: string;
 
+  // ——— Hamkor turi (topshiriq №39, 1-band). O'zgartirish: faqat superadmin ———
+  // Do'kon: sells_products=true (xizmat ham sotsa sells_services=true).
+  // Xizmat ko'rsatuvchi: sells_products=false, sells_services=true.
+  @ApiProperty({ example: true, description: "Tovar sotadi (false — mahsulot yarata olmaydi, katalogda do'kon emas)" })
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })
+  sells_products: boolean;
+
+  @ApiProperty({ example: false, description: 'Xizmat sotadi (o\'rnatish, tozalash, ta\'mir)' })
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
+  sells_services: boolean;
+
+  // Xizmat reytingi va bajarilgan ishlar — SERVER hisoblaydi (№39, 10-band)
+  @ApiProperty({ example: 4.8, nullable: true, description: 'Xizmat bahosi (1–5), yashirilmagan sharhlardan' })
+  @Column({
+    type: DataType.DECIMAL(3, 2),
+    allowNull: true,
+    get(this: Store) {
+      const v = this.getDataValue('service_rating');
+      return v === null || v === undefined ? null : Number(v);
+    },
+  })
+  service_rating: number | null;
+
+  @ApiProperty({ example: 12 })
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  service_reviews_count: number;
+
+  @ApiProperty({ example: 40, description: 'Bajarilgan xizmat ishlari soni' })
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  jobs_done: number;
+
   // Eslatma: `@HasMany(() => Product)` ATAYLAB yo'q. Store `forRoot`
   // modellari ro'yxatida (User unga havola qiladi), Product esa emas —
   // teskari bog'lanish qo'shilsa "Product has not been defined" xatosi

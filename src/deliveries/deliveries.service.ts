@@ -51,7 +51,7 @@ import {
 import { CourierVehiclesService } from './courier-vehicles.service';
 import { CourierWorkService } from './courier-work.service';
 import { recordOrderEvent, OrderEventName } from 'src/orders/order-events';
-import { emitOrderUpdated } from 'src/orders/order-signal';
+import { syncOrderStatus } from 'src/orders/order-progress';
 import { ProofStorageService } from './proof-storage.service';
 import { haversineKm, newTrackingToken, trackingSmsLink, trackingUrl } from './tracking.service';
 import { pushToCourier, pushToStoreAdmins } from './push';
@@ -261,12 +261,24 @@ export class DeliveriesService {
         await this.event(d.id, null, 'pending', backofficeActor(r), {}, 'Yaratildi', t);
         await recordOrderEvent({
           order_id: d.order_id,
+          store_id: d.store_id,
           event: 'delivery_created',
           actor_type: this.isSuper(r) ? 'superadmin' : 'store',
           actor_id: r?.user_id ?? null,
           note: `Yetkazish #${d.id} yaratildi`,
           transaction: t,
         });
+        // Shu hamkorning o'rnatish ishi shu tovarlar uchun bo'lsa — yetkazish
+        // bilan BIRGA bajariladi (№39, 5-band): bitta odam olib borib o'rnatadi,
+        // usta ilovasida bitta vazifa. Ish tovar kelmaguncha boshlanmaydi.
+        await Delivery.sequelize.query(
+          `UPDATE service_jobs j SET delivery_id = :delivery, updated_at = now()
+            WHERE j.order_id = :order AND j.store_id = :store AND j.delivery_id IS NULL
+              AND j.status IN ('pending', 'assigned', 'accepted') AND j.parent_job_id IS NULL
+              AND EXISTS (SELECT 1 FROM "order-items" i
+                           WHERE i.id = ANY(j.items) AND i.for_order_item_id = ANY(CAST(:items AS int[])))`,
+          { replacements: { delivery: d.id, order: d.order_id, store: d.store_id, items: `{${items.join(',')}}` }, transaction: t },
+        );
         return d;
       });
     } catch (e) {
@@ -898,6 +910,27 @@ export class DeliveriesService {
       where: { courier_id: courier.id, status: { [Op.in]: ['accepted', 'picked_up', 'on_the_way'] } },
       order: [[Delivery.sequelize.literal("CASE status WHEN 'on_the_way' THEN 0 WHEN 'picked_up' THEN 1 ELSE 2 END"), 'ASC']],
     });
+    if (!active) {
+      // Usta ishga yo'lda (№39, 7-band) — yo'l tarixi ishga bog'lanadi
+      const [job]: any[] = await Delivery.sequelize.query(
+        `SELECT id FROM service_jobs WHERE worker_id = :id AND status = 'on_the_way' ORDER BY started_at DESC LIMIT 1`,
+        { replacements: { id: courier.id }, type: QueryTypes.SELECT },
+      );
+      if (job) {
+        const [last]: any[] = await Delivery.sequelize.query(
+          `SELECT created_at FROM courier_locations WHERE courier_id = :c AND job_id = :j ORDER BY created_at DESC LIMIT 1`,
+          { replacements: { c: courier.id, j: job.id }, type: QueryTypes.SELECT },
+        );
+        if (!last || Date.now() - new Date(last.created_at).getTime() >= LOCATION_HISTORY_MIN_MS) {
+          await Delivery.sequelize.query(
+            `INSERT INTO courier_locations (courier_id, delivery_id, job_id, lat, lng, accuracy, created_at)
+             VALUES (:c, NULL, :j, :lat, :lng, :acc, now())`,
+            { replacements: { c: courier.id, j: job.id, lat: dto.lat, lng: dto.lng, acc: dto.accuracy ?? null } },
+          );
+        }
+        return { stored: true, job_id: Number(job.id), last_seen_at: new Date() };
+      }
+    }
     if (active) {
       const lastLoc = await CourierLocation.findOne({
         where: { courier_id: courier.id, delivery_id: active.id },
@@ -940,7 +973,9 @@ export class DeliveriesService {
       await recordOrderEvent({
         order_id: d.order_id,
         event: orderEvent,
-        actor_type: actor.type === 'courier' ? 'system' : actor.type === 'store' ? 'store' : actor.type === 'superadmin' ? 'superadmin' : 'system',
+        store_id: d.store_id,
+        // `courier` — №38 dan (avval CHECK ruxsat bermagani uchun `system` edi)
+        actor_type: actor.type,
         actor_id: actor.id,
         note: `Yetkazish #${d.id}${comment ? `: ${comment}` : ''}`,
         transaction: t,
@@ -1056,16 +1091,13 @@ export class DeliveriesService {
     track: string | null,
     trackingToken: string | null = null,
   ) {
-    try {
-      await Delivery.sequelize.query(
-        `UPDATE orders SET status = 'shipping', "updatedAt" = now() WHERE id = :id AND status IN ('new', 'paid', 'quote_sent')`,
-        { replacements: { id: d.order_id } },
-      );
-      // Holat hodisasiz o'zgaradi — signal alohida (№36)
-      emitOrderUpdated(d.order_id);
-    } catch (e) {
-      this.logger.error(`Buyurtma holati (shipping) yozilmadi: ${(e as Error).message}`);
-    }
+    // Buyurtma — `shipping` (№38 dan `packing`/`ready` dan ham). Holat endi
+    // YAGONA joyda hisoblanadi va tarixga yoziladi (kuzatish qadamlari shundan).
+    await syncOrderStatus(Delivery.sequelize, d.order_id, {
+      actor_type: 'courier',
+      actor_id: courier.store_user_id,
+      note: `Yetkazish #${d.id} yo'lda`,
+    });
     // XARIDORGA PUSH (topshiriq №29, 4-band): SMS bilan BIRGA ketadi —
     // ilova ochiq bo'lsa xaridor SMS kutmasin. Ilovadan ochiladigan sahifa
     // `/track/<token>`, shuning uchun `data` da kuzatish tokeni ham bor.
@@ -1109,25 +1141,12 @@ export class DeliveriesService {
     return Math.max(ETA_MIN_MINUTES, Math.round(((km * ETA_CITY_FACTOR) / ETA_SPEED_KMH) * 60));
   }
 
-  /** Buyurtmaning (bekor qilinmagan) hamma yetkazishlari topshirilgan bo'lsa — done. */
+  /**
+   * Buyurtmaning (bekor qilinmagan) hamma yetkazishlari topshirilgan VA
+   * hamma ishlari (№39) bajarilgan bo'lsa — `done`. Qoida `syncOrderStatus` da.
+   */
   private async syncOrderAfterDelivered(orderId: number) {
-    try {
-      const [row]: any[] = await Delivery.sequelize.query(
-        `SELECT COUNT(*) FILTER (WHERE status NOT IN ('cancelled', 'returned'))::int AS live,
-                COUNT(*) FILTER (WHERE status = 'delivered')::int AS delivered
-           FROM deliveries WHERE order_id = :id`,
-        { replacements: { id: orderId }, type: QueryTypes.SELECT },
-      );
-      if (row.delivered > 0 && row.delivered === row.live) {
-        await Delivery.sequelize.query(
-          `UPDATE orders SET status = 'done', "updatedAt" = now() WHERE id = :id AND status <> 'cancelled'`,
-          { replacements: { id: orderId } },
-        );
-        emitOrderUpdated(orderId);
-      }
-    } catch (e) {
-      this.logger.error(`Buyurtma holati (done) yozilmadi: ${(e as Error).message}`);
-    }
+    await syncOrderStatus(Delivery.sequelize, orderId, { note: 'Yetkazish topshirildi' });
   }
 
   private async sendSms(phone: string, text: string) {

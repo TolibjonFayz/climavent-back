@@ -24,6 +24,7 @@ import { Order } from './model/order.model';
 import { OrderQuote, QuoteItem } from './model/order-quote.model';
 import { OrderEvent, recordOrderEvent } from './order-events';
 import { emitOrderUpdated } from './order-signal';
+import { refreshJobAmounts } from 'src/service_jobs/service-orders';
 import { AcceptQuoteDto, RejectQuoteDto, SendQuoteDto } from './dto/quote.dto';
 import { defaultValidUntil, isQuoteExpired, quoteDueAt } from './quote-sla';
 import {
@@ -394,7 +395,7 @@ export class QuotesService {
          JOIN orders o ON o.id = i.order_id
          LEFT JOIN products p ON p.id = i.product_id
          LEFT JOIN characteristics c ON c.id = i.product_model_id
-        WHERE i.price IS NULL AND o.kind = 'quote' ${cond}
+        WHERE i.price IS NULL AND o.kind = 'quote' AND i.item_type = 'product' ${cond}
         GROUP BY i.product_id, i.product_model_id, p.name_uz, p.name_ru, p.name_en,
                  c.title, i.product_model, p.store_id
         ORDER BY requests DESC, last_requested_at DESC
@@ -491,6 +492,8 @@ export class QuotesService {
             recipient_name: src.recipient_name ?? null,
             recipient_phone: src.recipient_phone ?? null,
             address_details: src.address_details ?? null,
+            region_code: src.region_code ?? null,
+            district_code: src.district_code ?? null,
             parent_order_id: orderId,
             totalAmount: null,
           } as any,
@@ -502,8 +505,13 @@ export class QuotesService {
         // eski KP versiyalari davomi buyurtmaga ko'chadi.
         await seq.query(
           `UPDATE "order-items" SET order_id = :child, "updatedAt" = now()
-            WHERE order_id = :order
-              AND product_id IN (SELECT id FROM products WHERE store_id IN (:stores))`,
+            WHERE order_id = :order AND store_id IN (:stores)`,
+          { replacements: rep, transaction: t },
+        );
+        // Xizmat ishi (№39) qatorlari bilan birga ko'chadi
+        await seq.query(
+          `UPDATE service_jobs SET order_id = :child, updated_at = now()
+            WHERE order_id = :order AND store_id IN (:stores)`,
           { replacements: rep, transaction: t },
         );
         await seq.query(
@@ -547,6 +555,8 @@ export class QuotesService {
         );
       }
       await this.recomputeTotal(orderId, t);
+      // Xizmat ishlari (№39): KP da yozilgan narx ishning summasiga ham tushadi
+      await refreshJobAmounts(seq, orderId, t);
       await recordOrderEvent({
         order_id: orderId,
         event: 'quote_accepted',
@@ -652,8 +662,7 @@ export class QuotesService {
     const rep: any = {};
     if (storeId) {
       cond.push(
-        `EXISTS (SELECT 1 FROM "order-items" i JOIN products p ON p.id = i.product_id
-                  WHERE i.order_id = o.id AND p.store_id = :store)`,
+        `EXISTS (SELECT 1 FROM "order-items" i WHERE i.order_id = o.id AND i.store_id = :store)`,
       );
       rep.store = storeId;
     }
@@ -745,8 +754,8 @@ export class QuotesService {
 
   private async itemsOf(orderId: number, t?: Transaction): Promise<ItemRow[]> {
     return this.orderRepo.sequelize.query(
-      `SELECT i.id, i.quantity, i.price, i.product_model, p.store_id,
-              COALESCE(p.name_uz, p.name_ru, p.name_en) AS name
+      `SELECT i.id, i.quantity, i.price, i.product_model, COALESCE(i.store_id, p.store_id) AS store_id,
+              COALESCE(p.name_uz, p.name_ru, p.name_en, i.product_model) AS name
          FROM "order-items" i LEFT JOIN products p ON p.id = i.product_id
         WHERE i.order_id = :order ORDER BY i.id`,
       { replacements: { order: orderId }, type: QueryTypes.SELECT, transaction: t },
@@ -802,12 +811,11 @@ export class QuotesService {
     // boshqa yo'l bilan qo'shilgan) — so'ralgan vaqt = buyurtma vaqti.
     await seq.query(
       `INSERT INTO order_quote_sections (order_id, store_id, requested_at)
-       SELECT DISTINCT o.id, p.store_id, o."createdAt"
+       SELECT DISTINCT o.id, i.store_id, o."createdAt"
          FROM orders o
          JOIN "order-items" i ON i.order_id = o.id
-         JOIN products p ON p.id = i.product_id
         WHERE o.kind = 'quote' AND o.status IN ('new', 'quote_sent')
-          AND o."createdAt" > :since AND p.store_id IS NOT NULL
+          AND o."createdAt" > :since AND i.store_id IS NOT NULL
        ON CONFLICT (order_id, store_id) DO NOTHING`,
       { replacements: { since: new Date(now.getTime() - 3 * SECTION_TIMEOUT_MS) } },
     );

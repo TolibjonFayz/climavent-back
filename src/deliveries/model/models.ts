@@ -24,8 +24,14 @@ export class Courier extends Model {
    * Endi FAOL transportdan olinadi (topshiriq №26, 1a-band). Eski mijozlar
    * buzilmasligi uchun ustun va javobdagi kalit saqlanib qoldi.
    */
-  @Column({ type: DataType.STRING(10), allowNull: false, defaultValue: 'car' }) vehicle_type: string;
+  @Column({ type: DataType.STRING(10), allowNull: true, defaultValue: 'car' }) vehicle_type: string | null;
   @Column({ type: DataType.INTEGER, allowNull: true }) active_vehicle_id: number | null;
+  /**
+   * Ko'nikmalar (topshiriq №39, 2-band): `delivery` va xizmat turlari
+   * kalitlari (`service_categories.key`). Usta = kuryer jadvalidagi odam;
+   * faqat usta bo'lsa transport (`vehicle_type`) ixtiyoriy.
+   */
+  @Column({ type: DataType.ARRAY(DataType.TEXT), allowNull: false, defaultValue: ['delivery'] }) skills: string[];
   /** `employee` · `self_employed` · `ip` (YaTT) · `contractor` */
   @Column({ type: DataType.STRING(20), allowNull: true }) employment_type: string | null;
   /** JShShIR (14) yoki STIR (9) */

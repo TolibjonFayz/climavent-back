@@ -68,7 +68,7 @@ async function adminsByLang(storeIds: number[]): Promise<Map<Lang, number[]>> {
  * 0 ta qurilma topildi, yuborilmadi". Hisob ro'yxati qatorda bo'lgani uchun
  * "token boshqa hisobda turibdi" holati logdan darhol ko'rinadi.
  */
-async function send(storeIds: number[], build: (lang: Lang) => PushMessage) {
+export async function sendToStore(storeIds: number[], build: (lang: Lang) => PushMessage) {
   const sample = build('uz');
   for (const storeId of [...new Set(storeIds.filter((x) => Number.isInteger(x) && x > 0))]) {
     try {
@@ -129,7 +129,7 @@ async function orderSummary(orderId: number, storeId: number) {
 export async function pushNewOrder(orderId: number, storeId: number) {
   try {
     const s = await orderSummary(orderId, storeId);
-    await send([storeId], (lang) => {
+    await sendToStore([storeId], (lang) => {
       const nom = s.first || (lang === 'ru' ? 'Заказ' : 'Buyurtma');
       const yana =
         s.count > 1
@@ -156,7 +156,7 @@ export async function pushNewOrder(orderId: number, storeId: number) {
 
 /** KP so'rovi: narxsiz qator bor — «3 ta qator narxsiz — narx yozing». */
 export const pushQuoteRequest = (orderId: number, storeId: number, unpriced: number) =>
-  send([storeId], (lang) => ({
+  sendToStore([storeId], (lang) => ({
     title: lang === 'ru' ? `Запрос КП #${orderId}` : `KP so'rovi #${orderId}`,
     body:
       lang === 'ru'
@@ -170,7 +170,7 @@ export const pushQuoteRequest = (orderId: number, storeId: number, unpriced: num
  * bo'lim xaridor KP sidan tushib qoladi — matnda qolgan vaqt.
  */
 export const pushQuoteRequestReminder = (orderId: number, storeId: number, unpriced: number, hoursLeft: number) =>
-  send([storeId], (lang) => ({
+  sendToStore([storeId], (lang) => ({
     title: lang === 'ru' ? `Ожидается КП #${orderId}` : `KP so'rovi kutilmoqda #${orderId}`,
     body:
       lang === 'ru'
@@ -181,7 +181,7 @@ export const pushQuoteRequestReminder = (orderId: number, storeId: number, unpri
 
 /** Mijoz KP ni qabul qildi. */
 export const pushQuoteAccepted = (orderId: number, storeIds: number[]) =>
-  send(storeIds, (lang) => ({
+  sendToStore(storeIds, (lang) => ({
     title: lang === 'ru' ? `КП принято #${orderId}` : `KP qabul qilindi #${orderId}`,
     body:
       lang === 'ru'
@@ -192,7 +192,7 @@ export const pushQuoteAccepted = (orderId: number, storeIds: number[]) =>
 
 /** Mijoz KP ni rad etdi (sabab bo'lsa — matnda). */
 export const pushQuoteRejected = (orderId: number, storeIds: number[], reason?: string | null) =>
-  send(storeIds, (lang) => {
+  sendToStore(storeIds, (lang) => {
     const sabab = (reason || '').trim();
     return {
       title: lang === 'ru' ? `КП отклонено #${orderId}` : `KP rad etildi #${orderId}`,
@@ -207,7 +207,7 @@ export const pushQuoteRejected = (orderId: number, storeIds: number[], reason?: 
 
 /** Mijoz eskirgan KP o'rniga yangisini so'radi. */
 export const pushQuoteRequestAgain = (orderId: number, storeIds: number[]) =>
-  send(storeIds, (lang) => ({
+  sendToStore(storeIds, (lang) => ({
     title: lang === 'ru' ? `Запрошено новое КП #${orderId}` : `Yangi KP so'raldi #${orderId}`,
     body: lang === 'ru' ? 'Вместо просроченного КП' : "Muddati o'tgan KP o'rniga",
     data: { type: 'quote_request_again', order_id: orderId },
@@ -225,7 +225,7 @@ export const pushDeliveryFailed = (
   storeId: number,
   reason?: string | null,
 ) =>
-  send([storeId], (lang) => {
+  sendToStore([storeId], (lang) => {
     const sabab = (reason || '').trim();
     return {
       title: lang === 'ru' ? `Доставка не состоялась #${orderId}` : `Yetkazish bo'lmadi #${orderId}`,

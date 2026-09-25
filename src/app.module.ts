@@ -34,6 +34,9 @@ import { DeliveriesModule } from './deliveries/deliveries.module';
 import { ChatsModule } from './chats/chats.module';
 import { StaffPermissionGuard } from './store_auth/staff-permission.guard';
 import { StoreStaffModule } from './store_staff/store_staff.module';
+import { RegionsModule } from './regions/regions.module';
+import { ServiceCatalogModule } from './service_catalog/service-catalog.module';
+import { ServiceJobsModule } from './service_jobs/service-jobs.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
@@ -124,6 +127,10 @@ import { ViewerScopeMiddleware } from './common/middleware/viewer_scope.middlewa
     ChatsModule,
     // Do'kon xodimlari va rollar (topshiriq №35)
     StoreStaffModule,
+    // Topshiriq №39: hududlar, xizmatlar katalogi, ishlar va usta ilovasi
+    RegionsModule,
+    ServiceCatalogModule,
+    ServiceJobsModule,
   ],
   controllers: [],
   providers: [

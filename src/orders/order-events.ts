@@ -19,10 +19,22 @@ export const ORDER_EVENTS = [
   'delivery_delivered',
   'delivery_failed',
   'delivery_cancelled',
+  // №38: do'kon yig'ish bosqichi (`store_id` bilan)
+  'stage_changed',
+  // №39: xizmat ishi (`store_id` bilan)
+  'job_created',
+  'job_assigned',
+  'job_started',
+  'job_completed',
+  'job_failed',
+  'job_cancelled',
+  'job_price_changed',
+  'job_rescheduled',
+  'warranty_claim',
 ] as const;
 export type OrderEventName = (typeof ORDER_EVENTS)[number];
 
-export type OrderActorType = 'customer' | 'store' | 'superadmin' | 'system';
+export type OrderActorType = 'customer' | 'store' | 'superadmin' | 'courier' | 'system';
 
 /**
  * Buyurtma tarixi — faqat QO'SHILADI (topshiriq №25, 4-band; №19 dagi savol).
@@ -38,6 +50,8 @@ export class OrderEvent extends Model {
   id: number;
 
   @Column({ type: DataType.INTEGER, allowNull: false }) order_id: number;
+  /** Qaysi do'kon qismi haqida (№38); `null` — butun buyurtma. */
+  @Column({ type: DataType.INTEGER, allowNull: true }) store_id: number | null;
   @Column({ type: DataType.STRING(20), allowNull: true }) from_status: string | null;
   @Column({ type: DataType.STRING(20), allowNull: true }) to_status: string | null;
   @Column({ type: DataType.STRING(30), allowNull: false }) event: string;
@@ -51,6 +65,7 @@ const logger = new Logger('OrderEvents');
 
 export interface OrderEventInput {
   order_id: number;
+  store_id?: number | null;
   event: OrderEventName;
   actor_type: OrderActorType;
   actor_id?: number | null;
@@ -74,6 +89,7 @@ export async function recordOrderEvent(input: OrderEventInput): Promise<void> {
     await OrderEvent.create(
       {
         order_id: row.order_id,
+        store_id: row.store_id ?? null,
         from_status: row.from_status ?? null,
         to_status: row.to_status ?? null,
         event: row.event,
@@ -96,6 +112,7 @@ export async function recordOrderEvent(input: OrderEventInput): Promise<void> {
 /** Mijozga ko'rsatiladigan ko'rinish — `actor_id` siz (topshiriq №25, 4-band). */
 export const publicOrderEvent = (e: OrderEvent) => ({
   event: e.event,
+  store_id: e.store_id ?? null,
   from_status: e.from_status,
   to_status: e.to_status,
   actor_type: e.actor_type,

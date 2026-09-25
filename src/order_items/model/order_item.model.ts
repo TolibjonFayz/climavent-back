@@ -14,13 +14,19 @@ import { ProductModelInside } from 'src/product_model_inside/models/product_mode
 
 interface OrderItemAtr {
   order_id: number;
-  product_id: number;
+  product_id: number | null;
   product_model: string;
   product_model_id?: number;
   product_model_inside_id?: number;
   quantity: number;
   price: number | null;
   regular_price?: number | null;
+  item_type?: string;
+  service_id?: number | null;
+  service_variant_id?: number | null;
+  for_order_item_id?: number | null;
+  price_type?: string | null;
+  visit_fee_uzs?: number | null;
 }
 
 @Table({ tableName: 'order-items' })
@@ -44,10 +50,10 @@ export class OrderItem extends Model<OrderItem, OrderItemAtr> {
   order: Order;
 
   @ForeignKey(() => Product)
-  @ApiProperty({ example: 1, description: 'Product id' })
+  @ApiProperty({ example: 1, nullable: true, description: 'Product id (xizmat qatorida null — №39)' })
   @Column({
     type: DataType.INTEGER,
-    allowNull: false,
+    allowNull: true,
   })
   product_id: number;
   @BelongsTo(() => Product)
@@ -134,4 +140,48 @@ export class OrderItem extends Model<OrderItem, OrderItemAtr> {
     },
   })
   regular_price: number | null;
+
+  // ——— Xizmat qatori (topshiriq №39, 4-band) ———
+  // DIQQAT: bu ustunlar modelda e'lon qilingan — migratsiya backenddan OLDIN.
+  @ApiProperty({ example: 'product', enum: ['product', 'service'] })
+  @Column({ type: DataType.STRING(10), allowNull: false, defaultValue: 'product' })
+  item_type: string;
+
+  @ApiProperty({ required: false, nullable: true, example: 7 })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  service_id: number | null;
+
+  @ApiProperty({ required: false, nullable: true, example: 19 })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  service_variant_id: number | null;
+
+  /** Qaysi tovar qatori uchun (o'rnatish). */
+  @ApiProperty({ required: false, nullable: true, example: 120 })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  for_order_item_id: number | null;
+
+  /**
+   * Qator do'koni — tovar qatorida mahsulotdan, xizmat qatorida xizmatdan.
+   * Baza TRIGGER'i yozadi (qo'lda yozilgani ham qayta hisoblanadi).
+   */
+  @ApiProperty({ required: false, nullable: true, example: 2 })
+  @Column({ type: DataType.INTEGER, allowNull: true })
+  store_id: number | null;
+
+  /** Xizmat narx turi (qotib yoziladi): `fixed` · `from` ("…dan") · `quote`. */
+  @ApiProperty({ required: false, nullable: true, example: 'from' })
+  @Column({ type: DataType.STRING(10), allowNull: true })
+  price_type: string | null;
+
+  /** `from` narxli xizmatning chiqish haqi (qotib yoziladi). */
+  @ApiProperty({ required: false, nullable: true, example: 100000 })
+  @Column({
+    type: DataType.BIGINT,
+    allowNull: true,
+    get(this: OrderItem) {
+      const v = this.getDataValue('visit_fee_uzs');
+      return v === null || v === undefined ? null : Number(v);
+    },
+  })
+  visit_fee_uzs: number | null;
 }

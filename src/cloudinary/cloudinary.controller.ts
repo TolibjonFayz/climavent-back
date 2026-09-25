@@ -31,7 +31,7 @@ export class CloudinaryController {
   // Mijoz yuborgan mimetype'ga ISHONIB BO'LMAYDI (uni oson soxtalashtirish
   // mumkin), fayl esa ommaga ochiq havolada turadi — shuning uchun
   // faylning o'z boshidagi baytlarni tekshiramiz.
-  private static readonly IMAGE_TYPES: Array<{
+  static readonly IMAGE_TYPES: Array<{
     mime: string;
     test: (b: Buffer) => boolean;
   }> = [

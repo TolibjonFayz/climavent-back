@@ -44,9 +44,9 @@ export interface QuoteSection {
 export async function ensureSections(sequelize: Sequelize, orderId: number, t?: Transaction) {
   await sequelize.query(
     `INSERT INTO order_quote_sections (order_id, store_id)
-     SELECT DISTINCT i.order_id, p.store_id
-       FROM "order-items" i JOIN products p ON p.id = i.product_id
-      WHERE i.order_id = :order AND p.store_id IS NOT NULL
+     SELECT DISTINCT i.order_id, i.store_id
+       FROM "order-items" i
+      WHERE i.order_id = :order AND i.store_id IS NOT NULL
      ON CONFLICT (order_id, store_id) DO NOTHING`,
     { replacements: { order: orderId }, transaction: t },
   );
@@ -62,8 +62,8 @@ export async function sectionsOf(sequelize: Sequelize, orderId: number, t?: Tran
        CROSS JOIN LATERAL (
          SELECT COUNT(*)::int AS item_count,
                 COUNT(*) FILTER (WHERE i.price IS NULL)::int AS unpriced_count
-           FROM "order-items" i JOIN products p ON p.id = i.product_id
-          WHERE i.order_id = s.order_id AND p.store_id = s.store_id
+           FROM "order-items" i
+          WHERE i.order_id = s.order_id AND i.store_id = s.store_id
        ) c
        LEFT JOIN LATERAL (
          SELECT q.id, q.version, jsonb_path_exists(q.items, '$[*] ? (@.price == null)') AS has_null

@@ -16,7 +16,6 @@ import { Product } from 'src/products/model/product.model';
 import { Order } from 'src/orders/model/order.model';
 import { OrderPricingService } from './order-pricing.service';
 import { RequestActor } from 'src/guards/customer_or_backoffice.guard';
-import { storeProductIds } from 'src/common/helpers/store-scope';
 import { recordOrderEvent } from 'src/orders/order-events';
 import { ensureSections } from 'src/orders/quote-sections';
 
@@ -106,6 +105,11 @@ export class OrderItemsService {
     return response;
   }
 
+  /** Buyurtma summasini qayta hisoblash (xizmat qatorlari qo'shilgandan keyin — №39). */
+  recomputeTotal(orderId: number) {
+    return this.pricing.recomputeOrderTotal(orderId);
+  }
+
   /** Model (characteristic) nomi — `product_model` bo'sh kelganda. */
   private async modelTitle(characteristicId: number): Promise<string | null> {
     const [row]: any[] = await this.OrderItemRepository.sequelize.query(
@@ -147,9 +151,8 @@ export class OrderItemsService {
   // jadval qaytib, izolyatsiyani adminkaning o'zi qilardi.
   async getAllOrderItems(storeId?: number | null) {
     const orderItems = await this.OrderItemRepository.findAll({
-      ...(storeId
-        ? { where: { product_id: { [Op.in]: storeProductIds(storeId) } } }
-        : {}),
+      // `store_id` — tovar qatorida mahsulotdan, xizmat qatorida xizmatdan (№39)
+      ...(storeId ? { where: { store_id: Number(storeId) } } : {}),
       include: { all: true },
     });
     return orderItems;
@@ -166,10 +169,7 @@ export class OrderItemsService {
   private async ensureCanRead(item: OrderItem, actor: RequestActor) {
     if (actor?.kind === 'superadmin') return;
     if (actor?.kind === 'store_admin') {
-      const product = await this.productRepository.findByPk(item.product_id, {
-        attributes: ['store_id'],
-      });
-      if (product?.store_id && product.store_id === actor.store_id) return;
+      if (item.store_id && Number(item.store_id) === Number(actor.store_id)) return;
       throw new ForbiddenException("Bu buyurtma qatori sizning do'koningizga tegishli emas");
     }
     const order = await this.orderRepository.findByPk(item.order_id, {

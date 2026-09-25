@@ -8,6 +8,8 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsUrl,
+  ValidateIf,
   IsIn,
   IsInt,
   IsLatitude,
@@ -34,9 +36,32 @@ import {
  * Narx bu yerda YO'Q — uni server aniqlaydi (`OrderPricingService`).
  */
 export class OrderLineDto {
-  @ApiProperty({ example: 225 })
+  @ApiProperty({ example: 225, required: false, description: 'Tovar qatori — yoki `service_id` (№39)' })
+  @ValidateIf((o) => o.service_id === undefined || o.service_id === null)
+  @IsInt({ message: 'product_id yoki service_id majburiy' })
+  product_id?: number;
+
+  // ——— Xizmat qatori (topshiriq №39, 4-band) ———
+  @ApiProperty({ example: 7, required: false, description: 'Xizmat (`services.id`)' })
+  @IsOptional()
   @IsInt()
-  product_id: number;
+  service_id?: number;
+
+  @ApiProperty({ example: 19, required: false, description: 'Xizmat varianti (`service_variants.id`) — xizmat qatorida majburiy' })
+  @ValidateIf((o) => o.service_id !== undefined && o.service_id !== null)
+  @IsInt({ message: 'xizmat qatorida variant_id majburiy' })
+  variant_id?: number;
+
+  @ApiProperty({
+    example: 0,
+    required: false,
+    description: "Shu so'rovdagi qaysi TOVAR qatori uchun (0 dan boshlanadigan tartib raqami) — o'rnatish",
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(199)
+  for_item_index?: number;
 
   @ApiProperty({ example: 'ВНВ243.1-078', required: false })
   @IsOptional()
@@ -59,6 +84,86 @@ export class OrderLineDto {
   @Min(1)
   @Max(100000)
   quantity: number;
+}
+
+/** Xizmat buyurtmasi: vaqt, izoh, rasmlar (topshiriq №39, 4-band). */
+export class OrderServiceDto {
+  @ApiProperty({ example: '2026-09-28', required: false, description: 'Mijoz taklif qilgan kun (Toshkent vaqti)' })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: "preferred_date YYYY-MM-DD ko'rinishida bo'lsin" })
+  preferred_date?: string;
+
+  @ApiProperty({ example: '10:00', required: false })
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: "window_from HH:MM ko'rinishida bo'lsin" })
+  window_from?: string;
+
+  @ApiProperty({ example: '13:00', required: false })
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: "window_to HH:MM ko'rinishida bo'lsin" })
+  window_to?: string;
+
+  @ApiProperty({ example: '3-qavat, tashqi blok balkonda', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  comment?: string;
+
+  @ApiProperty({ required: false, type: [String], description: '`POST /api/uploads/service-photo` qaytargan havolalar (5 tagacha)' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsUrl({ protocols: ['https'], require_protocol: true }, { each: true })
+  photos?: string[];
+}
+
+/** Manzil bloki (№39): №22 dagi maydonlar + hudud kodlari. Yuqori darajadagi maydonlar ham ishlaydi. */
+export class OrderAddressDto {
+  @ApiProperty({ example: 'Toshkent, Yunusobod 4-kvartal', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  location?: string;
+
+  @ApiProperty({ example: 'tashkent_city', required: false, description: '`GET /api/regions` viloyat kodi' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  region_code?: string;
+
+  @ApiProperty({ example: 'yunusobod', required: false, description: 'Tuman kodi' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  district_code?: string;
+
+  @ApiProperty({ example: 'Aziz Karimov', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  recipient_name?: string;
+
+  @ApiProperty({ example: '+998901234567', required: false })
+  @IsOptional()
+  @Matches(/^\+998\d{9}$/, { message: "recipient_phone +998XXXXXXXXX ko'rinishida bo'lsin" })
+  recipient_phone?: string;
+
+  @ApiProperty({ example: '2-kirish, 5-qavat', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  address_details?: string;
+
+  @ApiProperty({ example: 41.311081, required: false })
+  @IsOptional()
+  @IsLatitude()
+  lat?: number;
+
+  @ApiProperty({ example: 69.240562, required: false })
+  @IsOptional()
+  @IsLongitude()
+  lng?: number;
+
 }
 
 export class CreateOrderDto {
@@ -96,7 +201,8 @@ export class CreateOrderDto {
   })
   status: string;
 
-  @ApiProperty({ example: 'Location', description: 'Location of order' })
+  @ApiProperty({ example: 'Location', description: "Location of order (yoki `address.location`)" })
+  @ValidateIf((o) => !o.address?.location)
   @IsString()
   @IsNotEmpty()
   location: string;
@@ -180,4 +286,29 @@ export class CreateOrderDto {
   @IsOptional()
   @IsLongitude()
   lng?: number;
+
+  // ——— Xizmat (topshiriq №39, 4-band) ———
+  @ApiProperty({ example: 'tashkent_city', required: false, description: 'Xizmat qatori bo\'lsa majburiy (yoki district_code)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  region_code?: string;
+
+  @ApiProperty({ example: 'yunusobod', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  district_code?: string;
+
+  @ApiProperty({ type: OrderServiceDto, required: false, description: 'Xizmat vaqti, izoh va rasmlar' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => OrderServiceDto)
+  service?: OrderServiceDto;
+
+  @ApiProperty({ type: OrderAddressDto, required: false, description: '№22 manzil maydonlari bir blokda' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => OrderAddressDto)
+  address?: OrderAddressDto;
 }

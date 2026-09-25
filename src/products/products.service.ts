@@ -4,6 +4,7 @@ import { SearchProductsByQueryDto } from './dto/search-product.dto';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -71,6 +72,10 @@ export class ProductsService {
     );
     if (!store) {
       throw new BadRequestException("Bunday do'kon yo'q (store_id)");
+    }
+    // Faqat xizmat ko'rsatuvchi hamkor tovar sotmaydi (topshiriq №39, 1-band)
+    if (store.sells_products === false) {
+      throw new ForbiddenException("Bu hamkor tovar sotmaydi (sells_products = false) — mahsulot yaratib bo'lmaydi");
     }
 
     const newProduct = await this.productRepository.create({
@@ -530,6 +535,14 @@ export class ProductsService {
     const existing = await this.productRepository.findByPk(id);
     if (!existing) {
       throw new NotFoundException('Product not found or something wrong');
+    }
+    // Mahsulotni tovar sotmaydigan hamkorga ko'chirib bo'lmaydi (№39, 1-band)
+    const targetStore = (updateProductDto as any).store_id;
+    if (targetStore !== undefined && Number(targetStore) !== Number(existing.store_id)) {
+      const store = await this.storeRepository.findByPk(targetStore);
+      if (store && store.sells_products === false) {
+        throw new ForbiddenException("Bu hamkor tovar sotmaydi (sells_products = false)");
+      }
     }
 
     //Updating size

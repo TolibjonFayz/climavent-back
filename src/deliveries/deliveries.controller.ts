@@ -49,8 +49,15 @@ export class CouriersController {
 
   @ApiOperation({ summary: "Kuryerlar (?store_id=|null&is_active=&is_online=)" })
   @Get()
-  list(@Req() req: any, @Query('store_id') store_id?: string, @Query('is_active') is_active?: string, @Query('is_online') is_online?: string) {
-    return this.couriers.list(req.storeUser, { store_id, is_active, is_online });
+  list(
+    @Req() req: any,
+    @Query('store_id') store_id?: string,
+    @Query('is_active') is_active?: string,
+    @Query('is_online') is_online?: string,
+    // `?skill=installation` — shu ishni qila oladigan ustalar (№39, 2-band)
+    @Query('skill') skill?: string,
+  ) {
+    return this.couriers.list(req.storeUser, { store_id, is_active, is_online, skill });
   }
 
   @Get(':id')

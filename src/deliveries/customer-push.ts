@@ -19,7 +19,11 @@ import { pushTo, PushMessage } from './push';
  */
 const logger = new Logger('CustomerPush');
 
-type Lang = 'uz' | 'ru';
+/**
+ * `en` — №38 dan. Eski matnlar faqat uz/ru (`lang === 'ru' ? ... : uz`),
+ * shuning uchun ularda `en` avvalgidek o'zbekcha bo'lib qoladi.
+ */
+export type Lang = 'uz' | 'ru' | 'en';
 
 async function langOf(userId: number): Promise<Lang> {
   try {
@@ -27,14 +31,15 @@ async function langOf(userId: number): Promise<Lang> {
       'SELECT lang FROM users WHERE id = :id',
       { replacements: { id: userId }, type: QueryTypes.SELECT },
     );
-    return rows[0]?.lang === 'ru' ? 'ru' : 'uz';
+    const lang = rows[0]?.lang;
+    return lang === 'ru' || lang === 'en' ? lang : 'uz';
   } catch {
     // `lang` ustuni hali migratsiya qilinmagan bo'lsa ham ishlashda davom etadi
     return 'uz';
   }
 }
 
-async function send(userId: number | null | undefined, build: (lang: Lang) => PushMessage) {
+export async function sendToCustomer(userId: number | null | undefined, build: (lang: Lang) => PushMessage) {
   try {
     const id = Number(userId);
     if (!Number.isInteger(id) || id <= 0) return;
@@ -67,7 +72,7 @@ export async function orderOwnerId(orderId: number): Promise<number | null> {
  * `ready`/`total` — tayyor bo'limlar soni (`data` da ham, ilova ko'rsatishi uchun).
  */
 export const pushQuoteReady = (orderId: number, userId?: number | null, ready = 1, total = 1) =>
-  send(userId, (lang) => ({
+  sendToCustomer(userId, (lang) => ({
     title: lang === 'ru' ? `КП готово #${orderId}` : `KP tayyor #${orderId}`,
     body:
       total > 1
@@ -82,7 +87,7 @@ export const pushQuoteReady = (orderId: number, userId?: number | null, ready = 
 
 /** Keyingi bo'lim tayyor bo'ldi (yoki tayyor bo'lim yangi versiya oldi). */
 export const pushQuoteUpdated = (orderId: number, userId: number | null | undefined, ready: number, total: number) =>
-  send(userId, (lang) => ({
+  sendToCustomer(userId, (lang) => ({
     title: lang === 'ru' ? `КП обновлено #${orderId}` : `KP yangilandi #${orderId}`,
     body:
       lang === 'ru'
@@ -98,7 +103,7 @@ export const pushQuoteTimeout = (
   items: number,
   hasReady: boolean,
 ) =>
-  send(userId, (lang) => ({
+  sendToCustomer(userId, (lang) => ({
     title:
       lang === 'ru'
         ? `Часть КП без ответа #${orderId}`
@@ -118,14 +123,17 @@ const STATUS_LABEL: Record<string, { uz: string; ru: string }> = {
   new: { uz: 'yangi', ru: 'новый' },
   quote_sent: { uz: 'KP yuborildi', ru: 'КП отправлено' },
   paid: { uz: 'tasdiqlandi', ru: 'подтверждён' },
+  packing: { uz: "yig'ilyapti", ru: 'собирается' },
+  ready: { uz: "yig'ildi", ru: 'собран' },
   shipping: { uz: "yo'lda", ru: 'в пути' },
+  in_progress: { uz: 'bajarilmoqda', ru: 'выполняется' },
   done: { uz: 'topshirildi', ru: 'доставлен' },
   cancelled: { uz: 'bekor qilindi', ru: 'отменён' },
 };
 
 export const pushOrderStatus = (orderId: number, userId: number | null | undefined, status: string) =>
-  send(userId, (lang) => {
-    const label = STATUS_LABEL[status]?.[lang] ?? status;
+  sendToCustomer(userId, (lang) => {
+    const label = STATUS_LABEL[status]?.[lang === 'ru' ? 'ru' : 'uz'] ?? status;
     return {
       title: lang === 'ru' ? 'Статус заказа' : 'Buyurtma holati',
       body: lang === 'ru' ? `Заказ #${orderId}: ${label}` : `#${orderId} buyurtma: ${label}`,
@@ -141,7 +149,7 @@ export const pushCourierOnTheWay = (
   etaMinutes: number | null,
   trackingToken: string | null,
 ) =>
-  send(userId, (lang) => {
+  sendToCustomer(userId, (lang) => {
     const name = (courierName || '').trim();
     const eta = etaMinutes ? (lang === 'ru' ? `, ~${etaMinutes} мин` : `, ~${etaMinutes} daqiqa`) : '';
     return {
@@ -164,7 +172,7 @@ export const pushCourierArrived = (
   userId: number | null | undefined,
   trackingToken?: string | null,
 ) =>
-  send(userId, (lang) => ({
+  sendToCustomer(userId, (lang) => ({
     title: lang === 'ru' ? 'Курьер прибыл' : 'Kuryer yetib keldi',
     body: lang === 'ru' ? 'Курьер прибыл' : 'Kuryer yetib keldi',
     data: {
@@ -176,9 +184,37 @@ export const pushCourierArrived = (
 
 /** Topshirildi. */
 export const pushOrderDelivered = (orderId: number, userId?: number | null) =>
-  send(userId, (lang) => ({
+  sendToCustomer(userId, (lang) => ({
     title: lang === 'ru' ? 'Заказ доставлен' : 'Buyurtma topshirildi',
     body:
       lang === 'ru' ? `#${orderId} доставлен. Спасибо!` : `#${orderId} topshirildi. Rahmat!`,
     data: { type: 'order_delivered', order_id: orderId, path: `/orders/${orderId}` },
+  }));
+
+/** Uch tildagi matndan mijoz tilidagisini oladi. */
+export const t3 = (lang: Lang, uz: string, ru: string, en: string) => (lang === 'ru' ? ru : lang === 'en' ? en : uz);
+
+/**
+ * Birinchi do'kon yig'ishni boshladi (topshiriq №38, 3-band). Bir nechta
+ * do'kon bo'lsa ham BIR MARTA — `syncOrderStatus` buyurtma birinchi marta
+ * `packing` ga o'tganda chaqiradi.
+ */
+export const pushOrderPacking = (orderId: number, userId?: number | null) =>
+  sendToCustomer(userId, (lang) => ({
+    title: t3(lang, 'Buyurtma holati', 'Статус заказа', 'Order status'),
+    body: t3(lang, `Buyurtma #${orderId} yig'ilyapti`, `Заказ #${orderId} собирается`, `Order #${orderId} is being packed`),
+    data: { type: 'order', order_id: orderId, status: 'packing' },
+  }));
+
+/** Hamma do'konlar yig'ib bo'ldi (№38, 3-band). */
+export const pushOrderReady = (orderId: number, userId?: number | null) =>
+  sendToCustomer(userId, (lang) => ({
+    title: t3(lang, 'Buyurtma holati', 'Статус заказа', 'Order status'),
+    body: t3(
+      lang,
+      `Buyurtma #${orderId} yig'ildi, kuryerga topshiriladi`,
+      `Заказ #${orderId} собран и будет передан курьеру`,
+      `Order #${orderId} is packed and will be handed to the courier`,
+    ),
+    data: { type: 'order', order_id: orderId, status: 'ready' },
   }));

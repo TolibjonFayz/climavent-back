@@ -12,6 +12,9 @@ import {
   UseGuards,
   Query,
   Req,
+  Header,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -26,6 +29,28 @@ import { UserSelfOrBackofficeGuard } from 'src/guards/user_self_or_backoffice.gu
 import { CustomerOrBackofficeGuard } from 'src/guards/customer_or_backoffice.guard';
 import { QuotesService, quoteSender } from './quotes.service';
 import { AcceptQuoteDto, RejectQuoteDto, SendQuoteDto } from './dto/quote.dto';
+import { StageDto } from './dto/stage.dto';
+
+/**
+ * Kuzatish so'rovi chegarasi — FOYDALANUVCHI bo'yicha daqiqasiga 30 ta
+ * (№38, 2-band). Ilova ochiq ekranda 15 soniyada bir so'raydi (4/daq), bu
+ * zaxira bilan yetadi. Xotirada (bitta replika — chat xonalari kabi).
+ */
+const TRACK_LIMIT = 30;
+const TRACK_WINDOW_MS = 60 * 1000;
+const trackHits = new Map<number, number[]>();
+function trackRateLimit(userId: number) {
+  const now = Date.now();
+  const hits = (trackHits.get(userId) || []).filter((t) => now - t < TRACK_WINDOW_MS);
+  if (hits.length >= TRACK_LIMIT) {
+    throw new HttpException("Juda ko'p so'rov — biroz kuting", HttpStatus.TOO_MANY_REQUESTS);
+  }
+  hits.push(now);
+  trackHits.set(userId, hits);
+  if (trackHits.size > 10000) {
+    for (const [k, v] of trackHits) if (!v.some((t) => now - t < TRACK_WINDOW_MS)) trackHits.delete(k);
+  }
+}
 
 @ApiTags('Orders')
 @ApiBearerAuth()
@@ -60,10 +85,54 @@ export class OrdersController {
     @Req() req: any,
     @Query('kind') kind?: string,
     @Query('source') source?: string,
+    @Query('stage') stage?: string,
   ): Promise<Order[]> {
     // `?kind=quote` — faqat KP so'rovlari, `?kind=order` — oddiy buyurtmalar (№21)
     // `?source=site_kp` — faqat saytda chiqarilgan KP lar (№28)
-    return this.ordersService.getAllOrders(scopedStoreId(req), kind, source);
+    // `?stage=waiting|packing|ready` — yig'ish holati (№38); javobda `stage`/`stages`
+    return this.ordersService.getAllOrders(scopedStoreId(req), kind, source, stage);
+  }
+
+  /**
+   * Yig'ish bosqichi (topshiriq №38, 1-band). Do'kon admini / `orders.edit`
+   * xodimi — o'z qismi; superadmin — istalgani. `packing`/`ready` buyurtma
+   * holati shundan AVTOMATIK (qo'lda `PATCH update` — 400).
+   */
+  @ApiOperation({ summary: "Yig'ish holati: waiting→packing→ready (ready→packing — xato bosilganda)" })
+  @ApiResponse({ status: 403, description: "Boshqa do'kon qismi" })
+  @ApiResponse({ status: 409, description: "O'tish mumkin emas / bekor / KP qabul qilinmagan / kuryer olib ketgan" })
+  @ApiBearerAuth()
+  @ApiSecurity('service-key')
+  @UseGuards(AdminOrStoreGuard)
+  @Patch(':id/stores/:storeId/stage')
+  async setStage(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('storeId', ParseIntPipe) storeId: number,
+    @Body() dto: StageDto,
+    @Req() req: any,
+  ) {
+    const su = req.storeUser;
+    const requester =
+      su?.role === 'store_admin'
+        ? su
+        : { role: 'superadmin' as const, store_id: null, user_id: su?.user_id ?? null };
+    return this.ordersService.setStoreStage(id, storeId, dto.stage, requester);
+  }
+
+  /**
+   * Ilova ichida kuzatish (topshiriq №38, 2-band; №39, 8-band) — faqat
+   * buyurtma EGASI (sayt admini ham). Begona buyurtma — 404.
+   */
+  @ApiOperation({ summary: "Buyurtmani kuzatish: bosqichlar, do'kon qismlari, yetkazish va ishlar" })
+  @ApiResponse({ status: 404, description: "Topilmadi yoki begona buyurtma" })
+  @ApiResponse({ status: 429, description: 'Daqiqasiga 30 tadan ko\'p' })
+  @ApiBearerAuth()
+  @UseGuards(UserGuard)
+  @Header('Cache-Control', 'no-store')
+  @Get(':id/tracking')
+  async tracking(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    trackRateLimit(Number(req.user?.id));
+    return this.ordersService.tracking(id, req.user);
   }
 
   //Get order by id

@@ -21,6 +21,8 @@ interface OrderAtr {
   comment?: string | null;
   company_name?: string | null;
   company_tin?: string | null;
+  region_code?: string | null;
+  district_code?: string | null;
 }
 
 @Table({ tableName: 'orders' })
@@ -164,6 +166,18 @@ export class Order extends Model<Order, OrderAtr> {
   @ApiProperty({ required: false, nullable: true, example: 62 })
   @Column({ type: DataType.INTEGER, allowNull: true })
   parent_order_id: number;
+
+  /**
+   * Manzil hududi (topshiriq №39, 4-band) — `GET /api/regions` kodlari.
+   * Xizmat faqat shu hududga xizmat ko'rsatadigan hamkordan olinadi.
+   */
+  @ApiProperty({ required: false, nullable: true, example: 'tashkent_city' })
+  @Column({ type: DataType.STRING(40), allowNull: true })
+  region_code: string;
+
+  @ApiProperty({ required: false, nullable: true, example: 'yunusobod' })
+  @Column({ type: DataType.STRING(40), allowNull: true })
+  district_code: string;
 
   @HasMany(() => OrderItem)
   orderItems: OrderItem;

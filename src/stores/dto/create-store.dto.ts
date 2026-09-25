@@ -93,6 +93,17 @@ export class CreateStoreDto {
   @IsIn(['USD', 'UZS'], { message: "default_currency USD yoki UZS bo'lsin" })
   default_currency?: 'USD' | 'UZS';
 
+  // Hamkor turi (topshiriq №39, 1-band) — FAQAT superadmin. Ikkalasi false bo'lolmaydi.
+  @ApiProperty({ required: false, default: true, description: 'Tovar sotadi (faqat superadmin)' })
+  @IsOptional()
+  @IsBoolean()
+  sells_products?: boolean;
+
+  @ApiProperty({ required: false, default: false, description: 'Xizmat sotadi (faqat superadmin)' })
+  @IsOptional()
+  @IsBoolean()
+  sells_services?: boolean;
+
   // KP hujjatidagi shartlar (topshiriq №33, 5-band)
   @ApiProperty({ required: false, nullable: true, example: "Toshkent bo'ylab bepul, 3–5 ish kuni" })
   @IsOptional() @IsString() @MaxLength(500)

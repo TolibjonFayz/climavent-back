@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -14,6 +15,7 @@ import { ProductImages } from 'src/product_images/model/product_image.model';
 import { Review } from 'src/reviews/model/review.model';
 import { RequestActor } from 'src/guards/customer_or_backoffice.guard';
 import {
+  AUTO_ORDER_STATUSES,
   normalizeOrderStatus,
   ORDER_STATUS_MESSAGE,
 } from './order-status';
@@ -28,7 +30,20 @@ import { OrderQuote } from './model/order-quote.model';
 import { OrderEvent, publicOrderEvent, recordOrderEvent } from './order-events';
 import { emitOrderUpdated, orderRecipients } from './order-signal';
 import { quoteDueAt } from './quote-sla';
-import { publicSection, sectionsOf } from './quote-sections';
+import { ensureSections, publicSection, sectionsOf } from './quote-sections';
+import {
+  assertOwnPhotoUrls,
+  createServiceLinesAndJobs,
+  customerWindow,
+  prepareServiceLines,
+  resolveArea,
+} from 'src/service_jobs/service-orders';
+import { CUSTOMER_PHOTOS_MAX, ServiceJob } from 'src/service_jobs/models';
+import { backofficeJobView, customerJobView } from 'src/service_jobs/job-view';
+import { cancelJobsForOrder } from 'src/service_jobs/jobs.service';
+import { OrderStoreProgress, Stage, STAGE_TRANSITIONS, STAGES, storeStages, syncOrderStatus } from './order-progress';
+import { orderTracking } from './order-tracking';
+import type { StoreRequester } from 'src/store_auth/store_auth.guard';
 
 @Injectable()
 export class OrdersService {
@@ -91,13 +106,48 @@ export class OrdersService {
     }
     const status = normalizeOrderStatus(createOrderDto.status);
     if (!status) throw new BadRequestException(ORDER_STATUS_MESSAGE);
+    if (AUTO_ORDER_STATUSES.includes(status)) {
+      throw new BadRequestException(`${status} holati avtomatik qo'yiladi — buyurtma new (yoki paid) bilan yaratiladi`);
+    }
     const kind = createOrderDto.kind || 'order';
     if (status === 'quote_sent' && kind !== 'quote') {
       throw new BadRequestException("quote_sent holati faqat KP so'rovi (kind: quote) uchun");
     }
     const clean = (v?: string | null) => (typeof v === 'string' && v.trim() ? v.trim() : null);
-    // Qatorlar buyurtma yozuvining maydoni emas — ular alohida yaratiladi
-    const { items: lines, ...orderFields } = createOrderDto as any;
+    // Qatorlar buyurtma yozuvining maydoni emas — ular alohida yaratiladi.
+    // `service` — xizmat vaqti/izohi (№39), `address` — manzil bloki: yuqori
+    // darajadagi maydon ustun, blokdagisi bo'sh joyni to'ldiradi.
+    const { items: lines, service, address, ...orderFields } = createOrderDto as any;
+    for (const [k, v] of Object.entries(address || {})) {
+      if (v !== undefined && v !== null && (orderFields[k] === undefined || orderFields[k] === null)) orderFields[k] = v;
+    }
+
+    // Xizmat qatorlari (topshiriq №39, 4-band) — HAMMA tekshiruv buyurtma
+    // yozilishidan OLDIN: hududdan tashqari xizmat (409) yarim buyurtma qoldirmasin.
+    const allLines: any[] = Array.isArray(lines) ? lines : [];
+    const productLines = allLines.map((l, index) => ({ ...l, index })).filter((l) => !l.service_id);
+    const serviceInputs = allLines
+      .map((l, index) => ({ ...l, index }))
+      .filter((l) => l.service_id)
+      .map((l) => ({
+        index: l.index,
+        service_id: Number(l.service_id),
+        variant_id: Number(l.variant_id),
+        quantity: Number(l.quantity),
+        for_item_index: l.for_item_index ?? null,
+      }));
+    const area = resolveArea(orderFields.region_code, orderFields.district_code);
+    orderFields.region_code = area.region_code;
+    orderFields.district_code = area.district_code;
+    const preparedServices = await prepareServiceLines(serviceInputs, {
+      ...area,
+      productIndexes: new Set(productLines.map((l) => l.index)),
+    });
+    if (preparedServices.length) {
+      customerWindow(service);
+      assertOwnPhotoUrls(service?.photos, CUSTOMER_PHOTOS_MAX);
+    }
+
     const newOrder = await this.OrderRepository.create({
       ...orderFields,
       kind,
@@ -124,11 +174,39 @@ export class OrdersService {
     // Qatorlar shu yerda yaratiladi (topshiriq №28): sayt savatdan KP
     // olishda buyurtmani va qatorlarni BITTA so'rovda yuboradi va javobda
     // tayyor KP ni oladi. Narxni server aniqlaydi.
-    if (Array.isArray(lines) && lines.length) {
-      for (const line of lines) {
-        await this.orderItems.createOrderItem({ ...line, order_id: newOrder.id }, requester ?? {});
+    const itemIdByIndex = new Map<number, number>();
+    if (productLines.length) {
+      for (const line of productLines) {
+        const { index, service_id, variant_id, for_item_index, ...rest } = line;
+        const created: any = await this.orderItems.createOrderItem({ ...rest, order_id: newOrder.id }, requester ?? {});
+        itemIdByIndex.set(index, created.newOrderItem.id);
       }
       await newOrder.reload();
+    }
+
+    // Xizmat qatorlari va ishlar — har hamkor uchun bitta ish (№39, 4–5-band)
+    let jobs: any[] = [];
+    if (preparedServices.length) {
+      jobs = await createServiceLinesAndJobs(newOrder, preparedServices, itemIdByIndex, service, {
+        type: requester?.is_admin ? 'superadmin' : 'customer',
+        id: requester?.id ?? null,
+      });
+      await this.orderItems.recomputeTotal(newOrder.id);
+      // `quote` narxli xizmat — narxsiz qator: buyurtma KP so'roviga aylanadi (№21)
+      if (preparedServices.some((x) => x.price === null) && newOrder.kind !== 'quote') {
+        await this.OrderRepository.update({ kind: 'quote' } as any, { where: { id: newOrder.id }, silent: true });
+        await recordOrderEvent({
+          order_id: newOrder.id,
+          event: 'status_changed',
+          from_status: newOrder.status,
+          to_status: newOrder.status,
+          actor_type: requester?.is_admin ? 'superadmin' : 'customer',
+          actor_id: requester?.id ?? null,
+          note: "Narxsiz xizmat qatori — buyurtma KP so'roviga aylandi",
+        });
+      }
+      await newOrder.reload();
+      if (newOrder.kind === 'quote') await ensureSections(this.OrderRepository.sequelize, newOrder.id);
     }
 
     // Saytda chiqarilgan KP — v1 DARHOL yaratiladi, sotuvchi kutilmaydi.
@@ -139,6 +217,7 @@ export class OrdersService {
     }
 
     const response: any = { message: 'Order successfully created', newOrder };
+    if (jobs.length) response.jobs = jobs.map((j) => ({ id: j.id, store_id: j.store_id, status: j.status }));
     if (quote) {
       // Sayt KP sahifasini shundan chizadi
       response.quotes = quote.quotes;
@@ -158,7 +237,7 @@ export class OrdersService {
   // `totalAmount` esa BUTUN buyurtmaniki bo'lib qoladi (qayta hisoblanmaydi)
   // — hozir bitta ham aralash buyurtma yo'q; bo'lganda do'kon ulushini
   // qatorlardan hisoblash kerak bo'ladi.
-  async getAllOrders(storeId?: number | null, kind?: string, source?: string) {
+  async getAllOrders(storeId?: number | null, kind?: string, source?: string, stage?: string) {
     // `?kind=quote` — faqat KP so'rovlari (№21, 3-band)
     // `?source=site_kp` — faqat saytda chiqarilgan KP lar (№28, 2-band)
     const kindWhere: any = kind === 'order' || kind === 'quote' ? { kind } : {};
@@ -169,9 +248,24 @@ export class OrdersService {
       if (plain.kind === 'quote') plain.quote_due_at = quoteDueAt(plain.createdAt);
       return plain;
     };
+    // `?stage=waiting|packing|ready` (№38, 4-band). Yozuvi yo'q do'kon — `waiting`.
+    const stageOk = stage && (STAGES as readonly string[]).includes(stage);
+    if (stageOk) {
+      const storeCond = storeId ? `AND i.store_id = ${Number(storeId)}` : '';
+      kindWhere[Op.and] = [
+        Sequelize.literal(
+          `EXISTS (SELECT 1 FROM "order-items" i
+                    LEFT JOIN order_store_progress p ON p.order_id = i.order_id AND p.store_id = i.store_id
+                   WHERE i.order_id = "Order"."id" AND i.item_type = 'product' ${storeCond}
+                     AND COALESCE(p.stage, 'waiting') = ${this.OrderRepository.sequelize.escape(stage)})`,
+        ),
+      ];
+    }
     if (!storeId) {
       const rows = await this.OrderRepository.findAll({ where: kindWhere, include: { all: true } });
-      return rows.map(withDue) as any;
+      const out = rows.map(withDue) as any[];
+      await this.attachStages(out, null);
+      return out;
     }
 
     const orders = await this.OrderRepository.findAll({
@@ -179,27 +273,43 @@ export class OrdersService {
         ...kindWhere,
         id: {
           [Op.in]: Sequelize.literal(
-            `(SELECT DISTINCT order_id FROM "order-items" WHERE product_id IN ` +
-              `(SELECT id FROM products WHERE store_id = ${Number(storeId)}))`,
+            `(SELECT DISTINCT order_id FROM "order-items" WHERE store_id = ${Number(storeId)})`,
           ),
         },
       },
       include: { all: true },
     });
 
-    // Ichma-ich qatorlarni ham do'kon bo'yicha qisqartiramiz.
-    const mahsulotlar = await this.productRepository.findAll({
-      where: { store_id: Number(storeId) },
-      attributes: ['id'],
-    });
-    const meniki = new Set(mahsulotlar.map((p) => p.id));
-    return orders.map((o) => {
+    // Ichma-ich qatorlarni ham do'kon bo'yicha qisqartiramiz (xizmat qatori ham — №39).
+    const out = orders.map((o) => {
       const plain: any = withDue(o);
-      plain.orderItems = (plain.orderItems || []).filter((i: any) =>
-        meniki.has(i.product_id),
-      );
+      plain.orderItems = (plain.orderItems || []).filter((i: any) => Number(i.store_id) === Number(storeId));
       return plain;
     });
+    await this.attachStages(out, Number(storeId));
+    return out;
+  }
+
+  /**
+   * Ro'yxatga yig'ish holati (№38, 4-band): do'kon tokeni bilan — shu
+   * do'konning `stage` i (tovari yo'q bo'lsa `null`); superadmin — `stages`.
+   */
+  private async attachStages(rows: any[], storeId: number | null) {
+    if (!rows.length) return;
+    const ids = rows.map((r) => r.id);
+    const found: any[] = await this.OrderRepository.sequelize.query(
+      `SELECT DISTINCT i.order_id, i.store_id, COALESCE(p.stage, 'waiting') AS stage
+         FROM "order-items" i
+         LEFT JOIN order_store_progress p ON p.order_id = i.order_id AND p.store_id = i.store_id
+        WHERE i.order_id IN (:ids) AND i.item_type = 'product' AND i.store_id IS NOT NULL
+          ${storeId ? 'AND i.store_id = :store' : ''}`,
+      { replacements: { ids, store: storeId }, type: 'SELECT' as any },
+    );
+    for (const r of rows) {
+      const mine = found.filter((x) => Number(x.order_id) === Number(r.id));
+      if (storeId) r.stage = mine[0]?.stage ?? null;
+      else r.stages = mine.map((x) => ({ store_id: Number(x.store_id), stage: x.stage }));
+    }
   }
 
   //Get order by id
@@ -216,9 +326,13 @@ export class OrdersService {
       throw new NotFoundException('Order not found or id is invalid');
     }
     // KP versiyalari va yo'l tarixi (topshiriq №25, 2- va 4-band)
-    return this.withQuoteInfo(order.get({ plain: true }), {
+    const plain = await this.withQuoteInfo(order.get({ plain: true }), {
       forCustomer: !requester?.is_admin,
     });
+    // Xizmat ishlari (№39): vaqt, kod, narx tasdig'i, baho, kafolat
+    const jobs = await ServiceJob.findAll({ where: { order_id: id }, order: [['id', 'ASC']] });
+    plain.jobs = await Promise.all(jobs.map((j) => customerJobView(j)));
+    return plain;
   }
 
   //Get order by userid
@@ -278,11 +392,10 @@ export class OrdersService {
     if (actor?.kind === 'store_admin') {
       const items = await this.OrderItemsRepository.findAll({
         where: { order_id: id },
-        include: [{ model: Product, attributes: ['store_id'] }],
+        attributes: ['id', 'store_id'],
       });
-      const storeIds = new Set(
-        items.map((i) => (i as any).product?.store_id ?? null),
-      );
+      // `store_id` — tovar qatorida mahsulotdan, xizmat qatorida xizmatdan (№39)
+      const storeIds = new Set(items.map((i) => i.store_id ?? null));
       // Bo'sh buyurtma yoki do'koni noma'lum qator bo'lsa — ruxsat yo'q.
       const hammasiMeniki =
         items.length > 0 &&
@@ -332,6 +445,12 @@ export class OrdersService {
     if (payload.status !== undefined) {
       const normalized = normalizeOrderStatus(payload.status);
       if (!normalized) throw new BadRequestException(ORDER_STATUS_MESSAGE);
+      // Yig'ish va ish holatlari faqat o'z endpointlari orqali (№38, №39)
+      if (AUTO_ORDER_STATUSES.includes(normalized) && normalized !== existing.status) {
+        throw new BadRequestException(
+          `${normalized} holati qo'lda qo'yilmaydi: yig'ish — PATCH /orders/:id/stores/:storeId/stage, ish — usta ilovasi`,
+        );
+      }
       if (normalized === 'quote_sent' && existing.kind !== 'quote') {
         throw new BadRequestException("quote_sent holati faqat KP so'rovi (kind: quote) uchun");
       }
@@ -367,6 +486,11 @@ export class OrdersService {
         type: actor?.kind === 'store_admin' ? 'store' : actor?.kind === 'customer' ? 'system' : 'superadmin',
         id: actor?.user_id ?? null,
       });
+      // Xizmat ishlari ham (№39) — ustaga push
+      await cancelJobsForOrder(id, {
+        type: actor?.kind === 'store_admin' ? 'store' : actor?.kind === 'customer' ? 'customer' : 'superadmin',
+        id: actor?.user_id ?? null,
+      });
     }
     // Holatsiz tahrir (manzil, izoh, kompaniya...) tarixga yozilmaydi — signal
     // shu yerdan (№36). Holat o'zgargan bo'lsa hodisa bilan birlashadi.
@@ -384,9 +508,7 @@ export class OrdersService {
     if (!order) throw new NotFoundException('Buyurtma topilmadi');
     const plain: any = order.get({ plain: true });
     if (storeId) {
-      const mahsulotlar = await this.productRepository.findAll({ where: { store_id: storeId }, attributes: ['id'] });
-      const meniki = new Set(mahsulotlar.map((p) => p.id));
-      plain.orderItems = (plain.orderItems || []).filter((i: any) => meniki.has(i.product_id));
+      plain.orderItems = (plain.orderItems || []).filter((i: any) => Number(i.store_id) === Number(storeId));
       if (!plain.orderItems.length) throw new NotFoundException('Buyurtma topilmadi');
     }
     const deliveries = await Delivery.findAll({
@@ -395,7 +517,112 @@ export class OrdersService {
       order: [['id', 'ASC']],
     });
     plain.deliveries = deliveries.map((d) => d.get({ plain: true }));
+    const jobs = await ServiceJob.findAll({
+      where: { order_id: id, ...(storeId ? { store_id: storeId } : {}) },
+      order: [['id', 'ASC']],
+    });
+    plain.jobs = await Promise.all(jobs.map((j) => backofficeJobView(j)));
+    plain.stages = await storeStages(this.OrderRepository.sequelize, id);
+    if (storeId) plain.stages = plain.stages.filter((x: any) => x.store_id === storeId);
     return this.withQuoteInfo(plain);
+  }
+
+  /**
+   * Yig'ish bosqichi — `PATCH /orders/:id/stores/:storeId/stage` (№38, 1-band).
+   *
+   *   kim: shu do'kon admini / `orders.edit` xodimi, superadmin; boshqa do'kon — 403;
+   *   o'tish: waiting→packing|ready, packing→ready, ready→packing; qolgani — 409;
+   *   409: buyurtma bekor/yakunlangan, KP qabul qilinmagan, kuryer tovarni olib ketgan.
+   * Buyurtmaning umumiy holati (`packing`/`ready`) AVTOMATIK qayta hisoblanadi.
+   */
+  async setStoreStage(orderId: number, storeId: number, stage: string, r: StoreRequester) {
+    if (!(STAGES as readonly string[]).includes(stage) || stage === 'waiting') {
+      throw new BadRequestException("stage: packing yoki ready");
+    }
+    if (r?.role !== 'superadmin' && Number(r?.store_id) !== Number(storeId)) {
+      throw new ForbiddenException("Boshqa do'kon qismining holatini o'zgartirib bo'lmaydi");
+    }
+    const seq = this.OrderRepository.sequelize;
+    const result = await seq.transaction(async (t) => {
+      const order = await this.OrderRepository.findByPk(orderId, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!order) throw new NotFoundException('Buyurtma topilmadi');
+      const [own]: any[] = await seq.query(
+        `SELECT COUNT(*)::int AS n FROM "order-items" WHERE order_id = :o AND store_id = :s AND item_type = 'product'`,
+        { replacements: { o: orderId, s: storeId }, type: 'SELECT' as any, transaction: t },
+      );
+      if (!Number(own?.n)) throw new NotFoundException("Buyurtmada bu do'kon tovari yo'q");
+      if (['cancelled', 'done'].includes(order.status)) {
+        throw new ConflictException(`${order.status} holatidagi buyurtmani yig'ib bo'lmaydi`);
+      }
+      if (order.kind === 'quote') {
+        throw new ConflictException("KP hali qabul qilinmagan — narxi kelishilmagan tovarni yig'ib bo'lmaydi");
+      }
+      const [picked]: any[] = await seq.query(
+        `SELECT id, status FROM deliveries
+          WHERE order_id = :o AND store_id = :s AND status IN ('picked_up', 'on_the_way', 'delivered', 'failed')
+          LIMIT 1`,
+        { replacements: { o: orderId, s: storeId }, type: 'SELECT' as any, transaction: t },
+      );
+      if (picked) throw new ConflictException(`Kuryer tovarni olib ketgan (yetkazish #${picked.id}: ${picked.status})`);
+
+      const [row] = await OrderStoreProgress.findOrCreate({
+        where: { order_id: orderId, store_id: storeId },
+        defaults: { order_id: orderId, store_id: storeId, stage: 'waiting' } as any,
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      const from = row.stage as Stage;
+      if (!STAGE_TRANSITIONS[from]?.includes(stage as Stage)) {
+        throw new ConflictException(`${from} dan ${stage} ga o'tib bo'lmaydi`);
+      }
+      const now = new Date();
+      await row.update(
+        {
+          stage,
+          // waiting -> ready: yig'ish ham shu payt (kuzatish qadamlarida "yig'ilyapti" bo'sh qolmasin)
+          packing_at: row.packing_at ?? now,
+          ready_at: stage === 'ready' ? now : null,
+          updated_by: r?.user_id ?? null,
+        } as any,
+        { transaction: t },
+      );
+      const actorType = r?.role === 'superadmin' ? 'superadmin' : 'store';
+      await recordOrderEvent({
+        order_id: orderId,
+        store_id: storeId,
+        event: 'stage_changed',
+        from_status: from,
+        to_status: stage,
+        actor_type: actorType,
+        actor_id: r?.user_id ?? null,
+        transaction: t,
+      });
+      await syncOrderStatus(seq, orderId, {
+        actor_type: actorType,
+        actor_id: r?.user_id ?? null,
+        note: `Do'kon ${storeId}: ${stage}`,
+        transaction: t,
+      });
+      return { from, row };
+    });
+    const order = await this.OrderRepository.findByPk(orderId, { attributes: ['id', 'status'] });
+    return {
+      order_id: orderId,
+      store_id: storeId,
+      stage: result.row.stage,
+      packing_at: result.row.packing_at,
+      ready_at: result.row.ready_at,
+      order_status: order?.status,
+    };
+  }
+
+  /** Mijoz kuzatishi (№38, 2-band) — faqat egasi (sayt admini ham); begona — 404. */
+  async tracking(orderId: number, requester?: { id?: number; is_admin?: boolean }) {
+    const order = await this.OrderRepository.findByPk(orderId, { attributes: ['id', 'user_id'] });
+    if (!order || (!requester?.is_admin && Number(order.user_id) !== Number(requester?.id))) {
+      throw new NotFoundException('Buyurtma topilmadi');
+    }
+    return orderTracking(orderId);
   }
 
   //Delete order by id — faqat egasi yoki admin

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -33,7 +34,25 @@ import type { StoreRequester } from 'src/store_auth/store_auth.guard';
 //                nomini olish (masalan "Climavent Official") mumkin bo'lmasin.
 //   legal_name, tin — faqat superadmin (8-band).
 //   sort_order — saytdagi tartib, maydonchaning ishi.
-const SUPERADMIN_ONLY_STORE_FIELDS = ['is_active', 'name', 'slug', 'legal_name', 'tin', 'sort_order'];
+//   sells_products, sells_services — hamkor turi (topshiriq №39, 1-band):
+//                tashqi xizmat ko'rsatuvchini superadmin tekshirib ochadi.
+const SUPERADMIN_ONLY_STORE_FIELDS = [
+  'is_active',
+  'name',
+  'slug',
+  'legal_name',
+  'tin',
+  'sort_order',
+  'sells_products',
+  'sells_services',
+];
+
+/** Hamkor hech narsa sotmasligi mumkin emas (bazada ham CHECK bor). */
+function assertSellsSomething(sellsProducts: boolean, sellsServices: boolean) {
+  if (!sellsProducts && !sellsServices) {
+    throw new BadRequestException("sells_products va sells_services ikkalasi ham false bo'lolmaydi");
+  }
+}
 
 @Injectable()
 export class StoresService {
@@ -55,8 +74,12 @@ export class StoresService {
   async getAll(onlyActive = false, scope: CatalogScope = PUBLIC_SCOPE): Promise<Store[]> {
     // `store_admin` boshqa do'konlarning faqat FAOLlarini ko'radi (topshiriq
     // №29, 1-band): e'lon qilinmagan raqib do'konning nomi/slug'i kerak emas.
+    const where: any = onlyActive ? { is_active: true } : storeVisibilityWhere(scope);
+    // Faqat xizmat ko'rsatuvchi (tovari yo'q) katalogda DO'KON sifatida
+    // chiqmaydi (№39, 1-band) — u xizmatlar ro'yxatida ko'rinadi. Adminka hammasini ko'radi.
+    if (scope.kind !== 'all') where.sells_products = true;
     return this.storeRepository.findAll({
-      where: onlyActive ? { is_active: true } : storeVisibilityWhere(scope),
+      where,
       order: [
         ['sort_order', 'ASC'],
         ['id', 'ASC'],
@@ -121,6 +144,7 @@ export class StoresService {
   }
 
   async create(dto: CreateStoreDto) {
+    assertSellsSomething(dto.sells_products ?? true, dto.sells_services ?? false);
     await this.ensureSlugFree(dto.slug);
     const { storeFields, requisiteFields } = this.split(dto);
     const created = await this.storeRepository.sequelize.transaction(async (transaction) => {
@@ -163,6 +187,10 @@ export class StoresService {
       }
     }
 
+    assertSellsSomething(
+      dto.sells_products ?? store.sells_products,
+      dto.sells_services ?? store.sells_services,
+    );
     if (dto.slug && dto.slug !== store.slug) await this.ensureSlugFree(dto.slug);
     if (dto.tin && dto.tin !== store.tin) {
       const taken = await this.storeRepository.findOne({ where: { tin: dto.tin, id: { [Op.ne]: id } } });

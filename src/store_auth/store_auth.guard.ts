@@ -96,8 +96,8 @@ export class StoreAuthGuard implements CanActivate {
   }
 }
 
-/** Kuryer tokeni kira oladigan yo'llar (№22). */
+/** Kuryer tokeni kira oladigan yo'llar (№22; №39 dan `/api/worker/*` ham). */
 export function isCourierAllowedPath(req: any): boolean {
   const path = String(req?.originalUrl || req?.url || '').split('?')[0];
-  return /^\/api\/(courier|store-auth|devices)(\/|$)/.test(path);
+  return /^\/api\/(courier|worker|store-auth|devices)(\/|$)/.test(path);
 }
