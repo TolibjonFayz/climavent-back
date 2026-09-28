@@ -72,6 +72,12 @@ export class StoreUser extends Model<StoreUser, StoreUserAtr> {
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })
   is_active: boolean;
 
+  // Sinov yozuvi (topshiriq №43, 2-band): hisobotlardan chiqariladi, superadmin
+  // tozalaydi. Avtomatik qoidalar — DB trigger'lari (migratsiya 20260928120000).
+  @ApiProperty({ example: false, description: 'Sinov yozuvi (№43)' })
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
+  is_test: boolean;
+
   @ApiProperty({ required: false })
   @Column({ type: DataType.DATE, allowNull: true })
   last_login_at: Date;

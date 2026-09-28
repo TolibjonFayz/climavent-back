@@ -512,7 +512,8 @@ export class DeliveriesService {
 
   // ============================================================ HISOBOT (10-band)
   async stats(r: StoreRequester, q: { date_from?: string; date_to?: string; store_id?: string; courier_id?: string }) {
-    const cond: string[] = ['1=1'];
+    // Sinov buyurtmalari hisobotga kirmaydi (№43, 2.4)
+    const cond: string[] = ['NOT EXISTS (SELECT 1 FROM orders o WHERE o.id = d.order_id AND o.is_test)'];
     const rep: any = {};
     if (!this.isSuper(r)) {
       cond.push('d.store_id = :store');

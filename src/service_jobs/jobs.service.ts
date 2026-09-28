@@ -528,8 +528,10 @@ export class JobsService {
         [dto.code ? 'Kod bilan' : 'Rasm bilan', dto.comment?.trim()].filter(Boolean).join(': '),
         t,
       );
-      await ServiceJob.sequelize.query('UPDATE stores SET jobs_done = jobs_done + 1 WHERE id = :id', {
-        replacements: { id: j.store_id },
+      // «N ta ish» — sinov buyurtmasi sanalmaydi (№43, 2.4)
+      await ServiceJob.sequelize.query(
+        'UPDATE stores SET jobs_done = jobs_done + 1 WHERE id = :id AND NOT EXISTS (SELECT 1 FROM orders WHERE id = :order AND is_test)', {
+        replacements: { id: j.store_id, order: j.order_id },
         transaction: t,
       });
       return j;
@@ -865,13 +867,14 @@ export async function cancelJobsForOrder(orderId: number, actor: JobActor) {
   }
 }
 
-/** Hamkorning xizmat reytingi — yashirilmagan sharhlardan (10-band). */
+/** Hamkorning xizmat reytingi — yashirilmagan sharhlardan (10-band), sinov buyurtmalarisiz (№43). */
 export async function refreshStoreRating(storeId: number) {
   await ServiceJob.sequelize.query(
     `UPDATE stores s SET
         service_rating = r.avg, service_reviews_count = r.n
        FROM (SELECT ROUND(AVG(rating)::numeric, 2) AS avg, COUNT(*)::int AS n
-               FROM service_reviews WHERE store_id = :id AND NOT is_hidden) r
+               FROM service_reviews sr WHERE store_id = :id AND NOT is_hidden
+                AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.id = sr.order_id AND o.is_test)) r
       WHERE s.id = :id`,
     { replacements: { id: storeId } },
   );

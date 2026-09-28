@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common';
-import { Op } from 'sequelize';
+import { Op, QueryTypes } from 'sequelize';
 import { InjectModel } from '@nestjs/sequelize';
 import { Transaction } from 'sequelize';
 import { OfferVersion } from './model/offer-version.model';
@@ -98,6 +98,27 @@ export class ConsentService {
     const accepted = await this.storeUserAccepted(kind, offer.version, storeUserId, storeId);
     if (accepted) return null;
     return { kind, version: offer.version, url: offer.url };
+  }
+
+  /**
+   * Hisob roliga qarab yetishmagan oferta (`store-auth/login` va `me`).
+   *
+   *   - `courier` — kuryer ofertasi;
+   *   - `store_admin` — sotuvchi ofertasi; usta profili bo'lsa (yakka usta,
+   *     №43 1-band) undan keyin kuryer ofertasi ham — `/worker/*` darvozasi
+   *     bilan AYNAN bir tartibda;
+   *   - superadmin/xodim — hech narsa so'ralmaydi.
+   */
+  async pendingForAccount(storeUserId: number, storeId: number | null, role: string) {
+    if (role === 'courier') return this.pendingForStoreUser(storeUserId, storeId, 'courier');
+    if (role !== 'store_admin') return null;
+    const seller = await this.pendingForStoreUser(storeUserId, storeId);
+    if (seller) return seller;
+    const [profile]: any[] = await this.offerRepo.sequelize.query(
+      'SELECT 1 FROM couriers WHERE store_user_id = :id LIMIT 1',
+      { replacements: { id: storeUserId }, type: QueryTypes.SELECT },
+    );
+    return profile ? this.pendingForStoreUser(storeUserId, storeId, 'courier') : null;
   }
 
   /**

@@ -45,6 +45,8 @@ export class Courier extends Model {
   @Column({ type: DataType.INTEGER, allowNull: true }) verified_by: number | null;
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true }) is_active: boolean;
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false }) is_online: boolean;
+  /** Sinov yozuvi (№43) — hisobi `is_test` bo'lsa trigger qo'yadi. */
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false }) is_test: boolean;
   @Column(coord('last_lat')) last_lat: number | null;
   @Column(coord('last_lng')) last_lng: number | null;
   @Column({ type: DataType.DATE, allowNull: true }) last_seen_at: Date | null;

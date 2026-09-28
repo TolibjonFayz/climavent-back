@@ -658,7 +658,8 @@ export class QuotesService {
    * do'konlar kesimi.
    */
   async stats(storeId: number | null, q: { date_from?: string; date_to?: string } = {}) {
-    const cond: string[] = [`o.kind = 'quote' OR o.quote_accepted_at IS NOT NULL`];
+    // Sinov buyurtmalari hisobotga kirmaydi (№43, 2.4)
+    const cond: string[] = [`o.kind = 'quote' OR o.quote_accepted_at IS NOT NULL`, 'NOT o.is_test'];
     const rep: any = {};
     if (storeId) {
       cond.push(

@@ -36,11 +36,15 @@ export class WorkerGuard implements CanActivate {
     if (!courier) throw new ForbiddenException("Bu hisobda usta/kuryer profili yo'q");
     if (!courier.is_active) throw new UnauthorizedException('Usta profili faol emas');
 
-    // Oferta: kuryer — kuryer ofertasi, hamkor admini — sotuvchi ofertasi (yozishda)
+    // Oferta (yozishda): kuryer — kuryer ofertasi. Yakka usta (hamkor admini +
+    // profil) — IKKALASI (№43, 1-band): avval sotuvchi (do'kon nomidan, hamkor
+    // panelida qabul qilinadi), keyin kuryer (shaxsiy). Birinchi yetishmagani
+    // 409 `offer_pending` da qaytadi.
     if (session.role === 'courier') {
       await assertOfferAccepted(req, session.user_id, session.store_id ?? null, 'courier');
     } else if (session.role === 'store_admin') {
       await assertOfferAccepted(req, session.user_id, session.store_id ?? null);
+      await assertOfferAccepted(req, session.user_id, session.store_id ?? null, 'courier');
     }
     req.storeUser = session;
     req.courier = courier;

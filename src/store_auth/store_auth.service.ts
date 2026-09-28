@@ -102,12 +102,7 @@ export class StoreAuthService {
     //
     // Superadmin sotuvchi ham, kuryer ham emas — undan oferta so'ralmaydi.
     // Kuryer uchun `courier` turidagi oferta (topshiriq №26, 1-band).
-    const offerPending =
-      user.role === 'store_admin'
-        ? await this.consent.pendingForStoreUser(user.id, user.store_id ?? null)
-        : user.role === 'courier'
-          ? await this.consent.pendingForStoreUser(user.id, user.store_id ?? null, 'courier')
-          : null;
+    const offerPending = await this.consent.pendingForAccount(user.id, user.store_id ?? null, user.role);
 
     return {
       token,
@@ -287,12 +282,7 @@ export class StoreAuthService {
     }
     const staff = user.role === 'store_staff' ? await staffInfo(user) : null;
     if (user.role === 'store_staff' && !staff) throw new UnauthorizedException('Hisob faol emas');
-    const offerPending =
-      user.role === 'store_admin'
-        ? await this.consent.pendingForStoreUser(user.id, user.store_id ?? null)
-        : user.role === 'courier'
-          ? await this.consent.pendingForStoreUser(user.id, user.store_id ?? null, 'courier')
-          : null;
+    const offerPending = await this.consent.pendingForAccount(user.id, user.store_id ?? null, user.role);
     return { ...user.get({ plain: true }), offer_pending: offerPending, ...this.staffFields(staff) };
   }
 }

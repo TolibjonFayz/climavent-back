@@ -134,6 +134,12 @@ export class User extends Model<User, UserAtr> {
   })
   is_admin: boolean;
 
+  // Sinov yozuvi (topshiriq №43, 2-band): hisobotlardan chiqariladi, superadmin
+  // tozalaydi. Avtomatik qoidalar — DB trigger'lari (migratsiya 20260928120000).
+  @ApiProperty({ example: false, description: 'Sinov yozuvi (№43)' })
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
+  is_test: boolean;
+
   // Sessiya versiyasi (topshiriq №19, 2-band). Tokenga `tv` yoziladi; hisob
   // xavfsizligiga tegadigan o'zgarish (telefon almashishi, bloklash, adminlik
   // olib tashlanishi) bu sonni oshiradi va eski tokenlar 401 oladi.

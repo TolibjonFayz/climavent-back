@@ -1,3 +1,4 @@
+import { syncTestPhones } from 'src/test_data/test-flags';
 import {
   BadRequestException,
   ForbiddenException,
@@ -200,6 +201,9 @@ export class UsersService {
       user = await this.UsersRepository.create({
         phone_number: loginuserDto.phone_number,
       });
+      // Sinov raqami (SMS_TEST_PHONES) — xaridor darhol `is_test` (№43, 2.1):
+      // birinchi buyurtmasi ham trigger orqali sinov bo'ladi.
+      await syncTestPhones(this.UsersRepository.sequelize, [user.id]).catch(() => undefined);
     }
 
     const otpinfo = await this.signInWithOtp(loginuserDto.phone_number);

@@ -143,6 +143,12 @@ export class Order extends Model<Order, OrderAtr> {
   @Column({ type: DataType.STRING(20), allowNull: true })
   source: string;
 
+  // Sinov yozuvi (topshiriq №43, 2-band): hisobotlardan chiqariladi, superadmin
+  // tozalaydi. Avtomatik qoidalar — DB trigger'lari (migratsiya 20260928120000).
+  @ApiProperty({ example: false, description: 'Sinov yozuvi (№43)' })
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
+  is_test: boolean;
+
   // ——— KP oqimi (topshiriq №25, 3-band) ———
   // DIQQAT: bu ustunlar modelda e'lon qilinmasa, Sequelize `update()` da
   // ularni JIMGINA tashlab yuboradi (migratsiyada bo'lsa ham).
