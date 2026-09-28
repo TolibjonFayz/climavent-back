@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   Post,
@@ -36,7 +37,8 @@ export class OfferConsentController {
    * Yangi versiyani tasdiqlash (topshiriq №20, 2-band; oferta 12.3).
    *
    * Do'kon hisobi tokeni bilan. Superadmin ham chaqira oladi (uning uchun
-   * majburiy emas, lekin taqiqlanmagan ham).
+   * majburiy emas, lekin taqiqlanmagan ham). Kuryer tokeni — faqat
+   * `kind: courier` (№42).
    */
   @ApiOperation({ summary: 'Joriy versiyani qabul qilish (do\'kon hisobi)' })
   @ApiBearerAuth()
@@ -46,6 +48,12 @@ export class OfferConsentController {
   @HttpCode(200)
   @Post('accept')
   async accept(@Body() dto: AcceptOfferDto, @Req() req: any) {
+    // Kuryer tokeni bu yerga faqat o'z ofertasi uchun kiradi (№42): sotuvchi
+    // ofertasini kuryer nomidan "qabul qilish" do'kon nomidan shartnoma
+    // tuzishga teng bo'lardi.
+    if (req.storeUser?.role === 'courier' && dto.kind !== 'courier') {
+      throw new ForbiddenException("Kuryer tokeni bilan faqat kuryer ofertasi (kind: courier) qabul qilinadi");
+    }
     // Yuborilgan versiya joriy bo'lmasa — 409 (sahifa ochiq qolib ketgan).
     const offer = await this.consent.assertCurrent(dto.kind as OfferKind, dto.version);
 

@@ -96,8 +96,18 @@ export class StoreAuthGuard implements CanActivate {
   }
 }
 
-/** Kuryer tokeni kira oladigan yo'llar (№22; №39 dan `/api/worker/*` ham). */
+/**
+ * Kuryer tokeni kira oladigan yo'llar (№22; №39 dan `/api/worker/*` ham).
+ *
+ * `/api/offers/accept` va `/api/offers/current` (№42): №40 kuryer ofertasini
+ * e'lon qilgach, kuryerning barcha yozish amallari 409 bilan ofertaga
+ * yo'naltiriladi — tasdiqlash yo'li yopiq bo'lsa, berk ko'cha. Faqat shu
+ * ikkitasi: `/offers/acceptances` (dalillar) kuryerga ochilmaydi.
+ */
 export function isCourierAllowedPath(req: any): boolean {
   const path = String(req?.originalUrl || req?.url || '').split('?')[0];
-  return /^\/api\/(courier|worker|store-auth|devices)(\/|$)/.test(path);
+  return (
+    /^\/api\/(courier|worker|store-auth|devices)(\/|$)/.test(path) ||
+    /^\/api\/offers\/(accept|current)\/?$/.test(path)
+  );
 }

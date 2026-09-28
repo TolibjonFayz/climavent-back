@@ -54,8 +54,12 @@ export async function assertOfferAccepted(
   // Joriy oferta e'lon qilinmagan bo'lsa hech kimni to'smaymiz.
   if (!offer) return;
 
+  // Sotuvchi ofertasini do'kon nomidan BIR admin qabul qiladi — do'kon
+  // bo'yicha yetarli. Kuryer ofertasi esa SHAXSIY (№42): do'kon bo'yicha
+  // qidirilsa, bitta kuryer (yoki `kind: courier` yuborgan admin) tasdiqlashi
+  // shu do'konning hamma kuryerini ochib yuborardi.
   const or: any[] = [{ store_user_id: storeUserId }];
-  if (storeId) or.push({ store_id: storeId });
+  if (storeId && kind === 'seller') or.push({ store_id: storeId });
   const accepted = await OfferAcceptance.findOne({
     where: { kind, version: offer.version, [Op.or]: or },
     attributes: ['id'],

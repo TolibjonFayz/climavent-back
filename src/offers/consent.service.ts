@@ -75,8 +75,9 @@ export class ConsentService {
    * kabinetga kirish uchun yetarli deb hisoblanmaydi.
    */
   async storeUserAccepted(kind: OfferKind, version: string, storeUserId: number, storeId?: number | null) {
+    // Kuryer ofertasi shaxsiy — do'kon bo'yicha emas (№42, `offer-gate.ts` bilan bir xil)
     const or: any[] = [{ store_user_id: storeUserId }];
-    if (storeId) or.push({ store_id: storeId });
+    if (storeId && kind === 'seller') or.push({ store_id: storeId });
     const row = await this.acceptanceRepo.findOne({
       where: { kind, version, [Op.or]: or },
       attributes: ['id'],
@@ -168,9 +169,16 @@ export class ConsentService {
    * dalil jadvali to'lib ketmasin).
    */
   async record(input: AcceptanceInput, transaction?: Transaction) {
-    if (input.user_id) {
+    // Do'kon/kuryer hisobi ham (№42): ilova "qabul qildim" ni qayta yuborsa
+    // (tarmoq takrori, ikki marta bosish) ikkinchi qator yozilmasin.
+    const owner = input.user_id
+      ? { user_id: input.user_id }
+      : input.store_user_id
+        ? { store_user_id: input.store_user_id }
+        : null;
+    if (owner) {
       const exists = await this.acceptanceRepo.findOne({
-        where: { kind: input.kind, version: input.version, user_id: input.user_id },
+        where: { kind: input.kind, version: input.version, ...owner },
         attributes: ['id'],
         transaction,
       });
