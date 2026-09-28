@@ -54,7 +54,20 @@ import { recordOrderEvent, OrderEventName } from 'src/orders/order-events';
 import { syncOrderStatus } from 'src/orders/order-progress';
 import { ProofStorageService } from './proof-storage.service';
 import { haversineKm, newTrackingToken, trackingSmsLink, trackingUrl } from './tracking.service';
-import { pushToCourier, pushToStoreAdmins } from './push';
+import { pushToStoreAdmins, pushToWorker } from './push';
+
+/** Kuryerga push (№40, 6-band): `data: { type: 'order', event, order_id, delivery_id }`. */
+const courierPush = (
+  d: { id: number; order_id: number },
+  courierId: number | null | undefined,
+  event: string,
+  text: { uz: [string, string]; ru: [string, string] },
+) =>
+  pushToWorker(courierId, (lang) => ({
+    title: text[lang][0],
+    body: text[lang][1].slice(0, 180),
+    data: { type: 'order', event, order_id: d.order_id, delivery_id: d.id },
+  }));
 import {
   orderOwnerId,
   pushCourierArrived,
@@ -185,7 +198,7 @@ export class DeliveriesService {
     if (!order) throw new NotFoundException('Buyurtma topilmadi');
     if (order.status === 'cancelled') throw new ConflictException('Bekor qilingan buyurtmaga yetkazish yaratib bo\'lmaydi');
 
-    const [store]: any[] = await Delivery.sequelize.query('SELECT id, address FROM stores WHERE id = :id', {
+    const [store]: any[] = await Delivery.sequelize.query('SELECT id, address, lat, lng FROM stores WHERE id = :id', {
       replacements: { id: dto.store_id },
       type: QueryTypes.SELECT,
     });
@@ -225,8 +238,8 @@ export class DeliveriesService {
             required_vehicle: requiredVehicle,
             // Manzil berilmasa — do'kondan (olish) va buyurtmadan (topshirish)
             pickup_address: dto.pickup_address ?? store.address ?? null,
-            pickup_lat: dto.pickup_lat ?? null,
-            pickup_lng: dto.pickup_lng ?? null,
+            pickup_lat: dto.pickup_lat ?? store.lat ?? null,
+            pickup_lng: dto.pickup_lng ?? store.lng ?? null,
             dropoff_address: dto.dropoff_address ?? order.location ?? null,
             dropoff_lat: dto.dropoff_lat ?? order.lat ?? null,
             dropoff_lng: dto.dropoff_lng ?? order.lng ?? null,
@@ -344,10 +357,9 @@ export class DeliveriesService {
       return { d, addressChanged };
     });
     if (result.addressChanged && result.d.courier_id) {
-      await pushToCourier(result.d.courier_id, {
-        title: "Yetkazish o'zgardi",
-        body: `#${result.d.id}: manzil yoki vaqt yangilandi`,
-        data: { type: 'delivery_updated', delivery_id: result.d.id },
+      await courierPush(result.d, result.d.courier_id, 'delivery_updated', {
+        uz: ["Yetkazish o'zgardi", `#${result.d.id}: manzil yoki vaqt yangilandi`],
+        ru: ['Доставка изменена', `#${result.d.id}: обновлены адрес или время`],
       });
     }
     return this.present(result.d, { full: false });
@@ -393,12 +405,14 @@ export class DeliveriesService {
     });
     const previous = (d as any)._previous;
     if (previous && previous !== d.courier_id) {
-      await pushToCourier(previous, { title: 'Yetkazish olib qo\'yildi', body: `#${d.id} boshqa kuryerga berildi`, data: { type: 'delivery_unassigned', delivery_id: d.id } });
+      await courierPush(d, previous, 'delivery_unassigned', {
+        uz: ["Yetkazish olib qo'yildi", `#${d.id} boshqa kuryerga berildi`],
+        ru: ['Доставка снята', `#${d.id} передана другому курьеру`],
+      });
     }
-    await pushToCourier(d.courier_id, {
-      title: 'Yangi yetkazish',
-      body: `#${d.id}: ${d.pickup_address || ''} → ${d.dropoff_address || ''}`.slice(0, 180),
-      data: { type: 'delivery_assigned', delivery_id: d.id },
+    await courierPush(d, d.courier_id, 'delivery_assigned', {
+      uz: ['Yangi yetkazish', `#${d.id}: ${d.pickup_address || ''} → ${d.dropoff_address || ''}`],
+      ru: ['Новая доставка', `#${d.id}: ${d.pickup_address || ''} → ${d.dropoff_address || ''}`],
     });
     const warnings = (d as any)._warnings as string[];
     const out = await this.present(d, { full: false });
@@ -412,7 +426,10 @@ export class DeliveriesService {
       await this.apply(d, 'cancel', backofficeActor(r), {}, {}, comment || null, t);
       return d;
     });
-    await pushToCourier(d.courier_id, { title: 'Yetkazish bekor qilindi', body: `#${d.id}`, data: { type: 'delivery_cancelled', delivery_id: d.id } });
+    await courierPush(d, d.courier_id, 'delivery_cancelled', {
+      uz: ['Yetkazish bekor qilindi', `#${d.id}`],
+      ru: ['Доставка отменена', `#${d.id}`],
+    });
     return this.present(d, { full: false });
   }
 
@@ -1109,6 +1126,20 @@ export class DeliveriesService {
       trackingToken,
     );
 
+    // Sinov kuryeri (logini `zz-` bilan boshlanadi — №40, 2-band): shu yetkazishning
+    // SMS i YUBORILMAYDI, matn logga yoziladi. Kod mijozga baribir
+    // `GET /orders/:id/tracking` da ko'rinadi.
+    const [acc]: any[] = await Delivery.sequelize.query('SELECT login FROM store_users WHERE id = :id', {
+      replacements: { id: courier.store_user_id },
+      type: QueryTypes.SELECT,
+    });
+    if (String(acc?.login || '').startsWith('zz-') && d.recipient_phone && code && track) {
+      this.logger.warn(
+        `SMS (sinov kuryeri ${acc.login}, YUBORILMADI) -> ${maskPhone(d.recipient_phone)}: ` +
+          `Climavent: buyurtma #${d.order_id} yo'lda. Kuryer: ${firstName(courier.full_name)}. Kuzatish: ${track} Kod: ${code}`,
+      );
+      return;
+    }
     if (d.recipient_phone && code && track) {
       // Eskiz shabloni **#90539** (17.09 da topshirilgan) — matn HARFMA-HARF
       // shunday bo'lishi shart, aks holda SMS rad etiladi:
@@ -1177,6 +1208,24 @@ export class DeliveriesService {
 
     if (opts.forCourier) {
       delete plain.proof_code_attempts;
+      // Kuryer do'konga qo'ng'iroq qiladi va nimani olayotganini ko'radi (№40, 4-band)
+      const [st]: any[] = await Delivery.sequelize.query(
+        'SELECT id, name, phone, address, lat, lng FROM stores WHERE id = :id',
+        { replacements: { id: d.store_id }, type: QueryTypes.SELECT },
+      );
+      plain.store = st
+        ? { id: Number(st.id), name: st.name, phone: st.phone ?? null, address: st.address ?? null }
+        : null;
+      if (plain.pickup_lat === null && st?.lat !== null && st?.lat !== undefined) {
+        plain.pickup_lat = Number(st.lat);
+        plain.pickup_lng = Number(st.lng);
+      }
+      plain.lines = (await this.itemsOf(plain.items)).map((i: any) => ({
+        order_item_id: Number(i.id),
+        name: i.name_uz || i.name_ru || i.name_en || i.product_model,
+        model: i.product_model,
+        quantity: Number(i.quantity),
+      }));
       const finishedAt = plain.delivered_at || plain.failed_at || plain.returned_at || plain.cancelled_at;
       const masked =
         HISTORY_STATUSES.includes(plain.status) &&
@@ -1267,7 +1316,10 @@ export async function cancelDeliveriesForOrder(orderId: number, actor: Actor) {
         comment: 'Buyurtma bekor qilindi',
         created_at: new Date(),
       } as any);
-      await pushToCourier(d.courier_id, { title: 'Yetkazish bekor qilindi', body: `#${d.id}: buyurtma bekor qilindi`, data: { type: 'delivery_cancelled', delivery_id: d.id } });
+      await courierPush(d, d.courier_id, 'order_cancelled', {
+        uz: ['Yetkazish bekor qilindi', `#${d.id}: buyurtma bekor qilindi`],
+        ru: ['Доставка отменена', `#${d.id}: заказ отменён`],
+      });
     }
     return live.length;
   } catch (e) {

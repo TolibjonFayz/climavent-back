@@ -14,6 +14,8 @@ export class OfferAcceptance extends Model {
   @Column({ type: DataType.INTEGER, allowNull: true }) store_id: number;
   @Column({ type: DataType.INTEGER, allowNull: true }) store_user_id: number;
   @Column({ type: DataType.INTEGER, allowNull: true }) user_id: number;
+  /** Kuryer arizasi (№41) — ariza paytidagi qabul dalili. */
+  @Column({ type: DataType.INTEGER, allowNull: true }) courier_application_id: number;
   @Column({ type: DataType.DATE, allowNull: false, defaultValue: DataType.NOW }) accepted_at: Date;
   @Column({ type: DataType.TEXT, allowNull: true }) ip: string;
   @Column({ type: DataType.TEXT, allowNull: true }) user_agent: string;

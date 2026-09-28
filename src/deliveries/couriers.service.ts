@@ -15,6 +15,7 @@ import { CashHandover, Courier, CourierVehicle, CourierVehicleEvent, Delivery } 
 import { CashHandoverDto, CreateCourierDto, UpdateCourierDto } from './dto/dto';
 import { pushToStoreAdmins } from './push';
 import { dropDeviceTokens } from './store-push';
+import { recordCourierEvent } from './courier-events';
 
 /**
  * Kuryerlar (topshiriq №22, 1-band).
@@ -290,7 +291,13 @@ export class CouriersService {
         if (payload.full_name) {
           await StoreUser.update({ full_name: payload.full_name } as any, { where: { id: courier.store_user_id }, transaction });
         }
+        const before = (courier.license_categories || []).join(',');
         await courier.update(payload, { transaction });
+        // Guvohnoma toifasi o'zgardi — tarixga (№40, 1-band). Kuryerning o'zi o'zgartira olmaydi:
+        // bu yo'l faqat adminkada (do'kon admini / superadmin).
+        if (payload.license_categories && payload.license_categories.join(',') !== before) {
+          await recordCourierEvent(courier.id, 'license_changed', r, `${before || '—'} -> ${payload.license_categories.join(',') || '—'}`, transaction);
+        }
       });
     } catch (e) {
       if (e instanceof UniqueConstraintError) throw new ConflictException('Bu telefon bilan kuryer allaqachon bor');

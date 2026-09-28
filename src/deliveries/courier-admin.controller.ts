@@ -31,7 +31,9 @@ import {
   CourierRateDto,
   CourierVehicleDto,
   RejectVehicleDto,
+  UnverifyDocumentsDto,
 } from './dto/dto';
+import { CourierEvent } from './courier-events';
 
 const docFile = () => FileInterceptor('file', { limits: { fileSize: COURIER_DOC_MAX_BYTES, files: 1 } });
 
@@ -101,7 +103,32 @@ export class CourierAdminController {
   @Delete(':id/documents/verify')
   async unverify(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     const courier = await this.couriers.getOwned(id, req.storeUser);
-    return this.documents.unverify(courier);
+    return this.documents.unverify(courier, req.storeUser, req.body?.reason);
+  }
+
+  // ---- №40, 1-band: adminka kutgan nomlar (yuqoridagilarning taxalluslari)
+  @ApiOperation({ summary: "Hujjatlarni tasdiqlash — yetishmasa 409 { missing: [...] }" })
+  @ApiResponse({ status: 409, description: "{ message, missing: ['passport', ...] }" })
+  @HttpCode(200)
+  @Post(':id/verify-documents')
+  async verifyDocuments(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    const courier = await this.couriers.getOwned(id, req.storeUser);
+    return this.documents.verify(courier, req.storeUser);
+  }
+
+  @ApiOperation({ summary: "Tasdiqni olib tashlash { reason }" })
+  @HttpCode(200)
+  @Post(':id/unverify-documents')
+  async unverifyDocuments(@Param('id', ParseIntPipe) id: number, @Body() dto: UnverifyDocumentsDto, @Req() req: any) {
+    const courier = await this.couriers.getOwned(id, req.storeUser);
+    return this.documents.unverify(courier, req.storeUser, dto.reason);
+  }
+
+  @ApiOperation({ summary: 'Kuryer tarixi: hujjat tasdig\'i, arizadan yaratilgan (№40)' })
+  @Get(':id/events')
+  async events(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    const courier = await this.couriers.getOwned(id, req.storeUser);
+    return CourierEvent.findAll({ where: { courier_id: courier.id }, order: [['id', 'DESC']], limit: 200 });
   }
 
   // ============================================================ transport (1a-band)

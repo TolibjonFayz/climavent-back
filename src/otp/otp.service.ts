@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -64,7 +64,29 @@ export class OtpService {
    * sifatida talab qiladi. Tasdiqlanmagan matn rad etiladi — xato qaytadi va
    * logga yoziladi, chaqiruvchi amal buzilmaydi.
    */
+  /**
+   * Sinov raqamlari (topshiriq №40, 2-band): `SMS_TEST_PHONES` (vergul bilan,
+   * `+998…` / `998…` / `90…` ko'rinishida). Bu raqamlarga SMS YUBORILMAYDI —
+   * matn (kod bilan) server logiga yoziladi. Har chaqiruvda o'qiladi: Railway'da
+   * o'zgaruvchi qo'shilsa qayta deploy shart emas (restart yetadi).
+   */
+  static isTestPhone(phone: number | string): boolean {
+    const norm = (v: string) => {
+      const d = String(v).replace(/\D/g, '');
+      return d.length === 9 ? `998${d}` : d;
+    };
+    const list = String(process.env.SMS_TEST_PHONES || '')
+      .split(',')
+      .map((x) => norm(x.trim()))
+      .filter(Boolean);
+    return list.length > 0 && list.includes(norm(String(phone)));
+  }
+
   async sendSms(phone: number | string, message: string, isRetry = false) {
+    if (OtpService.isTestPhone(phone)) {
+      new Logger('Sms').warn(`SMS (sinov raqami, YUBORILMADI) -> ${String(phone)}: ${message}`);
+      return true;
+    }
     try {
       const token = await this.auth();
 

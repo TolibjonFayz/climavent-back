@@ -17,6 +17,7 @@ import {
   requiredCourierDocuments,
 } from './constants';
 import { Courier, CourierDocument, CourierDocumentBlob, CourierVehicle } from './model/models';
+import { recordCourierEvent } from './courier-events';
 
 // Tur mijoz aytgan `mimetype` bo'yicha emas, faylning O'Z IMZOSI bo'yicha
 // aniqlanadi (№16, 2-band bilan bir xil qoida).
@@ -160,19 +161,33 @@ export class CourierDocumentsService {
   }
 
   /** Hujjatlar tasdiqlandi — shundan keyin kuryerni biriktirish mumkin. */
+  /**
+   * Hujjatlarni tasdiqlash (№26; №40, 1-band). Majburiy hujjat yetishmasa —
+   * 409 va `missing` massivi (adminka qaysi hujjatni so'rashni biladi).
+   */
   async verify(courier: Courier, r: StoreRequester) {
     const { missing } = await this.list(courier);
     if (missing.length) {
-      throw new ConflictException(`Majburiy hujjatlar yuklanmagan: ${missing.join(', ')}`);
+      throw new ConflictException({
+        statusCode: 409,
+        message: `Majburiy hujjatlar yuklanmagan: ${missing.join(', ')}`,
+        missing,
+      });
     }
-    await courier.update({ documents_verified_at: new Date(), verified_by: r?.user_id ?? null });
-    return { verified_at: courier.documents_verified_at, verified_by: courier.verified_by };
+    await CourierDocument.sequelize.transaction(async (transaction) => {
+      await courier.update({ documents_verified_at: new Date(), verified_by: r?.user_id ?? null }, { transaction });
+      await recordCourierEvent(courier.id, 'documents_verified', r, null, transaction);
+    });
+    return { id: courier.id, documents_verified_at: courier.documents_verified_at, verified_by: courier.verified_by };
   }
 
-  /** Tasdiqni olib tashlash (hujjat eskirgan yoki soxta bo'lsa). */
-  async unverify(courier: Courier) {
-    await courier.update({ documents_verified_at: null, verified_by: null });
-    return { verified_at: null };
+  /** Tasdiqni olib tashlash (hujjat eskirgan yoki soxta bo'lsa) — sabab tarixga. */
+  async unverify(courier: Courier, r?: StoreRequester, reason?: string | null) {
+    await CourierDocument.sequelize.transaction(async (transaction) => {
+      await courier.update({ documents_verified_at: null, verified_by: null }, { transaction });
+      await recordCourierEvent(courier.id, 'documents_unverified', r ?? null, reason?.trim() || null, transaction);
+    });
+    return { id: courier.id, documents_verified_at: null };
   }
 
   /**

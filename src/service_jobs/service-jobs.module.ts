@@ -12,20 +12,31 @@ import {
   Post,
   Query,
   Req,
+  UploadedFile,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { JwtModule } from '@nestjs/jwt';
-import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
 import { UserGuard } from 'src/guards/user.guard';
 import { DeliveriesModule } from 'src/deliveries/deliveries.module';
 import { DeliveriesService } from 'src/deliveries/deliveries.service';
-import { LocationDto } from 'src/deliveries/dto/dto';
+import {
+  ArrivedDto,
+  CourierActionDto,
+  CourierDeliverDto,
+  CourierFailDto,
+  CourierPickupDto,
+  CourierRejectDto,
+  IncidentDto,
+  LocationDto,
+} from 'src/deliveries/dto/dto';
+import { PROOF_MAX_BYTES } from 'src/deliveries/constants';
 import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { CloudinaryController } from 'src/cloudinary/cloudinary.controller';
@@ -119,10 +130,12 @@ export class JobsController {
 }
 
 // ============================================================ usta ilovasi
+// Maydon nomi: `photos`, `photos[]` (№40, 7-band — ilova ikkalasini yuborishi mumkin) yoki `photo`
 const photoFiles = (max: number) =>
   FileFieldsInterceptor(
     [
       { name: 'photos', maxCount: max },
+      { name: 'photos[]', maxCount: max },
       { name: 'photo', maxCount: 1 },
     ],
     { limits: { fileSize: SERVICE_PHOTO_MAX_BYTES, files: max } },
@@ -130,7 +143,7 @@ const photoFiles = (max: number) =>
 
 /** Rasmlarni tekshirib (magic bytes) Cloudinary'ga yuklaydi; havolalarni qaytaradi. */
 async function uploadPhotos(cloud: CloudinaryService, files: any, max: number, folder: string) {
-  const list: Express.Multer.File[] = [...(files?.photos || []), ...(files?.photo || [])];
+  const list: Express.Multer.File[] = [...(files?.photos || []), ...(files?.['photos[]'] || []), ...(files?.photo || [])];
   if (!list.length) throw new BadRequestException('Rasm yuborilmadi (photos yoki photo)');
   if (list.length > max) throw new BadRequestException(`${max} tagacha rasm`);
   for (const f of list) {
@@ -272,6 +285,131 @@ export class WorkerController {
   }
 }
 
+// ============================================================ usta ilovasida yetkazish (№40, 3-band)
+const deliveryPhoto = () => FileInterceptor('photo', { limits: { fileSize: PROOF_MAX_BYTES, files: 1 } });
+const deliveryFiles = () =>
+  FileFieldsInterceptor(
+    [
+      { name: 'photo', maxCount: 1 },
+      { name: 'signature', maxCount: 1 },
+    ],
+    { limits: { fileSize: PROOF_MAX_BYTES, files: 2 } },
+  );
+const incidentFiles = () =>
+  FileFieldsInterceptor(
+    [
+      { name: 'photos', maxCount: 5 },
+      { name: 'photos[]', maxCount: 5 },
+    ],
+    { limits: { fileSize: PROOF_MAX_BYTES, files: 5 } },
+  );
+
+/**
+ * `/api/courier/deliveries/*` ning taxalluslari — `/api/worker/*` ostida (№40, 3-band).
+ *
+ * Kirish `WorkerGuard` da: `couriers` da faol profil bo'lsa bas — yakka usta
+ * (`store_admin` + usta profili) ham yetkazishni qabul qila oladi. Qoidalar,
+ * multipart (`photo`, `signature`) va oferta 409 — `/courier/*` bilan AYNAN bir xil
+ * (o'sha `DeliveriesService` metodlari). Faqat o'ziga biriktirilgani — boshqasi 404.
+ * Eski `/courier/*` o'zgarmadi (PWA).
+ */
+@ApiTags('Worker app')
+@ApiBearerAuth()
+@UseGuards(WorkerGuard)
+@Controller('worker/deliveries')
+export class WorkerDeliveriesController {
+  constructor(private readonly deliveries: DeliveriesService) {}
+
+  @Get(':id')
+  one(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.deliveries.courierOne(req.courier, id);
+  }
+
+  @HttpCode(200)
+  @Post(':id/accept')
+  accept(@Param('id', ParseIntPipe) id: number, @Body() dto: CourierActionDto, @Req() req: any) {
+    return this.deliveries.courierAction(req.courier, id, 'accept', dto);
+  }
+
+  @ApiOperation({ summary: 'Rad etish — sabab (comment) majburiy' })
+  @HttpCode(200)
+  @Post(':id/reject')
+  reject(@Param('id', ParseIntPipe) id: number, @Body() dto: CourierRejectDto, @Req() req: any) {
+    return this.deliveries.courierAction(req.courier, id, 'reject', dto);
+  }
+
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @UseInterceptors(deliveryPhoto())
+  @HttpCode(200)
+  @Post(':id/pickup')
+  pickup(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CourierPickupDto,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: any,
+  ) {
+    return this.deliveries.courierPickup(req.courier, id, dto, file);
+  }
+
+  @HttpCode(200)
+  @Post(':id/start')
+  start(@Param('id', ParseIntPipe) id: number, @Body() dto: CourierActionDto, @Req() req: any) {
+    return this.deliveries.courierAction(req.courier, id, 'start', dto);
+  }
+
+  @HttpCode(200)
+  @Post(':id/arrived')
+  arrived(@Param('id', ParseIntPipe) id: number, @Body() dto: ArrivedDto, @Req() req: any) {
+    return this.deliveries.courierArrived(req.courier, id, dto);
+  }
+
+  @HttpCode(200)
+  @Post(':id/call-attempt')
+  callAttempt(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.deliveries.courierCallAttempt(req.courier, id);
+  }
+
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @Throttle({ default: { limit: 20, ttl: 60 * 1000 } })
+  @UseInterceptors(deliveryFiles())
+  @HttpCode(200)
+  @Post(':id/deliver')
+  deliver(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CourierDeliverDto,
+    @UploadedFiles() files: { photo?: Express.Multer.File[]; signature?: Express.Multer.File[] },
+    @Req() req: any,
+  ) {
+    return this.deliveries.courierDeliver(req.courier, id, dto, files?.photo?.[0], files?.signature?.[0]);
+  }
+
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @UseInterceptors(deliveryPhoto())
+  @HttpCode(200)
+  @Post(':id/fail')
+  fail(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CourierFailDto,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: any,
+  ) {
+    return this.deliveries.courierFail(req.courier, id, dto, file);
+  }
+
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @UseInterceptors(incidentFiles())
+  @HttpCode(201)
+  @Post(':id/incident')
+  incident(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: IncidentDto,
+    @UploadedFiles() files: any,
+    @Req() req: any,
+  ) {
+    return this.deliveries.courierIncident(req.courier, id, dto, [...(files?.photos || []), ...(files?.['photos[]'] || [])]);
+  }
+}
+
 // ============================================================ mijoz
 @ApiTags('Orders')
 @ApiBearerAuth()
@@ -408,7 +546,14 @@ export class ServiceReviewsController {
 
 @Module({
   imports: [SequelizeModule.forFeature(SERVICE_JOB_MODELS), JwtModule.register({}), DeliveriesModule, CloudinaryModule],
-  controllers: [JobsController, WorkerController, CustomerJobsController, UploadsController, ServiceReviewsController],
+  controllers: [
+    JobsController,
+    WorkerDeliveriesController,
+    WorkerController,
+    CustomerJobsController,
+    UploadsController,
+    ServiceReviewsController,
+  ],
   providers: [JobsService, WorkerGuard],
   exports: [JobsService],
 })

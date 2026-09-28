@@ -1,4 +1,5 @@
 import { Column, DataType, Model, Table } from 'sequelize-typescript';
+import { CourierEvent } from '../courier-events';
 
 // BIGINT va DECIMAL Postgres'dan SATR bo'lib keladi — JSON'da son bo'lsin.
 const num = (name: string, type: any, allowNull = true) => ({
@@ -32,6 +33,8 @@ export class Courier extends Model {
    * faqat usta bo'lsa transport (`vehicle_type`) ixtiyoriy.
    */
   @Column({ type: DataType.ARRAY(DataType.TEXT), allowNull: false, defaultValue: ['delivery'] }) skills: string[];
+  /** Ishlash hududlari `[{ region_code, district_code? }]` (№41, arizadan). Bo'sh — cheklanmagan. */
+  @Column({ type: DataType.JSONB, allowNull: false, defaultValue: [] }) service_areas: { region_code: string; district_code?: string | null }[];
   /** `employee` · `self_employed` · `ip` (YaTT) · `contractor` */
   @Column({ type: DataType.STRING(20), allowNull: true }) employment_type: string | null;
   /** JShShIR (14) yoki STIR (9) */
@@ -307,6 +310,7 @@ export class DeliveryIncident extends Model {
 }
 
 export const DELIVERY_MODELS = [
+  CourierEvent,
   Courier,
   Delivery,
   DeliveryEvent,

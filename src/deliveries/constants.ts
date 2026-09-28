@@ -107,6 +107,10 @@ export const COURIER_DOCUMENT_TYPES = [
   'self_employed_certificate',
   'contract',
   'other',
+  // №41: arizadan ko'chadi
+  'selfie',
+  'ip_certificate',
+  'skill_certificate',
 ] as const;
 export type CourierDocumentType = (typeof COURIER_DOCUMENT_TYPES)[number];
 

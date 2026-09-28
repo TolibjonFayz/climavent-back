@@ -12,6 +12,7 @@ import { SalePresentationInterceptor } from './common/pricing/sale-presentation.
 import { Sequelize } from 'sequelize-typescript';
 import { responseTime } from './common/middleware/response-time';
 import { logFcmStatus } from './deliveries/push';
+import { timingSafeEqual } from 'crypto';
 
 const start = async () => {
   try {
@@ -138,6 +139,24 @@ const start = async () => {
     if (swaggerOn) {
       const document = SwaggerModule.createDocument(app, config);
       SwaggerModule.setup('/api/docs', app, document);
+    } else {
+      // Prodda UI yopiq, lekin integratsiya uchun JSON sxema SERVIS KALITI bilan
+      // ochiq (topshiriq №40, 9-band): `GET /api/docs-json` + `X-API-Key`.
+      // Kalitsiz — 404 (yo'l borligi ham bilinmasin). Sxema birinchi so'rovda yig'iladi.
+      let cached: any = null;
+      app.getHttpAdapter().get('/api/docs-json', (req: any, res: any) => {
+        const provided = req.headers?.['x-api-key'];
+        const expected = process.env.SERVICE_API_KEY;
+        const a = Buffer.from(String(provided || ''));
+        const b = Buffer.from(String(expected || ''));
+        if (!expected || typeof provided !== 'string' || a.length !== b.length || !timingSafeEqual(a, b)) {
+          res.status(404).json({ statusCode: 404, message: 'Cannot GET /api/docs-json' });
+          return;
+        }
+        cached = cached || SwaggerModule.createDocument(app, config);
+        res.setHeader('Cache-Control', 'no-store');
+        res.json(cached);
+      });
     }
 
     const httpAdapterHost = app.get(HttpAdapterHost);

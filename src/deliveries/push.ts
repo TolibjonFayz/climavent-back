@@ -421,6 +421,37 @@ export async function pushTo(
   return result;
 }
 
+/**
+ * Hisobi hali yo'q qurilmaga — to'g'ridan-to'g'ri FCM tokeniga (№41: kuryer
+ * arizasi nomzodi). Token `device_tokens` ga yozilmaydi va o'chirilmaydi.
+ * Hech qachon xato tashlamaydi.
+ */
+export async function pushToRawToken(token: string | null | undefined, msg: PushMessage, label: string): Promise<PushResult> {
+  const result = emptyPushResult();
+  if (!token) {
+    logPush(label, msg.title, result);
+    return result;
+  }
+  result.tokens_found = 1;
+  if (!configured()) {
+    result.not_configured = true;
+  } else {
+    try {
+      const r = await sendToToken(token, msg);
+      if (r.status === 'ok') result.sent++;
+      else {
+        result.failed++;
+        result.errors.push(r.error);
+      }
+    } catch (e) {
+      result.failed++;
+      result.errors.push(`FCM so'rovi: ${netError(e)}`);
+    }
+  }
+  logPush(label, msg.title, result);
+  return result;
+}
+
 /** Do'kon adminlari (faol store_admin hisoblari). */
 export async function pushToStoreAdmins(storeIds: number[], msg: PushMessage) {
   try {
@@ -437,6 +468,39 @@ export async function pushToStoreAdmins(storeIds: number[], msg: PushMessage) {
     });
   } catch (e) {
     logger.error(`Push (do'kon adminlari) yiqildi: ${(e as Error).message}`);
+  }
+}
+
+/**
+ * Kuryer/usta — Climavent Pro ilovasi (topshiriq №40, 6-band).
+ *
+ * Til — `store_users.lang` (uz/ru; ustun yo'q bo'lsa uz). Kanal `orders`
+ * (Pro ilovasida bor). `data` ni chaqiruvchi beradi:
+ * `{ type: 'order', event, order_id, delivery_id? | job_id? }`.
+ */
+export async function pushToWorker(courierId: number | null | undefined, build: (lang: 'uz' | 'ru') => PushMessage) {
+  try {
+    if (!courierId) return;
+    let rows: any[] = [];
+    try {
+      rows = (await DeviceToken.sequelize.query(
+        `SELECT c.store_user_id, su.lang FROM couriers c JOIN store_users su ON su.id = c.store_user_id WHERE c.id = :id`,
+        { replacements: { id: courierId }, type: QueryTypes.SELECT },
+      )) as any[];
+    } catch {
+      rows = (await DeviceToken.sequelize.query('SELECT store_user_id FROM couriers WHERE id = :id', {
+        replacements: { id: courierId },
+        type: QueryTypes.SELECT,
+      })) as any[];
+    }
+    const lang: 'uz' | 'ru' = rows[0]?.lang === 'ru' ? 'ru' : 'uz';
+    const msg = build(lang);
+    const event = msg.data?.event ? ` (${msg.data.event})` : '';
+    await pushTo('store_user', rows[0] ? [Number(rows[0].store_user_id)] : [], { ...msg, channel: 'orders' }, {
+      label: `kuryer #${courierId}${event}`,
+    });
+  } catch (e) {
+    logger.error(`Push (kuryer/usta) yiqildi: ${(e as Error).message}`);
   }
 }
 

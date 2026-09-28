@@ -359,6 +359,9 @@ export const STAFF_ROUTES: Record<string, Rule> = {
   'POST /api/couriers/:id/cash-handover': 'couriers.edit',
   'POST /api/couriers/:id/documents': 'couriers.edit',
   'POST /api/couriers/:id/documents/verify': 'couriers.edit',
+  'POST /api/couriers/:id/verify-documents': 'couriers.edit',
+  'POST /api/couriers/:id/unverify-documents': 'couriers.edit',
+  'GET /api/couriers/:id/events': 'couriers.view',
   'DELETE /api/couriers/:id/documents/verify': 'couriers.edit',
   'POST /api/couriers/:id/password-setup': 'couriers.edit',
   'POST /api/couriers/:id/payouts': 'couriers.edit',
@@ -408,6 +411,17 @@ export const STAFF_ROUTES: Record<string, Rule> = {
   'POST /api/worker/jobs/:id/fail': 'any',
   'POST /api/worker/location': 'any',
   'POST /api/worker/photos': 'any',
+  // №40, 3-band: yetkazish taxalluslari
+  'GET /api/worker/deliveries/:id': 'any',
+  'POST /api/worker/deliveries/:id/accept': 'any',
+  'POST /api/worker/deliveries/:id/reject': 'any',
+  'POST /api/worker/deliveries/:id/pickup': 'any',
+  'POST /api/worker/deliveries/:id/start': 'any',
+  'POST /api/worker/deliveries/:id/arrived': 'any',
+  'POST /api/worker/deliveries/:id/call-attempt': 'any',
+  'POST /api/worker/deliveries/:id/deliver': 'any',
+  'POST /api/worker/deliveries/:id/fail': 'any',
+  'POST /api/worker/deliveries/:id/incident': 'any',
 
   // --- do'kon profili (is_active/name/slug — baribir faqat superadmin, №16)
   'PATCH /api/stores/update/:id': 'store.edit',

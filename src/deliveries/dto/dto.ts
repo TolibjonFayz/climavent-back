@@ -723,3 +723,12 @@ export class DeviceDto {
   @MaxLength(512)
   token: string;
 }
+
+/** Hujjat tasdig'ini olib tashlash sababi (topshiriq №40, 1-band). */
+export class UnverifyDocumentsDto {
+  @ApiProperty({ required: false, example: 'Guvohnoma muddati tugagan' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  reason?: string;
+}

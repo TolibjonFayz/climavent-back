@@ -127,6 +127,29 @@ export class Store extends Model<Store, StoreAtr> {
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
   sells_services: boolean;
 
+  // Do'kon (olib ketish) koordinatasi (№40, 4-band) — yetkazishda `pickup_lat/lng` shundan.
+  @ApiProperty({ required: false, nullable: true, example: 41.311081 })
+  @Column({
+    type: DataType.DECIMAL(9, 6),
+    allowNull: true,
+    get(this: Store) {
+      const v = this.getDataValue('lat');
+      return v === null || v === undefined ? null : Number(v);
+    },
+  })
+  lat: number | null;
+
+  @ApiProperty({ required: false, nullable: true, example: 69.240562 })
+  @Column({
+    type: DataType.DECIMAL(9, 6),
+    allowNull: true,
+    get(this: Store) {
+      const v = this.getDataValue('lng');
+      return v === null || v === undefined ? null : Number(v);
+    },
+  })
+  lng: number | null;
+
   // Xizmat reytingi va bajarilgan ishlar — SERVER hisoblaydi (№39, 10-band)
   @ApiProperty({ example: 4.8, nullable: true, description: 'Xizmat bahosi (1–5), yashirilmagan sharhlardan' })
   @Column({

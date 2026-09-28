@@ -38,11 +38,31 @@ export class StoreAuthService {
     private readonly consent: ConsentService,
   ) {}
 
+  /**
+   * Hisobni topish: avval login aynan. Topilmasa va kiritilgani telefonga
+   * o'xshasa (`+998 90 123 45 67`, `998901234567`, `901234567`) — bitta
+   * ko'rinishga keltirib (topshiriq №41, 1.1-band): arizadan ochilgan kuryer
+   * logini `998…`, do'kon yaratgan kuryerniki `c998…`, keyin `store_users.phone`.
+   */
+  private async findForLogin(raw: string) {
+    const include = [{ model: Store }];
+    const exact = await this.storeUserRepository.findOne({ where: { login: raw }, include });
+    if (exact) return exact;
+    const d = String(raw || '').replace(/[\s()+-]/g, '');
+    if (!/^\d+$/.test(d)) return null;
+    const digits = d.length === 9 ? `998${d}` : d.length === 12 && d.startsWith('998') ? d : null;
+    if (!digits) return null;
+    for (const where of [{ login: digits }, { login: `c${digits}` }, { phone: `+${digits}` }] as any[]) {
+      const rows = await this.storeUserRepository.findAll({ where, include, limit: 2 });
+      // Bir nechta hisob bir telefonda bo'lsa — taxmin qilmaymiz (login bilan kirsin)
+      if (rows.length === 1) return rows[0];
+      if (rows.length > 1) return null;
+    }
+    return null;
+  }
+
   async login(dto: StoreLoginDto, meta: RequestMeta = {}) {
-    const user = await this.storeUserRepository.findOne({
-      where: { login: dto.login },
-      include: [{ model: Store }],
-    });
+    const user = await this.findForLogin(dto.login);
 
     // Login topilmadi / parol xato / bloklangan — hamma holatda BIR XIL
     // xabar. Aks holda qaysi login mavjudligini taxmin qilish oson bo'ladi.

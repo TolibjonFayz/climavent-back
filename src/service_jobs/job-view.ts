@@ -91,13 +91,12 @@ export async function workerJobView(job: ServiceJob, opts: { full?: boolean } = 
   }
   plain.masked = masked;
   plain.lines = await jobLines(job);
-  if (opts.full && !masked) {
-    const [store]: any[] = await ServiceJob.sequelize.query('SELECT id, name, phone FROM stores WHERE id = :id', {
-      replacements: { id: job.store_id },
-      type: QueryTypes.SELECT,
-    });
-    plain.store = store ?? null;
-  }
+  const [store]: any[] = await ServiceJob.sequelize.query('SELECT id, name, phone, address FROM stores WHERE id = :id', {
+    replacements: { id: job.store_id },
+    type: QueryTypes.SELECT,
+  });
+  plain.store = store ? { id: Number(store.id), name: store.name, phone: store.phone ?? null, address: store.address ?? null } : null;
+  void opts;
   return plain;
 }
 

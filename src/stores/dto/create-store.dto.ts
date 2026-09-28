@@ -4,7 +4,10 @@ import {
   IsHexColor,
   IsIn,
   IsInt,
+  IsLatitude,
+  IsLongitude,
   IsNotEmpty,
+  ValidateIf,
   IsOptional,
   IsString,
   Matches,
@@ -103,6 +106,19 @@ export class CreateStoreDto {
   @IsOptional()
   @IsBoolean()
   sells_services?: boolean;
+
+  // Do'kon (olib ketish) koordinatasi (№40, 4-band) — do'kon admini o'zi qo'yadi
+  @ApiProperty({ required: false, nullable: true, example: 41.311081 })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsLatitude()
+  lat?: number | null;
+
+  @ApiProperty({ required: false, nullable: true, example: 69.240562 })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsLongitude()
+  lng?: number | null;
 
   // KP hujjatidagi shartlar (topshiriq №33, 5-band)
   @ApiProperty({ required: false, nullable: true, example: "Toshkent bo'ylab bepul, 3–5 ish kuni" })

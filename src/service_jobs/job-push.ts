@@ -1,5 +1,5 @@
 import { sendToCustomer, t3 } from 'src/deliveries/customer-push';
-import { pushToCourier } from 'src/deliveries/push';
+import { pushToWorker } from 'src/deliveries/push';
 import { sendToStore } from 'src/deliveries/store-push';
 
 /**
@@ -142,5 +142,25 @@ export const pushStoreWarrantyClaim = (orderId: number, jobId: number, storeId: 
   }));
 
 // ============================================================ ustaga
+/**
+ * Ustaga (№40, 6-band): kanal `orders`, til `store_users.lang`. `data` —
+ * `{ type: 'order', event, order_id, job_id }`. Ruscha matn bo'lmasa o'zbekchasi.
+ */
+const WORKER_RU: Record<string, [string, string]> = {
+  job_assigned: ['Новая работа', ''],
+  job_unassigned: ['Работа снята', 'передана другому мастеру'],
+  job_cancelled: ['Работа отменена', ''],
+  job_rescheduled: ['Время работы изменено', ''],
+  price_accepted: ['Клиент согласился с ценой', 'продолжайте работу'],
+  price_rejected: ['Клиент отклонил цену', 'только плата за выезд — отметьте fail (client_refused)'],
+};
+
 export const pushWorker = (workerId: number | null, orderId: number, jobId: number, event: string, title: string, body: string) =>
-  pushToCourier(workerId, { title, body: body.slice(0, 180), data: data(orderId, jobId, event) });
+  pushToWorker(workerId, (lang) => {
+    const ru = lang === 'ru' ? WORKER_RU[event] : null;
+    return {
+      title: ru ? ru[0] : title,
+      body: (ru ? `#${jobId}${ru[1] ? `: ${ru[1]}` : ''}` : body).slice(0, 180),
+      data: data(orderId, jobId, event),
+    };
+  });
