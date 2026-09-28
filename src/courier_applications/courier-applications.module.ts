@@ -30,10 +30,13 @@ import { SuperadminGuard } from 'src/store_auth/superadmin.guard';
 import { parsePositiveIntParam } from 'src/common/helpers/pagination';
 import { APP_DOC_MAX_BYTES, APPLICATION_STATUSES, COURIER_APPLICATION_MODELS } from './models';
 import { Actor, CourierApplicationsService } from './courier-applications.service';
+import { CrewsModule } from 'src/crews/crews.module';
+import { CrewsService } from 'src/crews/crews.service';
 import {
   ApproveCourierApplicationDto,
   CourierAppNoteDto,
   CreateCourierApplicationDto,
+  CrewMemberApplicationDto,
   RejectCourierApplicationDto,
   RequestInfoCourierDto,
   ResubmitCourierApplicationDto,
@@ -221,6 +224,39 @@ export class CourierApplicationsController {
 }
 
 /**
+ * Brigadaga taklif (topshiriq №44, 1.3) — ommaviy (guvohnomasiz).
+ * Havolani boshliq Telegram orqali yuboradi; a'zo shu yerdan QISQA ariza beradi.
+ */
+@ApiTags('Courier applications')
+@Controller('crew-invites')
+export class CrewInvitesController {
+  constructor(
+    private readonly crews: CrewsService,
+    private readonly service: CourierApplicationsService,
+  ) {}
+
+  @ApiOperation({ summary: "Taklif: brigada nomi, boshliq ismi (familiya bosh harfi), holat" })
+  @ApiResponse({ status: 200, schema: { example: { status: 'active', full_name: 'Bobur Aliyev', crew: { name: 'Aziz montaj brigadasi', members_count: 3, skills: ['installation'] }, leader: 'Aziz K.' } } })
+  @Throttle({ default: { limit: 30, ttl: 60 * 1000 } })
+  @Get(':token')
+  get(@Param('token') token: string, @Res({ passthrough: true }) res: Response) {
+    noStore(res);
+    return this.crews.publicInvite(token);
+  }
+
+  @ApiOperation({ summary: "A'zo arizasi (qisqa: shaxsiy + pasport + selfi) — tasdiqlangach avtomatik a'zo" })
+  @ApiResponse({ status: 201, schema: { example: { id: 31, status: 'pending', public_token: '64 hex', crew: { id: 2, name: 'Aziz montaj brigadasi' } } } })
+  @ApiResponse({ status: 409, description: "Taklif ishlatilgan, raqam band yoki brigada faol emas" })
+  @ApiResponse({ status: 410, description: "Taklif muddati o'tgan yoki bekor qilingan" })
+  @Throttle({ default: { limit: APPLY_LIMIT, ttl: HOUR } })
+  @Post(':token/accept')
+  accept(@Param('token') token: string, @Body() dto: CrewMemberApplicationDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    noStore(res);
+    return this.service.createFromInvite(token, dto, ctxOf(req));
+  }
+}
+
+/**
  * Fon tozalash (6-band), soatiga: 24 soatda bog'lanmagan yuklamalar va
  * rad etilgan/qaytarib olingan arizalarning 30 kundan eski hujjatlari.
  */
@@ -249,8 +285,8 @@ export class CourierApplicationsJobs implements OnApplicationBootstrap, OnModule
 }
 
 @Module({
-  imports: [SequelizeModule.forFeature(COURIER_APPLICATION_MODELS), JwtModule.register({})],
-  controllers: [CourierApplicationsController],
+  imports: [SequelizeModule.forFeature(COURIER_APPLICATION_MODELS), JwtModule.register({}), CrewsModule],
+  controllers: [CourierApplicationsController, CrewInvitesController],
   providers: [CourierApplicationsService, CourierApplicationsJobs],
 })
 export class CourierApplicationsModule {}

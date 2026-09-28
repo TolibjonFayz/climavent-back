@@ -21,6 +21,10 @@ export class ServiceJob extends Model {
   @Column({ type: DataType.INTEGER, allowNull: false }) store_id: number;
   /** `couriers.id`; `null` — usta biriktirilmagan */
   @Column({ type: DataType.INTEGER, allowNull: true }) worker_id: number | null;
+  /** Brigadaga biriktirilgan (№44, 1.4): `worker_id` — boshliq. */
+  @Column({ type: DataType.INTEGER, allowNull: true }) crew_id: number | null;
+  /** Yo'lga chiqqan ijrochi (boshliq yoki tanlangan a'zo) — mijoz shuni ko'radi. */
+  @Column({ type: DataType.INTEGER, allowNull: true }) performer_id: number | null;
   /** Shu yetkazish bilan BIRGA bajariladi (bitta odam olib borib o'rnatadi). */
   @Column({ type: DataType.INTEGER, allowNull: true }) delivery_id: number | null;
   /** Kafolat bo'yicha murojaat — asl ish (10-band). */

@@ -33,6 +33,9 @@ import {
 } from './models';
 import { backofficeJobView, customerJobView, jobLines, workerJobView } from './job-view';
 import { assertOwnPhotoUrls } from './service-orders';
+import { Crew, CrewMember, ServiceJobWorker } from 'src/crews/models';
+import { refreshJobPeople } from 'src/crews/trust';
+import { recordCourierEvent } from 'src/deliveries/courier-events';
 import {
   pushJobCompleted,
   pushJobPriceChange,
@@ -183,7 +186,10 @@ export class JobsService {
    * Ustani biriktirish (5-band): usta faol, `skills` da ishning HAMMA turi bor,
    * usta shu hamkorniki (yoki platformaniki va superadmin biriktiryapti).
    */
-  async assign(id: number, workerId: number, r: StoreRequester) {
+  async assign(id: number, target: { worker_id?: number; crew_id?: number }, r: StoreRequester) {
+    if (!!target.worker_id === !!target.crew_id) throw new BadRequestException('worker_id YOKI crew_id (bittasi) yuboring');
+    if (target.crew_id) return this.assignCrew(id, target.crew_id, r);
+    const workerId = Number(target.worker_id);
     const { job, previous } = await ServiceJob.sequelize.transaction(async (t) => {
       const j = await this.loadScoped(id, r, t, true);
       const w = await Courier.findByPk(workerId, { transaction: t });
@@ -200,7 +206,8 @@ export class JobsService {
       const missing = needed.filter((k) => !(w.skills || []).includes(k));
       if (missing.length) throw new ConflictException(`Ustada kerakli ko'nikma yo'q: ${missing.join(', ')}`);
       const previous = j.worker_id;
-      await this.apply(j, 'assign', backofficeActor(r), { worker_id: w.id }, {}, `Usta: ${w.full_name}`, t);
+      await ServiceJobWorker.destroy({ where: { job_id: j.id }, transaction: t });
+      await this.apply(j, 'assign', backofficeActor(r), { worker_id: w.id, crew_id: null, performer_id: null }, {}, `Usta: ${w.full_name}`, t);
       return { job: j, previous };
     });
     if (previous && previous !== job.worker_id) {
@@ -212,6 +219,56 @@ export class JobsService {
       job.id,
       'job_assigned',
       'Yangi ish',
+      `#${job.id}: ${job.address || ''}${job.scheduled_from ? ` · ${fmt(job.scheduled_from)}` : ''}`,
+    );
+    return backofficeJobView(job);
+  }
+
+  /**
+   * Brigadaga biriktirish (№44, 1.4): brigada faol, `skills` da ishning HAMMA turi,
+   * hamkor brigadasi faqat o'z ishiga (platforma brigadasini — superadmin). Ish
+   * boshliqqa keladi (`worker_id` = boshliq): u qabul qiladi va ijrochilarni tanlaydi.
+   */
+  private async assignCrew(id: number, crewId: number, r: StoreRequester) {
+    const { job, previous } = await ServiceJob.sequelize.transaction(async (t) => {
+      const j = await this.loadScoped(id, r, t, true);
+      const crew = await Crew.findByPk(crewId, { transaction: t });
+      if (!crew) throw new NotFoundException('Brigada topilmadi');
+      if (!this.isSuper(r)) {
+        if (crew.store_id === null) throw new ForbiddenException('Platforma brigadasini faqat superadmin biriktiradi');
+        if (Number(crew.store_id) !== Number(r.store_id)) throw new ForbiddenException('Bu brigada boshqa hamkorga tegishli');
+      }
+      if (crew.store_id !== null && Number(crew.store_id) !== Number(j.store_id)) {
+        throw new ForbiddenException("Hamkor brigadasi faqat o'z hamkori ishiga biriktiriladi");
+      }
+      if (!crew.is_active) throw new ConflictException('Brigada faol emas');
+      const leader = await Courier.findByPk(crew.leader_courier_id, { transaction: t });
+      if (!leader || !leader.is_active) throw new ConflictException('Brigada boshlig\'i faol emas');
+      const needed = [...new Set((await jobLines(j)).map((l) => l.category_key).filter(Boolean))] as string[];
+      const missing = needed.filter((k) => !(crew.skills || []).includes(k));
+      if (missing.length) throw new ConflictException(`Brigadada kerakli ko'nikma yo'q: ${missing.join(', ')}`);
+      const previous = j.worker_id;
+      await ServiceJobWorker.destroy({ where: { job_id: j.id }, transaction: t });
+      await this.apply(
+        j,
+        'assign',
+        backofficeActor(r),
+        { worker_id: leader.id, crew_id: crew.id, performer_id: null },
+        {},
+        `Brigada: ${crew.name} (boshliq ${leader.full_name})`,
+        t,
+      );
+      return { job: j, previous };
+    });
+    if (previous && previous !== job.worker_id) {
+      await pushWorker(previous, job.order_id, job.id, 'job_unassigned', "Ish olib qo'yildi", `#${job.id} boshqa ustaga berildi`);
+    }
+    await pushWorker(
+      job.worker_id,
+      job.order_id,
+      job.id,
+      'job_assigned',
+      'Brigadaga yangi ish',
       `#${job.id}: ${job.address || ''}${job.scheduled_from ? ` · ${fmt(job.scheduled_from)}` : ''}`,
     );
     return backofficeJobView(job);
@@ -291,6 +348,8 @@ export class JobsService {
         backofficeActor(r),
         {
           worker_id: null,
+          crew_id: null,
+          performer_id: null,
           proof_code_enc: null,
           proof_code_attempts: 0,
           failure_reason: null,
@@ -312,6 +371,7 @@ export class JobsService {
         'Qayta tashrif',
         t,
       );
+      await ServiceJobWorker.destroy({ where: { job_id: j.id }, transaction: t });
       return j;
     });
     return backofficeJobView(j);
@@ -329,39 +389,91 @@ export class JobsService {
   }
 
   // ============================================================ USTA
-  async workerGet(w: Courier, id: number, t?: Transaction, lock = false) {
+  /**
+   * Usta ko'radigan ish: o'ziga biriktirilgani YOKI boshliq tanlagan ijrochisi
+   * bo'lgani (№44, 1.4). `leaderOnly` — qabul qilish/rad etish faqat biriktirilgan
+   * ustada (brigadada — boshliqda). Boshqasi — 404.
+   */
+  async workerGet(w: Courier, id: number, t?: Transaction, lock = false, leaderOnly = false) {
     const j = await ServiceJob.findByPk(id, { transaction: t, ...(lock && t ? { lock: t.LOCK.UPDATE } : {}) });
-    if (!j || Number(j.worker_id) !== Number(w.id)) throw new NotFoundException('Ish topilmadi');
-    return j;
+    if (!j) throw new NotFoundException('Ish topilmadi');
+    if (Number(j.worker_id) === Number(w.id)) return j;
+    if (!leaderOnly && j.crew_id) {
+      const ex = await ServiceJobWorker.findOne({ where: { job_id: j.id, courier_id: w.id }, transaction: t });
+      if (ex) return j;
+    }
+    throw new NotFoundException('Ish topilmadi');
   }
 
   async workerList(w: Courier, scope: 'active' | 'history') {
     const rows = await ServiceJob.findAll({
-      where: { worker_id: w.id, status: { [Op.in]: scope === 'history' ? JOB_HISTORY : JOB_ACTIVE } },
+      where: {
+        [Op.or]: [
+          { worker_id: w.id },
+          { id: { [Op.in]: ServiceJob.sequelize.literal(`(SELECT job_id FROM service_job_workers WHERE courier_id = ${Number(w.id)})`) } },
+        ],
+        status: { [Op.in]: scope === 'history' ? JOB_HISTORY : JOB_ACTIVE },
+      },
       order: scope === 'history' ? [['updated_at', 'DESC']] : [['scheduled_from', 'ASC NULLS LAST'], ['id', 'ASC']],
       limit: scope === 'history' ? 100 : 200,
     });
-    return Promise.all(rows.map((j) => workerJobView(j)));
+    return Promise.all(rows.map((j) => workerJobView(j, { viewer: w.id })));
   }
 
   async workerOne(w: Courier, id: number) {
-    return workerJobView(await this.workerGet(w, id), { full: true });
+    return workerJobView(await this.workerGet(w, id), { full: true, viewer: w.id });
+  }
+
+  /**
+   * Boshliq ijrochilarni tanlaydi (№44, 1.4): faqat shu brigadaning faol a'zolari.
+   * Ular ishni `/worker/tasks` da ko'radi va holat amallarini qila oladi.
+   */
+  async workerSetCrew(w: Courier, id: number, courierIds: number[]) {
+    const ids = [...new Set(courierIds.map(Number))].filter((x) => x !== Number(w.id));
+    const { job, added } = await ServiceJob.sequelize.transaction(async (t) => {
+      const j = await this.workerGet(w, id, t, true, true);
+      if (!j.crew_id) throw new ConflictException('Bu ish brigadaga biriktirilmagan');
+      if (!['assigned', 'accepted', 'on_the_way', 'arrived', 'in_progress'].includes(j.status)) {
+        throw new ConflictException(`${j.status} holatida ijrochilarni o'zgartirib bo'lmaydi`);
+      }
+      if (ids.length) {
+        const members = await CrewMember.findAll({ where: { crew_id: j.crew_id, left_at: null, courier_id: { [Op.in]: ids } }, transaction: t });
+        const ok = new Set(members.map((m) => Number(m.courier_id)));
+        const bad = ids.filter((x) => !ok.has(x));
+        if (bad.length) throw new BadRequestException(`Brigada a'zosi emas: ${bad.join(', ')}`);
+        const inactive = await Courier.count({ where: { id: { [Op.in]: ids }, is_active: false }, transaction: t });
+        if (inactive) throw new ConflictException("Nofaol a'zoni ijrochi qilib bo'lmaydi");
+      }
+      const before = (await ServiceJobWorker.findAll({ where: { job_id: j.id }, transaction: t })).map((x) => Number(x.courier_id));
+      await ServiceJobWorker.destroy({ where: { job_id: j.id }, transaction: t });
+      for (const c of ids) await ServiceJobWorker.create({ job_id: j.id, courier_id: c, added_at: new Date() } as any, { transaction: t });
+      await this.event(j.id, j.status, j.status, workerActor(w), {}, `Ijrochilar: ${ids.length ? ids.join(', ') : "yo'q"}`, t, 'crew_selected');
+      return { job: j, added: ids.filter((x) => !before.includes(x)) };
+    });
+    for (const c of added) {
+      await pushWorker(c, job.order_id, job.id, 'job_assigned', 'Siz ish ijrochisisiz', `#${job.id}: ${job.address || ''}${job.scheduled_from ? ` · ${fmt(job.scheduled_from)}` : ''}`);
+    }
+    return workerJobView(job, { viewer: w.id });
   }
 
   async workerAccept(w: Courier, id: number, geo: GeoDto) {
     const j = await ServiceJob.sequelize.transaction(async (t) => {
-      const j = await this.workerGet(w, id, t, true);
+      const j = await this.workerGet(w, id, t, true, true);
       await this.apply(j, 'accept', workerActor(w), {}, geo, null, t);
       return j;
     });
     await this.touch(w, geo);
-    return workerJobView(j);
+    return workerJobView(j, { viewer: w.id });
   }
 
   async workerReject(w: Courier, id: number, comment: string, geo: GeoDto) {
     const j = await ServiceJob.sequelize.transaction(async (t) => {
-      const j = await this.workerGet(w, id, t, true);
-      await this.apply(j, 'reject', workerActor(w), { worker_id: null }, geo, comment, t);
+      const j = await this.workerGet(w, id, t, true, true);
+      const crewId = j.crew_id;
+      await this.apply(j, 'reject', workerActor(w), { worker_id: null, crew_id: null, performer_id: null }, geo, comment, t);
+      await ServiceJobWorker.destroy({ where: { job_id: j.id }, transaction: t });
+      // `top` sharti: bekor qilish ulushi (№44, 2-band)
+      await recordCourierEvent(w.id, 'job_rejected', { role: 'courier', user_id: w.store_user_id, login: null }, `Ish #${j.id}${crewId ? ` (brigada #${crewId})` : ''}: ${comment}`, t);
       return j;
     });
     await this.touch(w, geo);
@@ -382,7 +494,15 @@ export class JobsService {
         transaction: t,
       });
       if (order?.kind === 'quote') throw new ConflictException("KP hali qabul qilinmagan — narx kelishilmagan");
-      await this.apply(j, 'start', workerActor(w), { proof_code_enc: encryptJobCode(newJobCode()), proof_code_attempts: 0 }, geo, null, t);
+      await this.apply(
+        j,
+        'start',
+        workerActor(w),
+        { proof_code_enc: encryptJobCode(newJobCode()), proof_code_attempts: 0, performer_id: w.id },
+        geo,
+        null,
+        t,
+      );
       return j;
     });
     await this.touch(w, geo);
@@ -390,7 +510,7 @@ export class JobsService {
     const fresh = await Courier.findByPk(w.id);
     const eta = fresh ? workerLocationView(fresh, { lat: j.lat, lng: j.lng }).eta_minutes : null;
     await pushWorkerOnTheWay(j.order_id, j.id, await orderOwnerId(j.order_id), firstName(w.full_name), eta);
-    return workerJobView(j);
+    return workerJobView(j, { viewer: w.id });
   }
 
   async workerArrive(w: Courier, id: number, geo: GeoDto) {
@@ -401,7 +521,7 @@ export class JobsService {
     });
     await this.touch(w, geo);
     await pushWorkerArrived(j.order_id, j.id, await orderOwnerId(j.order_id));
-    return workerJobView(j);
+    return workerJobView(j, { viewer: w.id });
   }
 
   /** Ishni boshlash: kamida 1 ta "oldin" rasmi; tovar shu yetkazish bilan kelsa — u `delivered` bo'lsin. */
@@ -421,7 +541,7 @@ export class JobsService {
     });
     await this.touch(w, dto);
     await syncOrderStatus(ServiceJob.sequelize, j.order_id, { actor_type: 'courier', actor_id: w.store_user_id });
-    return workerJobView(j);
+    return workerJobView(j, { viewer: w.id });
   }
 
   /**
@@ -463,7 +583,7 @@ export class JobsService {
     });
     await this.touch(w, dto);
     await pushJobPriceChange(j.order_id, j.id, await orderOwnerId(j.order_id), dto.amount);
-    return workerJobView(j);
+    return workerJobView(j, { viewer: w.id });
   }
 
   /**
@@ -539,7 +659,9 @@ export class JobsService {
     await this.touch(w, dto);
     await syncOrderStatus(ServiceJob.sequelize, j.order_id, { actor_type: 'courier', actor_id: w.store_user_id, note: `Ish #${j.id} bajarildi` });
     await pushJobCompleted(j.order_id, j.id, await orderOwnerId(j.order_id));
-    return workerJobView(j);
+    // Usta, ijrochilar va brigada: «N ta ish», daraja (№44, 1.4 va 2-band)
+    await refreshJobPeople(j.id);
+    return workerJobView(j, { viewer: w.id });
   }
 
   async workerFail(w: Courier, id: number, dto: JobFailDto) {
@@ -570,7 +692,7 @@ export class JobsService {
       j.store_id,
       `${FAILURE_TEXT[dto.failure_reason] || dto.failure_reason}${dto.failure_comment ? ` — ${dto.failure_comment}` : ''}`,
     );
-    return workerJobView(j);
+    return workerJobView(j, { viewer: w.id });
   }
 
   // ============================================================ MIJOZ
@@ -714,6 +836,7 @@ export class JobsService {
       comment: dto.comment?.trim() || null,
     } as any);
     await refreshStoreRating(j.store_id);
+    await refreshJobPeople(j.id);
     return row;
   }
 

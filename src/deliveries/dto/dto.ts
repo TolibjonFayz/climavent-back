@@ -295,9 +295,10 @@ export class CreateDeliveryDto extends AddressFields {
   @IsInt()
   order_id: number;
 
-  @ApiProperty({ example: 2 })
+  @ApiProperty({ required: false, example: 2, description: "Do'kon admini uchun ixtiyoriy (o'z do'koni); superadmin — majburiy" })
+  @IsOptional()
   @IsInt()
-  store_id: number;
+  store_id?: number;
 
   @ApiProperty({ required: false, type: [Number], description: "Bo'lmasa — buyurtmaning shu do'kondagi hamma qatorlari" })
   @IsOptional()
@@ -305,6 +306,122 @@ export class CreateDeliveryDto extends AddressFields {
   @ArrayMaxSize(200)
   @IsInt({ each: true })
   items?: number[];
+
+  @ApiProperty({
+    required: false,
+    enum: ['self', 'pickup'],
+    default: 'self',
+    description: "self — o'z kuryeri yoki do'kon o'zi; pickup — mijoz olib ketadi. Climavent kuryeri — keyin /publish (№44)",
+  })
+  @IsOptional()
+  @IsIn(['self', 'pickup'])
+  mode?: string;
+}
+
+/** Climavent kuryerlariga chiqarish (№44, 3.2). */
+export class PublishDeliveryDto {
+  @ApiProperty({ enum: VEHICLES, example: 'truck' })
+  @IsIn(VEHICLES as unknown as string[])
+  required_vehicle: string;
+
+  @ApiProperty({ required: false, example: 2 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  loaders_needed?: number;
+
+  @ApiProperty({ required: false, example: 5 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(200)
+  floor?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  has_elevator?: boolean;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsDateString()
+  window_from?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsDateString()
+  window_to?: string;
+
+  @ApiProperty({ required: false, example: "Darvozadan kiring, qo'ng'iroq qiling" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
+}
+
+/** `publish` dan oldin narx (3.4). */
+export class QuoteFeeDto {
+  @ApiProperty({ enum: VEHICLES, example: 'van' })
+  @IsIn(VEHICLES as unknown as string[])
+  required_vehicle: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  loaders_needed?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(200)
+  floor?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  has_elevator?: boolean;
+}
+
+/** Do'kon o'zi topshiradi (kuryersiz `self` yoki `pickup`) — mijoz kodi bilan (№44, 3.2). */
+export class HandoverDto {
+  @ApiProperty({ example: '4821' })
+  @Matches(/^\d{4}$/, { message: "code 4 raqam" })
+  code: string;
+
+  @ApiProperty({ required: false, example: 'Bobur' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  received_by_name?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  comment?: string;
+
+  @ApiProperty({ required: false, example: 1500000 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  cash_collected?: number;
+}
+
+/** Ochiq yetkazishni olish (3.3): joylashuv ixtiyoriy (bo'lmasa oxirgi ma'lum joy). */
+export class ClaimDto {
+  @ApiProperty({ required: false, example: 41.31 })
+  @IsOptional()
+  @IsLatitude()
+  lat?: number;
+
+  @ApiProperty({ required: false, example: 69.27 })
+  @IsOptional()
+  @IsLongitude()
+  lng?: number;
 }
 
 export class UpdateDeliveryDto extends AddressFields {}
@@ -603,6 +720,12 @@ export class CourierRateDto {
   @IsInt()
   @Min(0)
   wait_fee_per_15min: number;
+
+  @ApiProperty({ required: false, example: 50000, description: 'Har bir yuklovchi uchun (№44, 3.4)' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  loader_fee?: number;
 }
 
 /** Kuryer bilan hisob-kitob (6-band). */

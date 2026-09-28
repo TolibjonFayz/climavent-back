@@ -23,6 +23,9 @@ export const PERMISSIONS = [
   'prices.edit',
   'deliveries.view',
   'deliveries.edit',
+  // №44, 3.1: ommaga chiqarish (Climavent kuryerlari) va o'z kuryeriga biriktirish
+  'deliveries.publish',
+  'deliveries.manage',
   'couriers.view',
   'couriers.edit',
   // №39: xizmatlar va ishlar. Xizmat NARXI (`price_uzs`, `visit_fee_uzs`) — `prices.edit`
@@ -42,6 +45,8 @@ export type Permission = (typeof PERMISSIONS)[number];
 const DEPENDS: Record<string, Permission> = {
   'chat.reply': 'chat.view',
   'prices.edit': 'products.view',
+  'deliveries.publish': 'deliveries.view',
+  'deliveries.manage': 'deliveries.view',
 };
 const dependencyOf = (p: string): Permission | null => {
   if (DEPENDS[p]) return DEPENDS[p];
@@ -336,7 +341,11 @@ export const STAFF_ROUTES: Record<string, Rule> = {
   'GET /api/deliveries/stats': ['deliveries.view', 'analytics.view'],
   'POST /api/deliveries': 'deliveries.edit',
   'PATCH /api/deliveries/:id': 'deliveries.edit',
-  'POST /api/deliveries/:id/assign': 'deliveries.edit',
+  'POST /api/deliveries/:id/assign': ['deliveries.edit', 'deliveries.manage'],
+  'POST /api/deliveries/:id/deliver': ['deliveries.edit', 'deliveries.manage'],
+  'POST /api/deliveries/:id/publish': 'deliveries.publish',
+  'POST /api/deliveries/:id/unpublish': 'deliveries.publish',
+  'POST /api/deliveries/:id/quote-fee': ['deliveries.publish', 'deliveries.edit'],
   'POST /api/deliveries/:id/cancel': 'deliveries.edit',
   'POST /api/deliveries/:id/retry': 'deliveries.edit',
   'POST /api/deliveries/:id/return': 'deliveries.edit',
@@ -381,6 +390,10 @@ export const STAFF_ROUTES: Record<string, Rule> = {
   'PUT /api/stores/:id/service-areas': 'store.edit',
 
   // --- ishlar (№39, 5- va 7-band)
+  // --- brigadalar (№44)
+  'GET /api/crews': ['couriers.view', 'jobs.view'],
+  'GET /api/crews/:id': ['couriers.view', 'jobs.view'],
+  'PATCH /api/crews/:id': 'couriers.edit',
   'GET /api/jobs': 'jobs.view',
   'GET /api/jobs/:id': 'jobs.view',
   'PATCH /api/jobs/:id': 'jobs.edit',

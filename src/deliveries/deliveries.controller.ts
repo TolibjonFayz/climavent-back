@@ -24,6 +24,9 @@ import {
   CommentDto,
   CreateCourierDto,
   CreateDeliveryDto,
+  HandoverDto,
+  PublishDeliveryDto,
+  QuoteFeeDto,
   UpdateCourierDto,
   UpdateDeliveryDto,
 } from './dto/dto';
@@ -109,10 +112,39 @@ export class CouriersController {
 export class DeliveriesController {
   constructor(private readonly deliveries: DeliveriesService) {}
 
-  @ApiOperation({ summary: "Yetkazish yaratish (manzil berilmasa buyurtma va do'kondan)" })
+  @ApiOperation({ summary: "Yetkazish yaratish: mode self (standart) | pickup (№44); manzil berilmasa buyurtma va do'kondan" })
   @Post()
   create(@Body() dto: CreateDeliveryDto, @Req() req: any) {
     return this.deliveries.create(dto, req.storeUser);
+  }
+
+  @ApiOperation({ summary: "Climavent kuryerlari narxi (publish dan oldin) — platforma tarifi, to'lovchi do'kon" })
+  @ApiResponse({ status: 200, schema: { example: { delivery_fee: 85000, distance_km: 7.4, required_vehicle: 'van', payer: 'store' } } })
+  @HttpCode(200)
+  @Post(':id/quote-fee')
+  quoteFee(@Param('id', ParseIntPipe) id: number, @Body() dto: QuoteFeeDto, @Req() req: any) {
+    return this.deliveries.quoteFee(id, dto, req.storeUser);
+  }
+
+  @ApiOperation({ summary: "Climavent kuryerlariga chiqarish (pending -> open). Do'konda platform yoqilmagan — 403" })
+  @HttpCode(200)
+  @Post(':id/publish')
+  publish(@Param('id', ParseIntPipe) id: number, @Body() dto: PublishDeliveryDto, @Req() req: any) {
+    return this.deliveries.publish(id, dto, req.storeUser);
+  }
+
+  @ApiOperation({ summary: "Qaytarib olish (open -> pending) — hali hech kim olmagan bo'lsa" })
+  @HttpCode(200)
+  @Post(':id/unpublish')
+  unpublish(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.deliveries.unpublish(id, req.storeUser);
+  }
+
+  @ApiOperation({ summary: "Do'kon o'zi topshiradi (kuryersiz self yoki pickup) — mijoz kodi bilan" })
+  @HttpCode(200)
+  @Post(':id/deliver')
+  deliver(@Param('id', ParseIntPipe) id: number, @Body() dto: HandoverDto, @Req() req: any) {
+    return this.deliveries.handover(id, dto, req.storeUser);
   }
 
   @ApiOperation({ summary: 'Ro\'yxat (?status=a,b&store_id=&courier_id=|null&order_id=&date_from=&date_to=&page=&limit=)' })

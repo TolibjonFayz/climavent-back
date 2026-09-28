@@ -47,6 +47,11 @@ export class Store extends Model<Store, StoreAtr> {
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
   is_test: boolean;
 
+  // Yetkazish usullari (№44, 3.1): self · platform · pickup. `platform` ni faqat superadmin yoqadi.
+  @ApiProperty({ example: ['self'], description: 'self | platform | pickup' })
+  @Column({ type: DataType.ARRAY(DataType.TEXT), allowNull: false, defaultValue: ['self'] })
+  delivery_modes: string[];
+
   @ApiProperty({ required: false, description: "Do'kon haqida (uz)" })
   @Column({ type: DataType.TEXT, allowNull: true })
   description_uz: string;

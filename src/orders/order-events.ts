@@ -19,6 +19,8 @@ export const ORDER_EVENTS = [
   'delivery_delivered',
   'delivery_failed',
   'delivery_cancelled',
+  // №44: Climavent kuryerlariga chiqarildi
+  'delivery_published',
   // №38: do'kon yig'ish bosqichi (`store_id` bilan)
   'stage_changed',
   // №39: xizmat ishi (`store_id` bilan)

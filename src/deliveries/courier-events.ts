@@ -22,7 +22,18 @@ const logger = new Logger('CourierEvents');
 
 export async function recordCourierEvent(
   courierId: number,
-  event: 'documents_verified' | 'documents_unverified' | 'created_from_application' | 'license_changed',
+  event:
+    | 'documents_verified'
+    | 'documents_unverified'
+    | 'created_from_application'
+    | 'license_changed'
+    // №44: ishonch darajasi, bekor qilish ulushi (`top` sharti), brigada
+    | 'trust_changed'
+    | 'skills_verified'
+    | 'job_rejected'
+    | 'delivery_released'
+    | 'crew_joined'
+    | 'crew_left',
   actor: { role?: string; user_id?: number | null; login?: string | null } | null,
   comment: string | null = null,
   transaction?: Transaction,
@@ -32,7 +43,13 @@ export async function recordCourierEvent(
       {
         courier_id: courierId,
         event,
-        actor_type: actor?.role === 'superadmin' || !actor?.user_id ? 'superadmin' : 'store',
+        // Tizim (fon ishi) va kuryerning o'zi (rad etish) — №44
+        actor_type:
+          actor?.role === 'system' || actor?.role === 'courier'
+            ? actor.role
+            : actor?.role === 'superadmin' || !actor?.user_id
+              ? 'superadmin'
+              : 'store',
         actor_id: actor?.user_id ?? null,
         actor_login: actor?.login ?? (actor?.user_id ? null : 'service-key'),
         comment: comment ? String(comment).slice(0, 1000) : null,

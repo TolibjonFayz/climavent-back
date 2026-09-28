@@ -513,7 +513,7 @@ export class OrdersService {
     }
     const deliveries = await Delivery.findAll({
       where: { order_id: id, ...(storeId ? { store_id: storeId } : {}) },
-      attributes: { exclude: ['proof_code_hash'] },
+      attributes: { exclude: ['proof_code_hash', 'proof_code_enc'] },
       order: [['id', 'ASC']],
     });
     plain.deliveries = deliveries.map((d) => d.get({ plain: true }));

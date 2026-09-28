@@ -6,6 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Op, QueryTypes, Transaction, UniqueConstraintError } from 'sequelize';
+import { shortName } from 'src/crews/models';
+import { trustView } from 'src/crews/trust';
 import type { StoreRequester } from 'src/store_auth/store_auth.guard';
 import type { Viewer } from 'src/common/middleware/viewer_scope.middleware';
 import { isDistrict, isRegion, regionOfDistrict } from 'src/regions/regions.data';
@@ -378,6 +380,9 @@ export class ServiceCatalogService {
     if (!row) throw new NotFoundException('Xizmat topilmadi');
     const s = await Service.findByPk(id);
     const [out] = await this.assemble([s], { backoffice: false, areas: true });
+    // Kim keladi va unga ishonsa bo'ladimi (№44, 2-band): hamkorning shu xizmat
+    // turini qila oladigan ustalari va brigadalari — pasport, telefon, familiyasiz
+    out.partner = { ...(out.store || {}), workers_summary: await workersSummary(s.store_id, out.category?.key ?? null) };
     return out;
   }
 
@@ -447,6 +452,11 @@ export class ServiceCatalogService {
       cond.push('s.store_id = :store_id');
       rep.store_id = Number(q.store_id);
     }
+    // №44, 2-band: faqat malakasi tasdiqlangan (`skills`/`top`) ijrochisi bor hamkor —
+    // aynan SHU xizmat turi bo'yicha (freon tasdig'i o'rnatishga o'tmaydi)
+    if (['1', 'true'].includes(String(q.verified ?? ''))) {
+      cond.push(`(${VERIFIED_SQL})`);
+    }
     if (q.product_id && /^\d+$/.test(String(q.product_id))) {
       cond.push(`EXISTS (SELECT 1 FROM service_product_links l WHERE l.service_id = s.id
                     AND (l.product_id = :product_id
@@ -497,6 +507,17 @@ export class ServiceCatalogService {
     const links = opts.links
       ? await ServiceProductLink.findAll({ where: { service_id: { [Op.in]: ids } }, order: [['id', 'ASC']], transaction: opts.t })
       : [];
+    const verified = new Set<string>();
+    if (!opts.backoffice) {
+      const vr: any[] = await Service.sequelize.query(
+        `SELECT store_id, unnest(verified_skills) AS k FROM couriers
+          WHERE is_active AND store_id IN (:ids) AND trust_level IN ('skills', 'top')
+         UNION SELECT store_id, unnest(verified_skills) FROM crews
+          WHERE is_active AND store_id IN (:ids) AND trust_level IN ('skills', 'top')`,
+        { replacements: { ids: [...new Set(rows.map((s) => s.store_id))] }, type: QueryTypes.SELECT, transaction: opts.t },
+      );
+      vr.forEach((r) => verified.add(`${r.store_id}:${r.k}`));
+    }
     const catById = new Map(cats.map((c) => [c.id, c]));
     const storeById = new Map(stores.map((s) => [Number(s.id), s]));
     const out: any[] = [];
@@ -531,6 +552,8 @@ export class ServiceCatalogService {
         : null;
       plain.variants = vs;
       plain.min_price_uzs = priced.length ? Math.min(...priced) : null;
+      // «Tekshirilgan usta» nishoni (№44): shu tur bo'yicha `skills`/`top` ijrochi bor
+      if (!opts.backoffice && plain.store && c) plain.store.verified_workers = verified.has(`${s.store_id}:${c.key}`);
       if (opts.links) plain.links = links.filter((l) => l.service_id === s.id);
       if (opts.areas) plain.areas = await this.areas(s.store_id);
       out.push(plain);
@@ -586,4 +609,46 @@ function clean<T extends object>(dto: T): Record<string, any> {
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(dto)) if (v !== undefined) out[k] = v;
   return out;
+}
+
+/** `publicWhere` uchun (s — xizmat, c — tur taxalluslari). */
+const VERIFIED_SQL = `EXISTS (SELECT 1 FROM couriers w WHERE w.store_id = s.store_id AND w.is_active
+                                  AND w.trust_level IN ('skills', 'top') AND c.key = ANY(w.verified_skills))
+                   OR EXISTS (SELECT 1 FROM crews cr WHERE cr.store_id = s.store_id AND cr.is_active
+                                  AND cr.trust_level IN ('skills', 'top') AND c.key = ANY(cr.verified_skills))`;
+
+/**
+ * Hamkorning ijrochilari (№44, 2-band) — xaridorga: ism + familiya bosh harfi,
+ * daraja, tasdiqlangan ko'nikmalar, reyting, «N ta ish», brigada. `top` boshida.
+ */
+async function workersSummary(storeId: number, categoryKey: string | null) {
+  const rank = (a: string) => `CASE ${a}.trust_level WHEN 'top' THEN 0 WHEN 'skills' THEN 1 WHEN 'documents' THEN 2 ELSE 3 END`;
+  const workers: any[] = await Service.sequelize.query(
+    `SELECT c.full_name, c.trust_level, c.verified_skills, c.rating, c.jobs_done
+       FROM couriers c
+      WHERE c.store_id = :store AND c.is_active AND (CAST(:key AS text) IS NULL OR :key = ANY(c.skills))
+        -- brigada a'zosi brigada bilan ko'rinadi
+        AND NOT EXISTS (SELECT 1 FROM crew_members m JOIN crews cr ON cr.id = m.crew_id
+                         WHERE m.courier_id = c.id AND m.left_at IS NULL AND cr.is_active)
+      ORDER BY ${rank('c')}, c.rating DESC NULLS LAST, c.jobs_done DESC LIMIT 10`,
+    { replacements: { store: storeId, key: categoryKey }, type: QueryTypes.SELECT },
+  );
+  const crews: any[] = await Service.sequelize.query(
+    `SELECT cr.name, cr.members_count, cr.trust_level, cr.verified_skills, cr.rating, cr.jobs_done, l.full_name AS leader
+       FROM crews cr JOIN couriers l ON l.id = cr.leader_courier_id
+      WHERE cr.store_id = :store AND cr.is_active AND (CAST(:key AS text) IS NULL OR :key = ANY(cr.skills))
+      ORDER BY ${rank('cr')}, cr.rating DESC NULLS LAST, cr.jobs_done DESC LIMIT 10`,
+    { replacements: { store: storeId, key: categoryKey }, type: QueryTypes.SELECT },
+  );
+  const R: Record<string, number> = { top: 0, skills: 1, documents: 2, none: 3 };
+  return [
+    ...workers.map((w) => ({ name: shortName(w.full_name), ...trustView(w), crew: null })),
+    ...crews.map((c) => ({
+      name: shortName(c.leader),
+      ...trustView(c),
+      crew: { name: c.name, members_count: Number(c.members_count) },
+    })),
+  ]
+    .sort((a, b) => R[a.trust_level] - R[b.trust_level] || (b.rating ?? 0) - (a.rating ?? 0) || b.jobs_done - a.jobs_done)
+    .slice(0, 10);
 }

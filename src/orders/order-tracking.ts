@@ -53,7 +53,8 @@ export async function orderTracking(orderId: number) {
       items: items
         .filter((i) => Number(i.store_id) === storeId && i.item_type !== 'service')
         .map((i) => ({ name: i.name, model: i.model, quantity: Number(i.quantity) })),
-      delivery: d ? await customerDeliveryView(d) : null,
+      // Chaqiruvchi egalikni tekshirgan — topshirish kodi ko'rsatiladi (№44)
+      delivery: d ? await customerDeliveryView(d, { owner: true }) : null,
       jobs: await Promise.all(jobs.filter((j) => Number(j.store_id) === storeId).map((j) => customerJobView(j))),
     });
   }

@@ -1,5 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsHexColor,
   IsIn,
@@ -95,6 +97,15 @@ export class CreateStoreDto {
   @IsOptional()
   @IsIn(['USD', 'UZS'], { message: "default_currency USD yoki UZS bo'lsin" })
   default_currency?: 'USD' | 'UZS';
+
+  // Yetkazish usullari (topshiriq №44, 3.1). `platform` (Climavent kuryerlari) —
+  // FAQAT superadmin yoqadi/o'chiradi; `self` va `pickup` ni do'kon admini o'zi.
+  @ApiProperty({ required: false, example: ['self', 'pickup'], type: [String], enum: ['self', 'platform', 'pickup'] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1, { message: "delivery_modes bo'sh bo'lmasin" })
+  @IsIn(['self', 'platform', 'pickup'], { each: true, message: 'delivery_modes: self, platform, pickup' })
+  delivery_modes?: string[];
 
   // Hamkor turi (topshiriq №39, 1-band) — FAQAT superadmin. Ikkalasi false bo'lolmaydi.
   @ApiProperty({ required: false, default: true, description: 'Tovar sotadi (faqat superadmin)' })

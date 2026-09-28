@@ -47,6 +47,18 @@ export class Courier extends Model {
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false }) is_online: boolean;
   /** Sinov yozuvi (№43) — hisobi `is_test` bo'lsa trigger qo'yadi. */
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false }) is_test: boolean;
+  /**
+   * Ishonch darajasi (№44, 2-band): `none` · `documents` (pasport+selfi tasdiqlangan) ·
+   * `skills` (malaka tasdiqlangan, `verified_skills` bo'yicha) · `top`. Hisoblanadi
+   * (`trust.ts`), `top` ni superadmin olib qo'yishi mumkin (`top_revoked_at`).
+   */
+  @Column({ type: DataType.STRING(10), allowNull: false, defaultValue: 'none' }) trust_level: string;
+  @Column({ type: DataType.ARRAY(DataType.TEXT), allowNull: false, defaultValue: [] }) verified_skills: string[];
+  @Column({ type: DataType.DATE, allowNull: true }) top_revoked_at: Date | null;
+  /** Ish sharhlari va yakunlangan ishlar (sinov buyurtmalarisiz) — `trust.ts` yangilaydi. */
+  @Column(num('rating', DataType.DECIMAL(3, 2))) rating: number | null;
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 }) reviews_count: number;
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 }) jobs_done: number;
   @Column(coord('last_lat')) last_lat: number | null;
   @Column(coord('last_lng')) last_lng: number | null;
   @Column({ type: DataType.DATE, allowNull: true }) last_seen_at: Date | null;
@@ -67,6 +79,18 @@ export class Delivery extends Model {
   @Column({ type: DataType.INTEGER, allowNull: true }) courier_id: number | null;
   @Column({ type: DataType.STRING(15), allowNull: false, defaultValue: 'pending' }) status: string;
   @Column({ type: DataType.STRING(20), allowNull: false, defaultValue: 'own' }) provider: string;
+  /** `self` — o'z kuryeri yoki do'kon o'zi; `platform` — Climavent kuryerlari; `pickup` — mijoz olib ketadi (№44). */
+  @Column({ type: DataType.STRING(10), allowNull: false, defaultValue: 'self' }) mode: string;
+  @Column({ type: DataType.DATE, allowNull: true }) published_at: Date | null;
+  /** `open` ga oxirgi marta o'tgan vaqt (radius va ogohlantirish shundan sanaladi). */
+  @Column({ type: DataType.DATE, allowNull: true }) opened_at: Date | null;
+  @Column(num('publish_radius_km', DataType.DECIMAL(6, 2))) publish_radius_km: number | null;
+  @Column({ type: DataType.STRING(1000), allowNull: true }) publish_note: string | null;
+  @Column({ type: DataType.DATE, allowNull: true }) open_warned_at: Date | null;
+  /** Platforma kuryeriga to'lov (№44, qarorlar 1): `pending` · `paid`. */
+  @Column({ type: DataType.STRING(10), allowNull: true }) payout_status: string | null;
+  /** Do'kon/olib ketish topshirish kodi SHIFRLANGAN — mijoz ilovada ko'radi (№44, 3.2). */
+  @Column({ type: DataType.STRING(200), allowNull: true }) proof_code_enc: string | null;
   @Column({ type: DataType.STRING(10), allowNull: false, defaultValue: 'car' }) required_vehicle: string;
   @Column({ type: DataType.STRING(500), allowNull: true }) pickup_address: string | null;
   @Column(coord('pickup_lat')) pickup_lat: number | null;
@@ -266,6 +290,8 @@ export class CourierRate extends Model {
   @Column(num('per_km', DataType.BIGINT, false)) per_km: number;
   @Column(num('floor_fee', DataType.BIGINT, false)) floor_fee: number;
   @Column(num('wait_fee_per_15min', DataType.BIGINT, false)) wait_fee_per_15min: number;
+  /** Har bir yuklovchi uchun (№44, 3.4) */
+  @Column(num('loader_fee', DataType.BIGINT, false)) loader_fee: number;
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true }) is_active: boolean;
   declare created_at: Date;
   declare updated_at: Date;

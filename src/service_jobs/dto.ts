@@ -52,9 +52,24 @@ export class JobRejectDto extends GeoDto {
 }
 
 export class JobAssignDto {
-  @ApiProperty({ example: 7, description: '`couriers.id` — usta' })
+  @ApiProperty({ required: false, example: 7, description: '`couriers.id` — usta (yoki crew_id)' })
+  @IsOptional()
   @IsInt()
-  worker_id: number;
+  worker_id?: number;
+
+  @ApiProperty({ required: false, example: 2, description: '`crews.id` — brigada (№44, 1.4); ish boshliqqa keladi' })
+  @IsOptional()
+  @IsInt()
+  crew_id?: number;
+}
+
+/** Boshliq ijrochilarni tanlaydi (№44, 1.4). Bo'sh ro'yxat — ijrochilar olib tashlanadi. */
+export class JobCrewDto {
+  @ApiProperty({ example: [12, 13], type: [Number], description: "Brigadaning faol a'zolari (`couriers.id`)" })
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsInt({ each: true })
+  courier_ids: number[];
 }
 
 export class JobScheduleDto {

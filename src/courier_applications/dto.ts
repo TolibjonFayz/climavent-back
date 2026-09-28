@@ -11,7 +11,9 @@ import {
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
   ValidateIf,
   ValidateNested,
@@ -65,6 +67,49 @@ export class AppVehicleDto {
 }
 
 const SKILL = /^[a-z][a-z0-9_]{1,29}$/;
+
+/** Brigada a'zosi (ariza paytida aytilgan — hisob avtomatik ochilmaydi, №44 1.2). */
+export class CrewMemberInputDto {
+  @ApiProperty({ example: 'Bobur Aliyev' })
+  @IsString()
+  @MinLength(3)
+  @MaxLength(120)
+  full_name: string;
+
+  @ApiProperty({ example: '+998901234568' })
+  @Matches(/^\+998\d{9}$/, { message: "members[].phone +998XXXXXXXXX ko'rinishida bo'lsin" })
+  phone: string;
+
+  @ApiProperty({ required: false, example: ['installation'], type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @Matches(SKILL, { each: true })
+  skills?: string[];
+}
+
+export class CrewInputDto {
+  @ApiProperty({ example: 'Aziz montaj brigadasi' })
+  @IsString()
+  @MinLength(3)
+  @MaxLength(80)
+  name: string;
+
+  @ApiProperty({ example: 3, description: 'Boshliq bilan birga, 2–50' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(2)
+  @Max(50)
+  members_count: number;
+
+  @ApiProperty({ required: false, type: [CrewMemberInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(49)
+  @ValidateNested({ each: true })
+  @Type(() => CrewMemberInputDto)
+  members?: CrewMemberInputDto[];
+}
 
 export class CreateCourierApplicationDto {
   @ApiProperty({ example: 'Karimov Aziz' })
@@ -166,6 +211,95 @@ export class CreateCourierApplicationDto {
   push_token?: string | null;
 
   @ApiProperty({ required: false, example: 'android', enum: ['android', 'ios', 'web'] })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsIn(['android', 'ios', 'web'])
+  push_platform?: string | null;
+
+  // ---- №44, 1.2: brigada. Berilmasa — `individual` (eski ilovalar buzilmaydi)
+  @ApiProperty({ required: false, enum: ['individual', 'crew'], default: 'individual' })
+  @IsOptional()
+  @IsIn(['individual', 'crew'])
+  applicant_type?: string;
+
+  @ApiProperty({ required: false, type: CrewInputDto, description: "applicant_type = crew bo'lsa majburiy; skills — BRIGADANIKI" })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CrewInputDto)
+  crew?: CrewInputDto;
+}
+
+/**
+ * Brigada taklifi bilan a'zo arizasi (№44, 1.3) — QISQA: shaxsiy + pasport + selfi.
+ * Telefon taklifdagi raqam bilan bir xil bo'lishi shart. Ko'nikmalar va hudud — brigadadan.
+ */
+export class CrewMemberApplicationDto {
+  @ApiProperty({ example: 'Bobur Aliyev' })
+  @IsString()
+  @MinLength(3)
+  @MaxLength(120)
+  full_name: string;
+
+  @ApiProperty({ example: '+998901234568' })
+  @Matches(/^\+998\d{9}$/, { message: "phone +998XXXXXXXXX ko'rinishida bo'lsin" })
+  phone: string;
+
+  @ApiProperty({ example: '1998-02-11' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: "birth_date YYYY-MM-DD ko'rinishida bo'lsin" })
+  birth_date: string;
+
+  @ApiProperty({ example: 'kuchli-parol-123' })
+  @IsString()
+  @MinLength(8, { message: 'password kamida 8 belgi' })
+  @MaxLength(72)
+  password: string;
+
+  @ApiProperty({ example: [91, 92], type: [Number], description: 'passport + selfie' })
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsInt({ each: true })
+  document_ids: number[];
+
+  @ApiProperty({ example: '1.0' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(20)
+  offer_version: string;
+
+  @ApiProperty({ example: true })
+  @IsBoolean()
+  offer_accepted: boolean;
+
+  @ApiProperty({ required: false, enum: EMPLOYMENT, description: "Ixtiyoriy (a'zo boshliq bilan ishlaydi)" })
+  @IsOptional()
+  @IsIn(EMPLOYMENT as unknown as string[])
+  employment_type?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @Matches(/^(\d{9}|\d{14})$/, { message: 'tin 9 (STIR) yoki 14 (JShShIR) raqam' })
+  tin?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  @MaxLength(1000)
+  experience?: string | null;
+
+  @ApiProperty({ required: false, enum: ['uz', 'ru', 'en'] })
+  @IsOptional()
+  @IsIn(['uz', 'ru', 'en'])
+  lang?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  @MaxLength(512)
+  push_token?: string | null;
+
+  @ApiProperty({ required: false, enum: ['android', 'ios', 'web'] })
   @IsOptional()
   @ValidateIf((_, v) => v !== null)
   @IsIn(['android', 'ios', 'web'])

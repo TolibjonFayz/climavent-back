@@ -225,6 +225,7 @@ export class CourierWorkService {
         per_km: dto.per_km,
         floor_fee: dto.floor_fee,
         wait_fee_per_15min: dto.wait_fee_per_15min,
+        loader_fee: dto.loader_fee ?? 0,
       } as any,
     });
     await row.update({
@@ -232,6 +233,7 @@ export class CourierWorkService {
       per_km: dto.per_km,
       floor_fee: dto.floor_fee,
       wait_fee_per_15min: dto.wait_fee_per_15min,
+      ...(dto.loader_fee !== undefined ? { loader_fee: dto.loader_fee } : {}),
       is_active: true,
     } as any);
     return row;
@@ -269,6 +271,30 @@ export class CourierWorkService {
       fee += Math.max(0, Number(input.floor) - 1) * Number(rate.floor_fee);
     }
     return fee;
+  }
+
+  /**
+   * Platforma tarifi (№44, 3.4): FAQAT `store_id = null` qatorlari — do'kon to'laydi,
+   * kuryerga platforma to'laydi. Tarif yo'q — `delivery_fee: null`.
+   */
+  async platformFee(input: {
+    vehicle_type: string;
+    pickup_lat?: number | null;
+    pickup_lng?: number | null;
+    dropoff_lat?: number | null;
+    dropoff_lng?: number | null;
+    floor?: number | null;
+    has_elevator?: boolean | null;
+    loaders_needed?: number | null;
+  }): Promise<{ delivery_fee: number | null; distance_km: number | null }> {
+    const km = distanceKm(input.pickup_lat, input.pickup_lng, input.dropoff_lat, input.dropoff_lng);
+    const rate = await CourierRate.findOne({ where: { store_id: null, vehicle_type: input.vehicle_type, is_active: true } });
+    const distance = km === null ? null : Math.round(km * 10) / 10;
+    if (!rate) return { delivery_fee: null, distance_km: distance };
+    let fee = Number(rate.base_fee) + (km !== null ? Math.round(km * Number(rate.per_km)) : 0);
+    if (input.floor && !input.has_elevator) fee += Math.max(0, Number(input.floor) - 1) * Number(rate.floor_fee);
+    fee += Math.max(0, Number(input.loaders_needed || 0)) * Number(rate.loader_fee || 0);
+    return { delivery_fee: fee, distance_km: distance };
   }
 
   /** Kutish haqi — `arrived_at` dan topshirishgacha (6-band). */

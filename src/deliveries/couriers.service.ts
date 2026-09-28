@@ -49,7 +49,15 @@ export class CouriersService {
     else if (q.store_id) where.store_id = Number(q.store_id);
     if (q.is_active === 'true' || q.is_active === 'false') where.is_active = q.is_active === 'true';
     if (q.is_online === 'true' || q.is_online === 'false') where.is_online = q.is_online === 'true';
-    const rows = await Courier.findAll({ where, order: [['is_active', 'DESC'], ['full_name', 'ASC']] });
+    // Ishonch darajasi (№44, 2-band): `top` usta ro'yxat boshida
+    const rows = await Courier.findAll({
+      where,
+      order: [
+        ['is_active', 'DESC'],
+        [Courier.sequelize.literal("CASE trust_level WHEN 'top' THEN 0 WHEN 'skills' THEN 1 WHEN 'documents' THEN 2 ELSE 3 END"), 'ASC'],
+        ['full_name', 'ASC'],
+      ],
+    });
     const logins = await this.loginsOf(rows.map((c) => c.store_user_id));
     // Faol transport ro'yxatda ham ko'rinsin (topshiriq №26, 1a-band):
     // adminka "kim nima bilan yurayapti" ni bitta so'rovda ko'rsatadi.

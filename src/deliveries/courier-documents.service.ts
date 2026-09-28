@@ -6,7 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
-import { Op } from 'sequelize';
+import { Op, QueryTypes } from 'sequelize';
+import { refreshCourierTrust, refreshCrewTrust } from 'src/crews/trust';
 import type { StoreRequester } from 'src/store_auth/store_auth.guard';
 import {
   COURIER_DOC_MAX_BYTES,
@@ -178,6 +179,8 @@ export class CourierDocumentsService {
       await courier.update({ documents_verified_at: new Date(), verified_by: r?.user_id ?? null }, { transaction });
       await recordCourierEvent(courier.id, 'documents_verified', r, null, transaction);
     });
+    // Ishonch darajasi (№44): `documents` va brigada darajasi darhol
+    await refreshAfterDocuments(courier.id);
     return { id: courier.id, documents_verified_at: courier.documents_verified_at, verified_by: courier.verified_by };
   }
 
@@ -187,6 +190,7 @@ export class CourierDocumentsService {
       await courier.update({ documents_verified_at: null, verified_by: null }, { transaction });
       await recordCourierEvent(courier.id, 'documents_unverified', r ?? null, reason?.trim() || null, transaction);
     });
+    await refreshAfterDocuments(courier.id);
     return { id: courier.id, documents_verified_at: null };
   }
 
@@ -246,3 +250,13 @@ export class CourierDocumentsService {
 }
 
 export type { CourierDocumentType };
+
+/** Hujjat holati o'zgardi — usta va uning brigadasi darajasi qayta hisoblanadi (№44). */
+async function refreshAfterDocuments(courierId: number) {
+  await refreshCourierTrust([courierId]);
+  const rows: any[] = await Courier.sequelize.query(
+    'SELECT crew_id FROM crew_members WHERE courier_id = :id AND left_at IS NULL',
+    { replacements: { id: courierId }, type: QueryTypes.SELECT },
+  );
+  if (rows.length) await refreshCrewTrust(rows.map((r) => Number(r.crew_id)));
+}

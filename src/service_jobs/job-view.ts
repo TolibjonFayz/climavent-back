@@ -5,6 +5,26 @@ import { maskAddress, maskPhone } from 'src/deliveries/deliveries.service';
 import { workerLocationView } from 'src/deliveries/tracking.service';
 import { decryptJobCode } from './job-code';
 import { ServiceJob, ServiceJobEvent, ServiceReview } from './models';
+import { shortName } from 'src/crews/models';
+import { trustView } from 'src/crews/trust';
+
+/** Brigada va ijrochilar (№44, 1.4) — orqa ofis va usta ilovasi uchun. */
+async function crewPart(job: ServiceJob) {
+  if (!job.crew_id) return { crew: null, executors: [] as any[] };
+  const [crew]: any[] = await ServiceJob.sequelize.query('SELECT id, name, members_count, trust_level FROM crews WHERE id = :id', {
+    replacements: { id: job.crew_id },
+    type: QueryTypes.SELECT,
+  });
+  const executors: any[] = await ServiceJob.sequelize.query(
+    `SELECT c.id, c.full_name, c.phone FROM service_job_workers w JOIN couriers c ON c.id = w.courier_id
+      WHERE w.job_id = :id ORDER BY w.added_at`,
+    { replacements: { id: job.id }, type: QueryTypes.SELECT },
+  );
+  return {
+    crew: crew ? { id: Number(crew.id), name: crew.name, members_count: Number(crew.members_count), trust_level: crew.trust_level } : null,
+    executors: executors.map((e) => ({ id: Number(e.id), full_name: e.full_name, phone: e.phone })),
+  };
+}
 
 /** Ishning xizmat qatorlari: nom, variant, soni, narx (javoblar uchun). */
 export async function jobLines(job: ServiceJob) {
@@ -54,10 +74,11 @@ export async function backofficeJobView(job: ServiceJob, opts: { full?: boolean 
   plain.lines = await jobLines(job);
   if (job.worker_id) {
     const w = await Courier.findByPk(job.worker_id, {
-      attributes: ['id', 'full_name', 'phone', 'skills', 'is_online', 'last_lat', 'last_lng', 'last_seen_at'],
+      attributes: ['id', 'full_name', 'phone', 'skills', 'is_online', 'last_lat', 'last_lng', 'last_seen_at', 'trust_level', 'verified_skills', 'rating', 'jobs_done'],
     });
     plain.worker = w ? w.get({ plain: true }) : null;
   } else plain.worker = null;
+  Object.assign(plain, await crewPart(job));
   if (opts.full) {
     plain.events = await ServiceJobEvent.findAll({ where: { job_id: job.id }, order: [['id', 'ASC']] });
     plain.review = await ServiceReview.findOne({ where: { job_id: job.id } });
@@ -70,7 +91,7 @@ export async function backofficeJobView(job: ServiceJob, opts: { full?: boolean 
  * Yakunlangan ishda 24 soatdan keyin mijoz telefoni va aniq manzil
  * yashiriladi (№22 dagi qoida).
  */
-export async function workerJobView(job: ServiceJob, opts: { full?: boolean } = {}) {
+export async function workerJobView(job: ServiceJob, opts: { full?: boolean; viewer?: number } = {}) {
   const plain: any = { ...job.get({ plain: true }) };
   delete plain.proof_code_enc;
   delete plain.proof_code_attempts;
@@ -96,7 +117,13 @@ export async function workerJobView(job: ServiceJob, opts: { full?: boolean } = 
     type: QueryTypes.SELECT,
   });
   plain.store = store ? { id: Number(store.id), name: store.name, phone: store.phone ?? null, address: store.address ?? null } : null;
-  void opts;
+  // Brigada (№44): kim boshliq, kim ijrochi — ilova tugmalarni shunga qarab ko'rsatadi
+  Object.assign(plain, await crewPart(job));
+  plain.my_role = !job.crew_id
+    ? 'worker'
+    : Number(job.worker_id) === Number(opts.viewer)
+      ? 'leader'
+      : 'executor';
   return plain;
 }
 
@@ -112,14 +139,25 @@ export async function customerJobView(job: ServiceJob) {
   let worker: any = null;
   let location: any = null;
   let eta: number | null = null;
-  if (job.worker_id) {
-    const c = await Courier.findByPk(job.worker_id, {
-      attributes: ['full_name', 'phone', 'last_lat', 'last_lng', 'last_heading', 'last_seen_at'],
+  const who = job.performer_id || job.worker_id;
+  if (who) {
+    const c = await Courier.findByPk(who, {
+      attributes: ['full_name', 'phone', 'last_lat', 'last_lng', 'last_heading', 'last_seen_at', 'trust_level', 'verified_skills', 'rating', 'jobs_done'],
     });
     if (c) {
+      // Ishonch (№44, 2-band): pasport, familiya — yo'q; faqat ism + familiya bosh harfi
+      const [crew]: any[] = job.crew_id
+        ? await ServiceJob.sequelize.query('SELECT name, members_count, trust_level, verified_skills, rating, jobs_done FROM crews WHERE id = :id', {
+            replacements: { id: job.crew_id },
+            type: QueryTypes.SELECT,
+          })
+        : [];
       worker = {
         first_name: String(c.full_name || '').trim().split(/\s+/)[0] || null,
+        display_name: shortName(c.full_name),
         phone: ['on_the_way', 'arrived'].includes(job.status) ? c.phone : null,
+        ...trustView(crew ?? c),
+        crew: crew ? { name: crew.name, members_count: Number(crew.members_count) } : null,
       };
       if (job.status === 'on_the_way') {
         const loc = workerLocationView(c, { lat: job.lat, lng: job.lng });

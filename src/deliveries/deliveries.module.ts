@@ -36,13 +36,22 @@ const HOUR = 60 * 60 * 1000;
 export class DeliveriesJobs implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(DeliveriesJobs.name);
   private timer: NodeJS.Timeout | null = null;
+  private openTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly couriers: CouriersService,
     private readonly documents: CourierDocumentsService,
+    private readonly deliveries: DeliveriesService,
   ) {}
 
   onApplicationBootstrap() {
+    // Ochiq yetkazishlar (№44, 3.3): radius kengayishi va 30 daqiqalik ogohlantirish.
+    // Alohida kalit — sinov serverida tezlashtirish uchun (`OPEN_DELIVERY_TICK_MS`).
+    if (process.env.OPEN_DELIVERY_JOBS_DISABLED !== 'true') {
+      const every = Number(process.env.OPEN_DELIVERY_TICK_MS) || 60 * 1000;
+      this.openTimer = setInterval(() => void this.tickOpen(), every);
+      this.openTimer.unref();
+    }
     if (process.env.SELLER_JOBS_DISABLED === 'true') return;
     setTimeout(() => this.tick(), 3 * 60 * 1000).unref();
     this.timer = setInterval(() => this.tick(), HOUR);
@@ -51,6 +60,16 @@ export class DeliveriesJobs implements OnApplicationBootstrap, OnModuleDestroy {
 
   onModuleDestroy() {
     if (this.timer) clearInterval(this.timer);
+    if (this.openTimer) clearInterval(this.openTimer);
+  }
+
+  async tickOpen() {
+    try {
+      const r = await this.deliveries.tickOpen();
+      if (r.expanded || r.warned) this.logger.log(`Ochiq yetkazishlar: ${r.open}, radius kengaydi ${r.expanded}, ogohlantirish ${r.warned}`);
+    } catch (e) {
+      this.logger.error(`Ochiq yetkazishlar fon ishi yiqildi: ${(e as Error).message}`);
+    }
   }
 
   async tick() {

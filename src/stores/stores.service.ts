@@ -187,6 +187,17 @@ export class StoresService {
       }
     }
 
+    // `platform` yetkazish — faqat superadmin (№44, 3.1): do'kon ofertasi va
+    // to'lov sharti kelishilgach yoqiladi. `self`/`pickup` — do'kon admini o'zi.
+    if (dto.delivery_modes !== undefined) {
+      dto.delivery_modes = [...new Set(dto.delivery_modes)];
+      const had = (store.delivery_modes || ['self']).includes('platform');
+      const wants = dto.delivery_modes.includes('platform');
+      if (!isSuper && had !== wants) {
+        throw new ForbiddenException("`platform` yetkazishni faqat superadmin yoqadi yoki o'chiradi");
+      }
+    }
+
     assertSellsSomething(
       dto.sells_products ?? store.sells_products,
       dto.sells_services ?? store.sells_services,

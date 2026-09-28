@@ -416,6 +416,11 @@ export class TestDataService implements OnApplicationBootstrap {
     await x(`DELETE FROM cash_handovers WHERE courier_id IN (SELECT id FROM p_couriers)`);
     await x(`DELETE FROM courier_payouts WHERE courier_id IN (SELECT id FROM p_couriers)`);
     await x(`UPDATE couriers SET active_vehicle_id = NULL WHERE id IN (SELECT id FROM p_couriers)`);
+    // Brigadalar (№44): boshlig'i yoki do'koni o'chayotgani — a'zolik va takliflar bilan
+    await x(`UPDATE courier_applications SET crew_invite_id = NULL
+              WHERE crew_invite_id IN (SELECT i.id FROM crew_invites i JOIN crews c ON c.id = i.crew_id
+                                        WHERE c.leader_courier_id IN (SELECT id FROM p_couriers) OR c.store_id IN (SELECT id FROM p_stores))`);
+    await x(`DELETE FROM crews WHERE leader_courier_id IN (SELECT id FROM p_couriers) OR store_id IN (SELECT id FROM p_stores)`);
     await x(`DELETE FROM couriers WHERE id IN (SELECT id FROM p_couriers)`);
 
     // ---- hisoblar

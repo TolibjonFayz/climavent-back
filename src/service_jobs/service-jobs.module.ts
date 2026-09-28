@@ -28,6 +28,7 @@ import { DeliveriesModule } from 'src/deliveries/deliveries.module';
 import { DeliveriesService } from 'src/deliveries/deliveries.service';
 import {
   ArrivedDto,
+  ClaimDto,
   CourierActionDto,
   CourierDeliverDto,
   CourierFailDto,
@@ -51,6 +52,7 @@ import {
   JobCancelDto,
   JobCommentDto,
   JobCompleteDto,
+  JobCrewDto,
   JobFailDto,
   JobPriceDto,
   JobRejectDto,
@@ -88,11 +90,11 @@ export class JobsController {
     return this.jobs.update(id, dto, req.storeUser);
   }
 
-  @ApiOperation({ summary: "Usta biriktirish — ko'nikma yo'q 409, begona usta 403" })
+  @ApiOperation({ summary: "Usta (`worker_id`) YOKI brigada (`crew_id`, №44) biriktirish — ko'nikma yo'q 409, begona 403" })
   @HttpCode(200)
   @Post(':id/assign')
   assign(@Param('id', ParseIntPipe) id: number, @Body() dto: JobAssignDto, @Req() req: any) {
-    return this.jobs.assign(id, dto.worker_id, req.storeUser);
+    return this.jobs.assign(id, dto, req.storeUser);
   }
 
   @ApiOperation({ summary: "Vaqt: mijoz taklifini tasdiqlash yoki boshqa vaqt (`agreed: true` — kelishilgan)" })
@@ -217,6 +219,13 @@ export class WorkerController {
   @Post('jobs/:id/accept')
   accept(@Param('id', ParseIntPipe) id: number, @Body() dto: GeoDto, @Req() req: any) {
     return this.jobs.workerAccept(req.courier, id, dto);
+  }
+
+  @ApiOperation({ summary: "Brigada boshlig'i ijrochilarni tanlaydi (№44, 1.4) — ular ishni ko'radi va holat amallarini qiladi" })
+  @HttpCode(200)
+  @Post('jobs/:id/crew')
+  crew(@Param('id', ParseIntPipe) id: number, @Body() dto: JobCrewDto, @Req() req: any) {
+    return this.jobs.workerSetCrew(req.courier, id, dto.courier_ids);
   }
 
   @ApiOperation({ summary: 'Rad etish — sabab (comment) majburiy; ish hamkorga qaytadi' })
@@ -410,6 +419,33 @@ export class WorkerDeliveriesController {
   }
 }
 
+// ============================================================ Pro: ochiq yetkazishlar (№44, 3.3)
+@ApiTags('Worker app')
+@ApiBearerAuth()
+@UseGuards(WorkerGuard)
+@Controller('worker/open-deliveries')
+export class WorkerOpenDeliveriesController {
+  constructor(private readonly deliveries: DeliveriesService) {}
+
+  @ApiOperation({
+    summary:
+      "Ochiq yetkazishlar (platforma kuryeri, onlayn, hujjat va oferta, mos transport, hudud va radius) — aniq manzil va telefonsiz",
+  })
+  @ApiResponse({ status: 200, schema: { example: { eligible: true, reason: null, vehicle_type: 'van', items: [{ id: 51, distance_km: 3.2, delivery_fee: 85000, dropoff_district: { code: 'chilonzor' } }] } } })
+  @Get()
+  list(@Req() req: any, @Query('lat') lat?: string, @Query('lng') lng?: string) {
+    return this.deliveries.openDeliveries(req.courier, { lat, lng });
+  }
+
+  @ApiOperation({ summary: "Olish — birinchi bo'lgan oladi (open -> assigned -> accepted); kechikkan 409 «Boshqa kuryer oldi»" })
+  @ApiResponse({ status: 409, description: 'already_taken yoki offer_acceptance_required' })
+  @HttpCode(200)
+  @Post(':id/claim')
+  claim(@Param('id', ParseIntPipe) id: number, @Body() dto: ClaimDto, @Req() req: any) {
+    return this.deliveries.claim(req.courier, id, dto);
+  }
+}
+
 // ============================================================ mijoz
 @ApiTags('Orders')
 @ApiBearerAuth()
@@ -549,6 +585,7 @@ export class ServiceReviewsController {
   controllers: [
     JobsController,
     WorkerDeliveriesController,
+    WorkerOpenDeliveriesController,
     WorkerController,
     CustomerJobsController,
     UploadsController,

@@ -9,6 +9,8 @@ export const vehicleFits = (courier: string, required: string) =>
 
 export const DELIVERY_STATUSES = [
   'pending',
+  // №44: Climavent kuryerlariga chiqarilgan, hali hech kim olmagan
+  'open',
   'assigned',
   'accepted',
   'picked_up',
@@ -36,8 +38,16 @@ export const TRANSITIONS: Record<
   string,
   { from: DeliveryStatus[]; to: DeliveryStatus; by: 'backoffice' | 'courier' }
 > = {
-  // Qayta biriktirish ham (assigned → assigned): kuryer javob bermasa almashtirish uchun
-  assign: { from: ['pending', 'assigned'], to: 'assigned', by: 'backoffice' },
+  // Qayta biriktirish ham (assigned → assigned): kuryer javob bermasa almashtirish uchun.
+  // `open` dan — faqat superadmin (№44, 3.3: 30 daqiqada hech kim olmasa qo'lda)
+  assign: { from: ['pending', 'open', 'assigned'], to: 'assigned', by: 'backoffice' },
+  // №44: ommaga chiqarish / qaytarib olish / birinchi kuryer oladi / olgandan keyin rad etadi
+  publish: { from: ['pending'], to: 'open', by: 'backoffice' },
+  unpublish: { from: ['open'], to: 'pending', by: 'backoffice' },
+  claim: { from: ['open'], to: 'assigned', by: 'courier' },
+  release: { from: ['assigned', 'accepted'], to: 'open', by: 'courier' },
+  // №44: do'kon o'zi topshiradi (kuryersiz `self` yoki `pickup`) — mijoz kodi bilan
+  handover: { from: ['pending'], to: 'delivered', by: 'backoffice' },
   reject: { from: ['assigned'], to: 'pending', by: 'courier' },
   accept: { from: ['assigned'], to: 'accepted', by: 'courier' },
   pickup: { from: ['accepted'], to: 'picked_up', by: 'courier' },
@@ -47,11 +57,14 @@ export const TRANSITIONS: Record<
   return: { from: ['failed'], to: 'returned', by: 'backoffice' },
   retry: { from: ['failed'], to: 'pending', by: 'backoffice' },
   cancel: {
-    from: ['pending', 'assigned', 'accepted', 'picked_up', 'on_the_way', 'failed'],
+    from: ['pending', 'open', 'assigned', 'accepted', 'picked_up', 'on_the_way', 'failed'],
     to: 'cancelled',
     by: 'backoffice',
   },
 };
+
+/** Yetkazish usullari (№44, 3.1). */
+export const DELIVERY_MODES = ['self', 'platform', 'pickup'] as const;
 
 /** Topshirish kodi: 4 raqam, 5 ta noto'g'ri urinishdan keyin bloklanadi (5-band). */
 export const PROOF_CODE_MAX_ATTEMPTS = 5;

@@ -39,6 +39,7 @@ import { ServiceCatalogModule } from './service_catalog/service-catalog.module';
 import { ServiceJobsModule } from './service_jobs/service-jobs.module';
 import { CourierApplicationsModule } from './courier_applications/courier-applications.module';
 import { TestDataModule } from './test_data/test-data.module';
+import { CrewsModule } from './crews/crews.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
@@ -136,6 +137,7 @@ import { ViewerScopeMiddleware } from './common/middleware/viewer_scope.middlewa
     // Topshiriq №41: kuryer / usta bo'lish arizasi (Pro ilovasi)
     CourierApplicationsModule,
     TestDataModule,
+    CrewsModule,
   ],
   controllers: [],
   providers: [

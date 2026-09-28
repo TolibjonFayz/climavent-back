@@ -11,6 +11,7 @@ import {
   TRACKING_LINK_PATH,
 } from './constants';
 import { Courier, CourierVehicle, Delivery, DeliveryEvent } from './model/models';
+import { decryptJobCode } from 'src/service_jobs/job-code';
 
 /**
  * Havola kaliti: **16 bayt tasodifiy -> 32 ta hex belgi** (`0-9a-f`).
@@ -150,7 +151,7 @@ export class TrackingService {
  *   - yakunlangandan keyin joylashuv ham, telefon ham `null`;
  *   - kuryer, xodim, actor ID lari YO'Q.
  */
-export async function customerDeliveryView(d: Delivery) {
+export async function customerDeliveryView(d: Delivery, opts: { owner?: boolean } = {}) {
   const finished = !!FINISHED[d.status];
 
   const events = await DeliveryEvent.findAll({
@@ -162,7 +163,7 @@ export async function customerDeliveryView(d: Delivery) {
   // (from === to) ko'rsatilmaydi; `pending` va `assigned` ham — ular
   // ICHKI qadamlar (operator kuryer izlayapti), mijoz uchun qadam
   // "Qabul qilindi" dan boshlanadi (topshiriq №24, 2-band namunasi).
-  const HIDDEN: string[] = ['pending', 'assigned'];
+  const HIDDEN: string[] = ['pending', 'open', 'assigned'];
   const seen = new Set<string>();
   const steps: { status: string; at: Date }[] = [];
   for (const e of events) {
@@ -232,6 +233,13 @@ export async function customerDeliveryView(d: Delivery) {
     eta_minutes: etaMinutes,
     cod_amount: d.cod_amount,
     delivered_at: d.delivered_at,
+    // №44: usul va topshirish kodi. Kod FAQAT buyurtma egasiga (ilova ichidagi
+    // kuzatish) — do'kon o'zi topshirganda / olib ketishda yoki kuryer yo'lda bo'lganda.
+    mode: d.mode,
+    handover_code:
+      opts.owner && !finished && (d.status === 'on_the_way' || (d.status === 'pending' && !d.courier_id && d.mode !== 'platform'))
+        ? decryptJobCode(d.proof_code_enc)
+        : null,
   };
 }
 

@@ -33,6 +33,11 @@ export const SENSITIVE_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
   // sotuvchi arizasining holat sahifasi.
   'password_setup_token_hash',
   'public_token_hash',
+  // Topshirish kodlari va taklif tokeni (№44): kod faqat maxsus ko'rinishlarda
+  // (mijoz kuzatuvi) ochiladi — hech bir javobga xom holda tushmasin.
+  'proof_code_hash',
+  'proof_code_enc',
+  'token_hash',
 ]);
 
 /** `JSON.stringify` uchun replacer — maxfiy kalitlarni tashlab yuboradi. */

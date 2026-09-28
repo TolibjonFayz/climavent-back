@@ -19,6 +19,9 @@ import { LICENSE_FOR_VEHICLE } from 'src/deliveries/constants';
 import { recordCourierEvent } from 'src/deliveries/courier-events';
 import { pushTo, pushToRawToken } from 'src/deliveries/push';
 import { isDistrict, isRegion } from 'src/regions/regions.data';
+import { Crew, CrewInvite } from 'src/crews/models';
+import { createCrewForLeader, hashInviteToken, joinCrewByInvite } from 'src/crews/crews.service';
+import { refreshCourierTrust, refreshCrewTrust } from 'src/crews/trust';
 import {
   APP_DOC_MAX_BYTES,
   APP_DOCS_MAX,
@@ -26,6 +29,7 @@ import {
   CourierApplicationDocument,
   CourierApplicationDocumentBlob,
   CourierApplicationEvent,
+  CrewInput,
   DOC_URL_TTL_MS,
   normalizePhoneDigits,
   OPEN_STATUSES,
@@ -38,6 +42,8 @@ import {
 import {
   ApproveCourierApplicationDto,
   CreateCourierApplicationDto,
+  CrewInputDto,
+  CrewMemberApplicationDto,
   ResubmitCourierApplicationDto,
 } from './dto';
 
@@ -133,6 +139,10 @@ export class CourierApplicationsService {
     await this.validate(fields);
     // Telefon bandligi hujjatlardan OLDIN: asl sabab (409) "hujjat yetishmaydi" ortida qolmasin
     await this.ensurePhoneFree(dto.phone);
+    // Brigada (№44, 1.2): skills — BRIGADANIKI; a'zolar telefoni №41 dagi 409 qoidalariga tushadi
+    const applicantType = dto.applicant_type === 'crew' ? 'crew' : 'individual';
+    if (applicantType !== 'crew' && dto.crew) throw new BadRequestException("crew faqat applicant_type = crew bo'lganda");
+    const crew = applicantType === 'crew' ? await this.validateCrew(dto.crew, dto.phone) : null;
 
     const docIds = [...new Set(dto.document_ids || [])];
     if (docIds.length > APP_DOCS_MAX) throw new BadRequestException(`Bitta arizada eng ko'pi ${APP_DOCS_MAX} ta fayl`);
@@ -148,6 +158,8 @@ export class CourierApplicationsService {
             ...fields,
             phone: dto.phone,
             status: 'pending',
+            applicant_type: applicantType,
+            crew,
             password_hash: passwordHash,
             lang: dto.lang ?? null,
             push_token: dto.push_token ?? null,
@@ -161,7 +173,13 @@ export class CourierApplicationsService {
           { transaction },
         );
         await this.linkDocuments(docIds, created.id, transaction);
-        await this.event(created.id, 'created', NO_ACTOR, `${fields.skills.join(', ')}`, transaction);
+        await this.event(
+          created.id,
+          'created',
+          NO_ACTOR,
+          `${crew ? `Brigada «${crew.name}» (${crew.members_count} kishi): ` : ''}${fields.skills.join(', ')}`,
+          transaction,
+        );
         // Shartnoma tuzilganining DALILI (faqat INSERT — baza trigger'i himoya qiladi)
         await OfferAcceptance.create(
           {
@@ -189,6 +207,103 @@ export class CourierApplicationsService {
     return this.statusView(app);
   }
 
+  /**
+   * Brigada taklifi bilan a'zo arizasi (№44, 1.3) — `POST /crew-invites/:token/accept`.
+   * Qisqa ariza: shaxsiy + pasport + selfi; ko'nikma va hudud brigadadan. Superadmin
+   * tasdig'idan o'tadi (pasportsiz odam platformaga kirmaydi), tasdiqlangach — avtomatik a'zo.
+   */
+  async createFromInvite(token: string, dto: CrewMemberApplicationDto, ctx: Ctx) {
+    if (typeof token !== 'string' || !/^[0-9a-f]{48}$/.test(token)) throw new NotFoundException('Taklif topilmadi');
+    const invite = await CrewInvite.findOne({ where: { token_hash: hashInviteToken(token) } });
+    if (!invite) throw new NotFoundException('Taklif topilmadi');
+    if (invite.revoked_at) throw new GoneException('Taklif bekor qilingan');
+    if (invite.accepted_at || invite.application_id) throw new ConflictException('Bu taklif bilan ariza allaqachon topshirilgan');
+    if (new Date(invite.expires_at).getTime() < Date.now()) throw new GoneException("Taklif muddati o'tgan — boshliqdan yangisini so'rang");
+    const crew = await Crew.findByPk(invite.crew_id);
+    if (!crew || !crew.is_active) throw new ConflictException('Brigada faol emas');
+    if (dto.phone !== invite.phone) throw new BadRequestException("Taklif boshqa raqam uchun yuborilgan — boshliqdan so'rang");
+
+    if (dto.offer_accepted !== true) throw new BadRequestException('Ofertani qabul qilish shart');
+    const offer = await OfferVersion.findOne({ where: { kind: 'courier', is_current: true } });
+    if (!offer) throw new ServiceUnavailableException("Kuryer ofertasi hali e'lon qilinmagan");
+    if (dto.offer_version !== offer.version) {
+      throw new ConflictException(`Oferta yangilangan (joriy versiya ${offer.version}) — qayta tanishib chiqing`);
+    }
+    if (!!dto.employment_type !== !!dto.tin) throw new BadRequestException('employment_type va tin birga beriladi');
+
+    // Brigada xizmatlari (yetkazish — alohida, transport bilan ariza orqali)
+    const skills = (crew.skills || []).filter((s) => s !== 'delivery');
+    const fields: any = {
+      full_name: dto.full_name.trim(),
+      birth_date: dto.birth_date,
+      skills: skills.length ? skills : crew.skills,
+      regions: crew.service_areas || [],
+      employment_type: dto.employment_type ?? null,
+      tin: dto.tin ?? null,
+      vehicle: null,
+      license_categories: [],
+      experience: dto.experience?.trim() || null,
+      comment: `Brigada «${crew.name}» taklifi`,
+    };
+    await this.validate(fields, { member: true });
+    await this.ensurePhoneFree(dto.phone);
+    const docIds = [...new Set(dto.document_ids || [])];
+    if (docIds.length > APP_DOCS_MAX) throw new BadRequestException(`Bitta arizada eng ko'pi ${APP_DOCS_MAX} ta fayl`);
+    const docs = await this.loadFreeDocuments(docIds);
+    this.ensureRequired(fields, docs.map((d) => d.type));
+
+    const rawToken = randomBytes(32).toString('hex');
+    const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
+    try {
+      const app = await CourierApplication.sequelize.transaction(async (transaction) => {
+        const created = await CourierApplication.create(
+          {
+            ...fields,
+            phone: dto.phone,
+            status: 'pending',
+            applicant_type: 'crew_member',
+            crew_invite_id: invite.id,
+            password_hash: passwordHash,
+            lang: dto.lang ?? null,
+            push_token: dto.push_token ?? null,
+            push_platform: dto.push_platform ?? null,
+            public_token_hash: hashToken(rawToken),
+            offer_version: offer.version,
+            offer_accepted_at: new Date(),
+            offer_ip: ctx.ip ?? null,
+            offer_user_agent: ctx.userAgent?.slice(0, 500) ?? null,
+          } as any,
+          { transaction },
+        );
+        // Poyga: bitta taklif — bitta ariza (shartli yangilash)
+        const [linked] = await CrewInvite.update(
+          { application_id: created.id } as any,
+          { where: { id: invite.id, application_id: null, accepted_at: null, revoked_at: null }, transaction },
+        );
+        if (!linked) throw new ConflictException('Bu taklif bilan ariza allaqachon topshirilgan');
+        await this.linkDocuments(docIds, created.id, transaction);
+        await this.event(created.id, 'created', NO_ACTOR, `Brigada #${crew.id} «${crew.name}» a'zosi (taklif #${invite.id})`, transaction);
+        await OfferAcceptance.create(
+          {
+            kind: 'courier',
+            version: offer.version,
+            courier_application_id: created.id,
+            accepted_at: created.offer_accepted_at,
+            ip: ctx.ip ?? null,
+            user_agent: ctx.userAgent?.slice(0, 500) ?? null,
+          } as any,
+          { transaction },
+        );
+        return created;
+      });
+      await this.notifySuperadmins(app);
+      return { id: app.id, status: app.status, public_token: rawToken, crew: { id: crew.id, name: crew.name } };
+    } catch (e) {
+      if (e instanceof UniqueConstraintError) throw new ConflictException('Bu raqam bilan ariza allaqachon bor');
+      throw e;
+    }
+  }
+
   async resubmit(token: string, dto: ResubmitCourierApplicationDto) {
     const app = await this.byToken(token);
     if (app.status !== 'needs_info') {
@@ -196,7 +311,7 @@ export class CourierApplicationsService {
     }
     const changes = pick(dto, true);
     const merged: any = { ...pick(app as any), ...changes };
-    await this.validate(merged);
+    await this.validate(merged, { member: app.applicant_type === 'crew_member' });
 
     const own = await CourierApplicationDocument.findAll({ where: { application_id: app.id }, attributes: ['id', 'type', 'deleted_at'] });
     const ownIds = new Set(own.map((d) => d.id));
@@ -386,7 +501,19 @@ export class CourierApplicationsService {
         if (!app) throw new NotFoundException('Ariza topilmadi');
         if (!OPEN_STATUSES.includes(app.status)) throw new ConflictException('Ariza allaqachon yakuniy holatda');
 
-        const storeId = dto.store_id ?? null;
+        // A'zo — brigadasining hamkoriga tegishli (№44, 1.3)
+        let memberCrew: Crew | null = null;
+        if (app.applicant_type === 'crew_member') {
+          const inv = app.crew_invite_id ? await CrewInvite.findByPk(app.crew_invite_id, { transaction }) : null;
+          memberCrew = inv ? await Crew.findByPk(inv.crew_id, { transaction }) : null;
+          if (!inv || inv.revoked_at || !memberCrew || !memberCrew.is_active) {
+            throw new ConflictException('Brigada taklifi bekor qilingan yoki brigada faol emas');
+          }
+          if (dto.store_id !== undefined && (dto.store_id ?? null) !== (memberCrew.store_id ?? null)) {
+            throw new BadRequestException("store_id: a'zo brigadasining hamkoriga tegishli bo'ladi");
+          }
+        }
+        const storeId = memberCrew ? memberCrew.store_id ?? null : dto.store_id ?? null;
         if (storeId !== null) {
           const [store]: any[] = await CourierApplication.sequelize.query('SELECT id, is_active FROM stores WHERE id = :id', {
             replacements: { id: storeId },
@@ -397,7 +524,7 @@ export class CourierApplicationsService {
         }
         const skills = dto.skills ? [...new Set(dto.skills)] : app.skills;
         const license = (dto.license_categories ?? app.license_categories ?? []).map((c) => c.toUpperCase());
-        await this.validate({ ...pick(app as any), skills, license_categories: license });
+        await this.validate({ ...pick(app as any), skills, license_categories: license }, { member: app.applicant_type === 'crew_member' });
 
         const digits = normalizePhoneDigits(app.phone)!;
         await this.ensureAccountFree(app.phone, transaction);
@@ -524,17 +651,38 @@ export class CourierApplicationsService {
           } as any,
           { transaction },
         );
-        await this.event(app.id, 'approved', actor, `Kuryer #${courier.id}, login ${digits}${storeId ? `, do'kon #${storeId}` : ', platforma'}`, transaction);
+        // Brigada (№44): boshliq arizasi — brigada + boshliq a'zoligi; a'zo — avtomatik a'zo.
+        // `members` dagilarga hisob OCHILMAYDI (taklif havolasi bilan o'zlari keladi).
+        let crew: Crew | null = null;
+        if (app.applicant_type === 'crew' && app.crew) {
+          crew = await createCrewForLeader(
+            { name: app.crew.name, members_count: app.crew.members_count, skills, service_areas: app.regions || [], store_id: storeId, leader: courier },
+            transaction,
+          );
+        } else if (memberCrew && app.crew_invite_id) {
+          crew = await joinCrewByInvite(app.crew_invite_id, courier, transaction);
+        }
+        await this.event(
+          app.id,
+          'approved',
+          actor,
+          `Kuryer #${courier.id}, login ${digits}${storeId ? `, do'kon #${storeId}` : ', platforma'}${crew ? `, brigada #${crew.id}` : ''}`,
+          transaction,
+        );
         await recordCourierEvent(courier.id, 'created_from_application', { role: 'superadmin', user_id: actor.id, login: actor.login }, `Ariza #${app.id}`, transaction);
         return {
           app,
           body: {
             courier: { ...courier.get({ plain: true }), login: digits },
             store_user: { id: account.id, login: account.login },
+            crew: crew ? { id: crew.id, name: crew.name, role: app.applicant_type === 'crew' ? 'leader' : 'member' } : null,
           },
         };
       });
       await this.notifyApplicant(out.app, 'application_approved');
+      // Ishonch darajasi (№44): hujjatlari tasdiqlangan — `documents`
+      await refreshCourierTrust([out.body.courier.id]);
+      if (out.body.crew) await refreshCrewTrust([out.body.crew.id]);
       return out.body;
     } catch (e) {
       if (e instanceof UniqueConstraintError) {
@@ -572,7 +720,7 @@ export class CourierApplicationsService {
   }
 
   // ============================================================ YORDAMCHILAR
-  private async validate(f: any) {
+  private async validate(f: any, opts: { member?: boolean } = {}) {
     // Yosh: 18 dan kichik — 400
     const bd = new Date(`${f.birth_date}T00:00:00Z`);
     if (Number.isNaN(bd.getTime())) throw new BadRequestException("birth_date noto'g'ri sana");
@@ -591,7 +739,8 @@ export class CourierApplicationsService {
     if (unknown.length) throw new BadRequestException(`Noma'lum ko'nikma: ${unknown.join(', ')}`);
 
     const regions = f.regions || [];
-    if (!regions.length) throw new BadRequestException('regions: kamida bitta hudud');
+    // A'zo arizasi (№44): hudud brigadadan — bo'sh bo'lishi mumkin
+    if (!regions.length && !opts.member) throw new BadRequestException('regions: kamida bitta hudud');
     for (const r of regions) {
       if (!isRegion(r.region_code)) throw new BadRequestException(`Noma'lum viloyat: ${r.region_code}`);
       if (r.district_code && !isDistrict(r.district_code, r.region_code)) {
@@ -611,6 +760,38 @@ export class CourierApplicationsService {
         throw new BadRequestException(`${vehicle.vehicle_type} uchun ${need} toifali guvohnoma kerak`);
       }
     }
+  }
+
+  /** Brigada ma'lumoti (№44, 1.2): a'zolar raqami noyob, arizachiniki emas, band emas (409). */
+  private async validateCrew(crew: CrewInputDto | undefined, applicantPhone: string): Promise<CrewInput> {
+    if (!crew) throw new BadRequestException('crew majburiy: applicant_type = crew');
+    const members = crew.members || [];
+    if (members.length > crew.members_count - 1) {
+      throw new BadRequestException(`members: ko'pi bilan ${crew.members_count - 1} kishi (boshliqsiz)`);
+    }
+    const phones = new Set<string>();
+    for (const m of members) {
+      if (m.phone === applicantPhone) throw new BadRequestException("members: boshliq raqami a'zolar ichida bo'lmasin");
+      if (phones.has(m.phone)) throw new BadRequestException(`members: ${m.phone} takrorlangan`);
+      phones.add(m.phone);
+      try {
+        await this.ensurePhoneFree(m.phone);
+      } catch (e) {
+        if (e instanceof ConflictException) throw new ConflictException(`A'zo raqami band (${m.phone}) — u o'zi kirishi yoki taklif bilan kelishi kerak`);
+        throw e;
+      }
+    }
+    if (members.some((m) => m.skills?.length)) {
+      const rows: any[] = await CourierApplication.sequelize.query('SELECT key FROM service_categories WHERE is_active', { type: QueryTypes.SELECT });
+      const known = new Set(['delivery', ...rows.map((r) => String(r.key))]);
+      const bad = [...new Set(members.flatMap((m) => m.skills || []))].filter((s) => !known.has(s));
+      if (bad.length) throw new BadRequestException(`members[].skills: noma'lum — ${bad.join(', ')}`);
+    }
+    return {
+      name: crew.name.trim(),
+      members_count: crew.members_count,
+      members: members.map((m) => ({ full_name: m.full_name.trim(), phone: m.phone, ...(m.skills?.length ? { skills: [...new Set(m.skills)] } : {}) })),
+    };
   }
 
   private ensureRequired(f: any, types: string[]) {
@@ -688,7 +869,22 @@ export class CourierApplicationsService {
       missing_documents: missing,
       reject_reason: app.status === 'rejected' ? app.reject_reason : null,
       login: app.status === 'approved' ? normalizePhoneDigits(app.phone) : null,
+      // №44: brigada (a'zolar telefoni qaytmaydi)
+      applicant_type: app.applicant_type,
+      crew: await this.crewStatus(app),
     };
+  }
+
+  private async crewStatus(app: CourierApplication) {
+    if (app.applicant_type === 'crew' && app.crew) {
+      return { name: app.crew.name, members_count: app.crew.members_count, members: (app.crew.members || []).map((m) => ({ full_name: m.full_name })) };
+    }
+    if (app.applicant_type === 'crew_member' && app.crew_invite_id) {
+      const inv = await CrewInvite.findByPk(app.crew_invite_id, { attributes: ['crew_id'] });
+      const crew = inv ? await Crew.findByPk(inv.crew_id, { attributes: ['id', 'name', 'members_count'] }) : null;
+      return crew ? { name: crew.name, members_count: crew.members_count } : null;
+    }
+    return null;
   }
 
   private async decide(id: number, apply: (a: CourierApplication, t: Transaction) => Promise<void>) {

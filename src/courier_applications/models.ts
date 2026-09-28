@@ -13,8 +13,9 @@ export class CourierApplication extends Model {
   @Column({ type: DataType.DATEONLY, allowNull: false }) birth_date: string;
   @Column({ type: DataType.ARRAY(DataType.TEXT), allowNull: false }) skills: string[];
   @Column({ type: DataType.JSONB, allowNull: false, defaultValue: [] }) regions: { region_code: string; district_code?: string | null }[];
-  @Column({ type: DataType.STRING(20), allowNull: false }) employment_type: string;
-  @Column({ type: DataType.STRING(14), allowNull: false }) tin: string;
+  /** A'zo arizasida (taklif bilan, №44) ixtiyoriy. */
+  @Column({ type: DataType.STRING(20), allowNull: true }) employment_type: string | null;
+  @Column({ type: DataType.STRING(14), allowNull: true }) tin: string | null;
   @Column({ type: DataType.JSONB, allowNull: true }) vehicle: VehicleInput | null;
   @Column({ type: DataType.ARRAY(DataType.TEXT), allowNull: false, defaultValue: [] }) license_categories: string[];
   @Column({ type: DataType.STRING(1000), allowNull: true }) experience: string | null;
@@ -37,8 +38,18 @@ export class CourierApplication extends Model {
   @Column({ type: DataType.DATE, allowNull: true }) reviewed_at: Date | null;
   @Column({ type: DataType.INTEGER, allowNull: true }) courier_id: number | null;
   @Column({ type: DataType.INTEGER, allowNull: true }) store_user_id: number | null;
+  /** `individual` · `crew` (boshliq) · `crew_member` (taklif havolasi bilan) — №44, 1.2 */
+  @Column({ type: DataType.STRING(12), allowNull: false, defaultValue: 'individual' }) applicant_type: string;
+  @Column({ type: DataType.JSONB, allowNull: true }) crew: CrewInput | null;
+  @Column({ type: DataType.INTEGER, allowNull: true }) crew_invite_id: number | null;
   declare created_at: Date;
   declare updated_at: Date;
+}
+
+export interface CrewInput {
+  name: string;
+  members_count: number;
+  members?: { full_name: string; phone: string; skills?: string[] }[];
 }
 
 export interface VehicleInput {
