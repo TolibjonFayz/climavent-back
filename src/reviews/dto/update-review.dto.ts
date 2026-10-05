@@ -1,6 +1,15 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
 import { CreateReviewDto } from './create-review.dto';
-import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+import { REVIEW_MAX_LENGTH } from './create-review.dto';
 
 // Hamma maydon IXTIYORIY.
 //
@@ -15,11 +24,14 @@ export class UpdateReviewDto extends PartialType(CreateReviewDto) {
   })
   @IsOptional()
   @IsString()
+  @MaxLength(REVIEW_MAX_LENGTH)
   review?: string;
 
   @ApiProperty({ example: 5, required: false })
   @IsOptional()
   @IsNumber()
+  @Min(1)
+  @Max(5)
   stars?: number;
 
   @ApiProperty({ example: 1, description: 'User id', required: false })

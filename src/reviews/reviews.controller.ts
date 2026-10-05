@@ -54,6 +54,31 @@ export class ReviewsController {
     return this.reviewsService.getAllProductreviews();
   }
 
+  // Mijozning o'z sharhlari — buyurtmalar sahifasi qaysi mahsulotga sharh
+  // yozilganini shundan biladi (ilgari buyurtma ichidagi product.reviews
+  // dan qidirardi: yangi sharh qo'shilgach tugma yo'qolmasdi).
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Mijozning o'z sharhlari" })
+  @UseGuards(UserGuard)
+  @Get('mine')
+  async getMine(@Req() req: any) {
+    return this.reviewsService.getMyReviews(Number(req.user.id));
+  }
+
+  // Shu mahsulotga sharh yoza olamanmi: faqat yetkazilgan (done)
+  // buyurtmasi bor mijoz. `reason`: ok | already_reviewed |
+  // not_delivered | not_purchased.
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Sharh yozish huquqi (faqat sotib olganlar)' })
+  @UseGuards(UserGuard)
+  @Get('eligibility/:productId')
+  async eligibility(
+    @Param('productId', ParseIntPipe) productId: number,
+    @Req() req: any,
+  ) {
+    return this.reviewsService.getEligibility(Number(req.user.id), productId);
+  }
+
   //Get product reviews by product id — ochiq, lekin user'dan faqat ism qaytadi
   @ApiOperation({ summary: 'Get product reviews by product id' })
   @Get('productone/:id')

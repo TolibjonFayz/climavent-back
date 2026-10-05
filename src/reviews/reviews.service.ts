@@ -1,8 +1,11 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
+import { QueryTypes } from 'sequelize';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 import { InjectModel } from '@nestjs/sequelize';
@@ -71,9 +74,121 @@ export class ReviewsService {
     }
   }
 
+  // Mijoz bu mahsulotni sotib olganmi.
+  //
+  // `delivered` — mahsulot YAKUNLANGAN (`done`) buyurtmada bor: sharh
+  // yozish mumkin. `pending` — buyurtma bor, lekin hali yetib kelmagan
+  // (yoki to'lanmagan): sharh yetkazilgandan keyin ochiladi. `none` —
+  // umuman sotib olmagan. Bekor qilingan buyurtma hisobga olinmaydi.
+  //
+  // Xizmat qatorlarida `product_id` NULL — ular bu so'rovga tushmaydi.
+  // 'Done' — №14 dan oldingi eski nom (sayt `utils/orderStatus.js` ham
+  // ikkalasini tushunadi).
+  async purchaseState(
+    userId: number,
+    productId: number,
+  ): Promise<'delivered' | 'pending' | 'none'> {
+    const rows: any[] = await this.ReviewReviewRepository.sequelize.query(
+      `SELECT DISTINCT o.status
+         FROM "order-items" i
+         JOIN orders o ON o.id = i.order_id
+        WHERE o.user_id = :userId
+          AND i.product_id = :productId
+          AND o.status NOT IN ('cancelled')`,
+      {
+        replacements: { userId, productId },
+        type: QueryTypes.SELECT,
+      },
+    );
+    if (rows.some((r) => r.status === 'done' || r.status === 'Done')) {
+      return 'delivered';
+    }
+    return rows.length ? 'pending' : 'none';
+  }
+
+  // Sayt sharh tugmasini shundan ko'rsatadi: yozish mumkinmi, bo'lmasa
+  // nega (matnni sayt o'zi tanlaydi), va mijozning mavjud sharhi.
+  async getEligibility(userId: number, productId: number) {
+    const review = await this.ReviewReviewRepository.findOne({
+      where: { user_id: userId, product_id: productId },
+    });
+    if (review) {
+      return { can_review: false, reason: 'already_reviewed', review };
+    }
+    const state = await this.purchaseState(userId, productId);
+    if (state === 'delivered') {
+      return { can_review: true, reason: 'ok', review: null };
+    }
+    return {
+      can_review: false,
+      reason: state === 'pending' ? 'not_delivered' : 'not_purchased',
+      review: null,
+    };
+  }
+
+  // Mijozning O'Z sharhlari (yashirilganlari ham — o'zi ko'rsin).
+  // Buyurtmalar sahifasi qaysi mahsulotga sharh yozilganini shundan biladi.
+  async getMyReviews(userId: number) {
+    return this.ReviewReviewRepository.findAll({
+      where: { user_id: userId },
+      attributes: [
+        'id',
+        'product_id',
+        'stars',
+        'review',
+        'is_hidden',
+        'createdAt',
+        'updatedAt',
+      ],
+      order: [['createdAt', 'DESC']],
+    });
+  }
+
   //Creating a review
   async createProductReview(createReviewDto: CreateReviewDto) {
-    const newReview = await this.ReviewReviewRepository.create(createReviewDto);
+    // Bitta mijoz — bitta mahsulotga BITTA sharh. Ilgari cheklov yo'q edi:
+    // bir odam o'nta 5 yulduz qo'yib reytingni ko'tara olardi. Fikri
+    // o'zgarsa — `update/:id` bilan tahrirlaydi. Yashirilgan sharh ham
+    // sanaladi: moderatsiyadan o'tmagan sharhni qayta yozib aylanib
+    // o'tib bo'lmasin.
+    const existing = await this.ReviewReviewRepository.findOne({
+      where: {
+        user_id: createReviewDto.user_id,
+        product_id: createReviewDto.product_id,
+      },
+      attributes: ['id'],
+    });
+    if (existing) {
+      throw new ConflictException({
+        message: 'Siz bu mahsulotga allaqachon sharh qoldirgansiz',
+        code: 'review_exists',
+        review_id: existing.id,
+      });
+    }
+
+    // Faqat SOTIB OLGAN (buyurtmasi yakunlangan) mijoz yozadi. Ilgari
+    // istalgan kirgan odam istalgan mahsulotga baho qo'ya olardi.
+    //
+    // 403 EMAS, 422: sayt `useApiFetch` 403 ni "sessiya buzilgan" deb
+    // tushunib mijozni tizimdan chiqarib yuboradi.
+    const state = await this.purchaseState(
+      createReviewDto.user_id,
+      createReviewDto.product_id,
+    );
+    if (state !== 'delivered') {
+      throw new UnprocessableEntityException({
+        message:
+          state === 'pending'
+            ? 'Sharhni mahsulot yetkazib berilgandan keyin yozish mumkin'
+            : 'Sharhni faqat mahsulotni sotib olgan mijoz yoza oladi',
+        code: state === 'pending' ? 'not_delivered' : 'purchase_required',
+      });
+    }
+
+    const newReview = await this.ReviewReviewRepository.create({
+      ...createReviewDto,
+      review: createReviewDto.review.trim(),
+    });
     await this.bumpReviewsCount(createReviewDto.product_id, 1);
     const response = {
       message: 'Review successfully created',
@@ -99,6 +214,7 @@ export class ReviewsService {
         ...(privileged ? {} : { is_hidden: false }),
       },
       include: [{ model: User, attributes: ['name'] }],
+      order: [['createdAt', 'DESC']],
     });
     return productReviews;
   }
@@ -127,6 +243,15 @@ export class ReviewsService {
       throw new NotFoundException('Product review not found or something wrong');
     }
     await this.ensureOwnerOrBackoffice(existing, actor);
+
+    // Sharhni boshqa mahsulot/mijozga "ko'chirib" bo'lmaydi: egasi
+    // `product_id` ni almashtirsa `reviews_count` ikkala mahsulotda ham
+    // noto'g'ri bo'lib qolardi. Bu maydonlar faqat yaratishda beriladi.
+    delete (updateReviewDto as any).user_id;
+    delete (updateReviewDto as any).product_id;
+    if (typeof updateReviewDto.review === 'string') {
+      updateReviewDto.review = updateReviewDto.review.trim();
+    }
 
     // `is_hidden` o'zgarsa — mahsulotning sharh hisoblagichi ham
     // moslashadi: sayt yashirilgan sharhni ko'rsatmaydi, demak son ham
