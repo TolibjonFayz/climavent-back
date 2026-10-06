@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import Sequelize from 'sequelize';
 import { CreateBannerDto } from './dto/create-banner.dto';
 import { UpdateBannerDto } from './dto/update-banner.dto';
@@ -36,6 +36,15 @@ export class BannersService {
 
   //Create banner
   async createBanner(createBannerDto: CreateBannerDto) {
+    // Faqat-rasm banner: asosiy rasm (`image_desktop_uz`) majburiy. Eski
+    // adminka hali rasm+matn shaklida yuboradi — u ham qabul qilinadi
+    // (`img_url` + `title_uz`), sayt uni eski ko'rinishda chizadi.
+    const d: any = createBannerDto;
+    if (!d.image_desktop_uz && !(d.img_url && d.title_uz)) {
+      throw new BadRequestException(
+        "image_desktop_uz (banner rasmi) majburiy — yoki eski shakl: img_url + title_uz",
+      );
+    }
     const payload = this.syncOrder(createBannerDto);
     // `orderid` bazada NOT NULL, standart qiymatsiz
     if (payload.orderid === undefined || payload.orderid === null) {

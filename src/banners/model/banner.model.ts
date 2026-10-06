@@ -10,14 +10,20 @@ import {
 import { Product } from 'src/products/model/product.model';
 
 interface BannerAtr {
-  title_uz: String;
-  title_ru: String;
-  title_en: String;
-  text_uz: String;
-  text_ru: String;
-  text_en: String;
-  img_url: String;
-  product_id: Number;
+  title_uz?: String;
+  title_ru?: String;
+  title_en?: String;
+  text_uz?: String;
+  text_ru?: String;
+  text_en?: String;
+  img_url?: String;
+  product_id?: Number;
+  image_desktop_uz?: String;
+  image_desktop_ru?: String;
+  image_desktop_en?: String;
+  image_mobile_uz?: String;
+  image_mobile_ru?: String;
+  image_mobile_en?: String;
   orderid: Number;
   is_active?: Boolean;
   link?: String;
@@ -40,7 +46,7 @@ export class Banner extends Model<Banner, BannerAtr> {
   })
   @Column({
     type: DataType.STRING,
-    allowNull: false,
+    allowNull: true,
   })
   title_uz: string;
 
@@ -50,7 +56,7 @@ export class Banner extends Model<Banner, BannerAtr> {
   })
   @Column({
     type: DataType.STRING,
-    allowNull: false,
+    allowNull: true,
   })
   title_ru: string;
 
@@ -60,7 +66,7 @@ export class Banner extends Model<Banner, BannerAtr> {
   })
   @Column({
     type: DataType.STRING,
-    allowNull: false,
+    allowNull: true,
   })
   title_en: string;
 
@@ -70,7 +76,7 @@ export class Banner extends Model<Banner, BannerAtr> {
   })
   @Column({
     type: DataType.TEXT,
-    allowNull: false,
+    allowNull: true,
   })
   text_uz: string;
 
@@ -80,7 +86,7 @@ export class Banner extends Model<Banner, BannerAtr> {
   })
   @Column({
     type: DataType.TEXT,
-    allowNull: false,
+    allowNull: true,
   })
   text_ru: string;
 
@@ -90,7 +96,7 @@ export class Banner extends Model<Banner, BannerAtr> {
   })
   @Column({
     type: DataType.TEXT,
-    allowNull: false,
+    allowNull: true,
   })
   text_en: string;
 
@@ -100,7 +106,7 @@ export class Banner extends Model<Banner, BannerAtr> {
   })
   @Column({
     type: DataType.STRING,
-    allowNull: false,
+    allowNull: true,
   })
   img_url: string;
 
@@ -127,11 +133,39 @@ export class Banner extends Model<Banner, BannerAtr> {
   @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
   sort_order: number;
 
+  // ——— Faqat-rasm banner (2026-10-06) ———
+  // Matn rasm ichida, shuning uchun har til uchun alohida rasm. `uz` asosiy:
+  // ru/en bo'lmasa uz ko'rsatiladi. Telefon rasmi bo'lmasa desktop rasmi.
+
+  @ApiProperty({ required: false, description: "desktop rasmi (uz), 11:4, masalan 1760×640" })
+  @Column({ type: DataType.STRING(500), allowNull: true })
+  image_desktop_uz: string;
+
+  @ApiProperty({ required: false, description: "desktop rasmi (ru), 11:4, masalan 1760×640" })
+  @Column({ type: DataType.STRING(500), allowNull: true })
+  image_desktop_ru: string;
+
+  @ApiProperty({ required: false, description: "desktop rasmi (en), 11:4, masalan 1760×640" })
+  @Column({ type: DataType.STRING(500), allowNull: true })
+  image_desktop_en: string;
+
+  @ApiProperty({ required: false, description: "mobile rasmi (uz), 4:3, masalan 800×600" })
+  @Column({ type: DataType.STRING(500), allowNull: true })
+  image_mobile_uz: string;
+
+  @ApiProperty({ required: false, description: "mobile rasmi (ru), 4:3, masalan 800×600" })
+  @Column({ type: DataType.STRING(500), allowNull: true })
+  image_mobile_ru: string;
+
+  @ApiProperty({ required: false, description: "mobile rasmi (en), 4:3, masalan 800×600" })
+  @Column({ type: DataType.STRING(500), allowNull: true })
+  image_mobile_en: string;
+
   @ForeignKey(() => Product)
   @ApiProperty({ example: 1, description: 'Product id' })
   @Column({
     type: DataType.INTEGER,
-    allowNull: false,
+    allowNull: true,
   })
   product_id: number;
   @BelongsTo(() => Product)

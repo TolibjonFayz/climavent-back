@@ -2,7 +2,6 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsInt,
-  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -12,65 +11,72 @@ import {
 
 export class CreateBannerDto {
   @ApiProperty({
+    required: false,
     example: 'Konditsoner',
     description: 'Name of the banner in uzb',
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  title_uz: string;
+  title_uz?: string;
 
   @ApiProperty({
+    required: false,
     example: 'Konditsoner',
     description: 'Name of the banner in russian',
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  title_ru: string;
+  title_ru?: string;
 
   @ApiProperty({
+    required: false,
     example: 'Konditsoner',
     description: 'Name of the banner in english',
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  title_en: string;
+  title_en?: string;
 
   @ApiProperty({
+    required: false,
     example: 'Konditsoner',
     description: 'Name of the banner in uzb',
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  text_uz: string;
+  text_uz?: string;
 
   @ApiProperty({
+    required: false,
     example: 'Konditsoner',
     description: 'Info of the banner in russian',
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  text_ru: string;
+  text_ru?: string;
 
   @ApiProperty({
+    required: false,
     example: 'Konditsoner',
     description: 'Info of the banner in english',
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  text_en: string;
+  text_en?: string;
 
   @ApiProperty({
+    required: false,
     example: 'something.jpg',
     description: 'URL of image',
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  img_url: string;
+  img_url?: string;
 
   @ApiProperty({ example: 1, description: 'Product id' })
+  @IsOptional()
   @IsNumber()
-  @IsNotEmpty()
-  product_id: number;
+  product_id?: number;
 
   // Eski nom. Yangi adminka `sort_order` yuboradi — servis ikkalasini
   // bir-biriga moslab yozadi, shuning uchun ikkalasi ham ixtiyoriy.
@@ -106,4 +112,50 @@ export class CreateBannerDto {
   @IsOptional()
   @IsInt()
   sort_order?: number;
+
+  // ——— Faqat-rasm banner (2026-10-06) ———
+  // `image_desktop_uz` — asosiy rasm (yangi bannerda majburiy, servis tekshiradi).
+  // Qolganlari ixtiyoriy: ru/en bo'lmasa uz, telefon rasmi bo'lmasa desktop.
+
+  @ApiProperty({ required: false, example: 'https://res.cloudinary.com/.../banner-desktop-uz.webp', description: 'desktop rasmi (uz), 11:4 (masalan 1760×640)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^(https?:\/\/[^\s]+|\/(?!\/)[^\s]*)$/, { message: 'image_desktop_uz: http(s):// havola yoki /yo\'l bo\'lishi kerak' })
+  image_desktop_uz?: string;
+
+  @ApiProperty({ required: false, example: 'https://res.cloudinary.com/.../banner-desktop-ru.webp', description: 'desktop rasmi (ru), 11:4 (masalan 1760×640)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^(https?:\/\/[^\s]+|\/(?!\/)[^\s]*)$/, { message: 'image_desktop_ru: http(s):// havola yoki /yo\'l bo\'lishi kerak' })
+  image_desktop_ru?: string;
+
+  @ApiProperty({ required: false, example: 'https://res.cloudinary.com/.../banner-desktop-en.webp', description: 'desktop rasmi (en), 11:4 (masalan 1760×640)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^(https?:\/\/[^\s]+|\/(?!\/)[^\s]*)$/, { message: 'image_desktop_en: http(s):// havola yoki /yo\'l bo\'lishi kerak' })
+  image_desktop_en?: string;
+
+  @ApiProperty({ required: false, example: 'https://res.cloudinary.com/.../banner-mobile-uz.webp', description: 'mobile rasmi (uz), 4:3 (masalan 800×600)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^(https?:\/\/[^\s]+|\/(?!\/)[^\s]*)$/, { message: 'image_mobile_uz: http(s):// havola yoki /yo\'l bo\'lishi kerak' })
+  image_mobile_uz?: string;
+
+  @ApiProperty({ required: false, example: 'https://res.cloudinary.com/.../banner-mobile-ru.webp', description: 'mobile rasmi (ru), 4:3 (masalan 800×600)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^(https?:\/\/[^\s]+|\/(?!\/)[^\s]*)$/, { message: 'image_mobile_ru: http(s):// havola yoki /yo\'l bo\'lishi kerak' })
+  image_mobile_ru?: string;
+
+  @ApiProperty({ required: false, example: 'https://res.cloudinary.com/.../banner-mobile-en.webp', description: 'mobile rasmi (en), 4:3 (masalan 800×600)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^(https?:\/\/[^\s]+|\/(?!\/)[^\s]*)$/, { message: 'image_mobile_en: http(s):// havola yoki /yo\'l bo\'lishi kerak' })
+  image_mobile_en?: string;
 }
