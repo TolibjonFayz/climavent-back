@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsNumber, IsOptional } from 'class-validator';
+import { IsBoolean, IsIn, IsNumber, IsOptional } from 'class-validator';
 
 export class GetRecentlyAddedProductsDto {
   @ApiProperty({
@@ -28,4 +28,13 @@ export class GetRecentlyAddedProductsDto {
   @IsOptional()
   @IsBoolean()
   on_sale?: boolean;
+
+  @ApiProperty({
+    example: 'card',
+    required: false,
+    description: "`card` — yengil ro'yxat (kartochka maydonlari, `?view=card` bilan bir xil). Standart — to'liq",
+  })
+  @IsOptional()
+  @IsIn(['card', 'full'])
+  view?: 'card' | 'full';
 }

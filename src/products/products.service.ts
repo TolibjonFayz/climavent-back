@@ -301,7 +301,7 @@ export class ProductsService {
       order: [['createdAt', 'DESC']],
       limit: getRecentlyAddedProductsDto.limit,
       offset: offset,
-      include: this.catalogInclude(),
+      ...this.listShape(getRecentlyAddedProductsDto.view),
     });
 
     const result = {
@@ -377,6 +377,16 @@ export class ProductsService {
     ];
   }
 
+  /** Ro'yxat so'rovi uchun maydonlar: `card` — yengil, aks holda to'liq. */
+  private listShape(view?: string): Record<string, any> {
+    // `views` / `sold_count` — "Ommabop" va "Ko'p buyurtirilgan" saralashi
+    // shu ustunlar bo'yicha; limit + hasMany include'da Sequelize subquery
+    // quradi va ORDER BY ustuni o'sha subquery SELECT'ida bo'lishi shart.
+    return view === 'card'
+      ? { attributes: [...CARD_PRODUCT_ATTRIBUTES, 'views', 'sold_count'], include: this.cardInclude() }
+      : { include: this.catalogInclude() };
+  }
+
   private catalogInclude(): any[] {
     return [
       { model: Characteristic, include: [{ model: ProductModelInside }] },
@@ -417,7 +427,7 @@ export class ProductsService {
     ) {
       const all = await this.productRepository.findAll({
         where,
-        include: this.catalogInclude(),
+        ...this.listShape(searchProductDto.view),
       });
       const sorted = await this.sortByPrice(all, searchProductDto.price);
       return sorted.slice(offset, offset + searchProductDto.limit);
@@ -426,7 +436,7 @@ export class ProductsService {
     const order = this.buildOrder(searchProductDto.price);
     return this.productRepository.findAll({
       where,
-      include: this.catalogInclude(),
+      ...this.listShape(searchProductDto.view),
       ...(order ? { order } : {}),
       limit: searchProductDto.limit,
       offset,
@@ -460,7 +470,7 @@ export class ProductsService {
           ...this.visibilityWhere(scope),
           ...this.saleWhere(sortbyCategoryIdProduct.on_sale === true),
         },
-        include: this.catalogInclude(),
+        ...this.listShape(sortbyCategoryIdProduct.view),
       });
       const sorted = await this.sortByPrice(all, sortbyCategoryIdProduct.price);
       return sorted.slice(0, sortbyCategoryIdProduct.limit);
@@ -473,7 +483,7 @@ export class ProductsService {
         ...this.visibilityWhere(scope),
         ...this.saleWhere(sortbyCategoryIdProduct.on_sale === true),
       },
-      include: this.catalogInclude(),
+      ...this.listShape(sortbyCategoryIdProduct.view),
       ...(order ? { order } : {}),
       limit: sortbyCategoryIdProduct.limit,
     });
