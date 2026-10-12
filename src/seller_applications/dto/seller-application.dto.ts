@@ -172,6 +172,9 @@ export class RequestInfoDto {
 }
 
 export class UpdateApplicationNoteDto {
+  // Bo'sh tana = izohni tozalash (RejectEmptyUpdatePipe uni rad etmasin)
+  static allowEmpty = true;
+
   @ApiProperty({ example: "STIR soliq.uz da tekshirildi", nullable: true })
   @IsOptional() @IsString() @MaxLength(4000)
   admin_note: string | null;

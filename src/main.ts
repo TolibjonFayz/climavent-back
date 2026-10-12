@@ -6,6 +6,7 @@ import { ValidationPipe } from '@nestjs/common';
 import * as bodyParser from 'body-parser';
 import helmet from 'helmet';
 import { BadInputFilter } from './common/filters/bad-input.filter';
+import { RejectEmptyUpdatePipe } from './common/pipes/reject-empty-update.pipe';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { stripSensitiveFields } from './common/serialization/sensitive-fields';
 import { SalePresentationInterceptor } from './common/pricing/sale-presentation.interceptor';
@@ -173,6 +174,8 @@ const start = async () => {
         whitelist: true, // DTO da yo'q maydonlarni tozalaydi
         transformOptions: { enableImplicitConversion: true },
       }),
+      // Bo'sh Update* tanasi -> 400 (ilgari 500). ValidationPipe'dan keyin.
+      new RejectEmptyUpdatePipe(),
     );
     await app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
