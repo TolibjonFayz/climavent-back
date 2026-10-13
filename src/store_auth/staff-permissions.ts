@@ -308,6 +308,10 @@ export const STAFF_ROUTES: Record<string, Rule> = {
   'GET /api/chats/:id/messages': 'chat.view',
   'POST /api/chats/:id/read': 'chat.view',
   'POST /api/chats/:id/messages': 'chat.reply',
+  'POST /api/chats/:id/attachments': 'chat.reply',
+  // imzoli havola — token o'zi ruxsat (ilova Authorization bilan so'rasa ham o'tsin)
+  'GET /api/chats/files/:token': 'any',
+  'GET /api/chats/files/:token/:name': 'any',
 
   // --- sharhlar
   'PATCH /api/reviews/update/:id': 'reviews.edit',

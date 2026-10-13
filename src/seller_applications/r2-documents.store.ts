@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -78,6 +79,35 @@ export class R2DocumentsStore {
       throw new Error(
         `R2 tekshiruvi yiqildi (${key}): yozildi ${body.length} bayt, o'qildi ${back?.length ?? 0}`,
       );
+    }
+  }
+
+  /**
+   * Katta fayllar uchun (chat, №46): yozilgach butun faylni qayta yuklab
+   * olmasdan, HEAD bilan hajmini tekshiradi — bo'sh obyekt baribir ushlanadi.
+   */
+  async putChecked(key: string, body: Buffer, mime: string): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: mime, CacheControl: 'no-store' }),
+    );
+    const head = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+    if (Number(head.ContentLength) !== body.length) {
+      throw new Error(`R2 tekshiruvi yiqildi (${key}): yozildi ${body.length} bayt, R2 da ${head.ContentLength ?? 0}`);
+    }
+  }
+
+  /** Oqim bilan o'qish (`Range` bilan — video siljitish uchun). Yo'q bo'lsa `null`. */
+  async open(key: string, range?: string) {
+    try {
+      const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key, Range: range }));
+      return {
+        stream: res.Body as unknown as NodeJS.ReadableStream,
+        length: Number(res.ContentLength ?? 0),
+        contentRange: res.ContentRange ?? null,
+      };
+    } catch (e: any) {
+      if (e?.name === 'NoSuchKey' || e?.$metadata?.httpStatusCode === 404) return null;
+      throw e;
     }
   }
 

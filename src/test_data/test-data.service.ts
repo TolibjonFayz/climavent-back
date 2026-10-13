@@ -173,7 +173,9 @@ export class TestDataService implements OnApplicationBootstrap {
         `SELECT file_key FROM delivery_proofs WHERE storage = 'r2' AND file_key IS NOT NULL AND delivery_id IN (SELECT id FROM p_deliveries)
          UNION ALL SELECT file_key FROM courier_documents WHERE storage = 'r2' AND courier_id IN (SELECT id FROM p_couriers)
          UNION ALL SELECT file_key FROM courier_application_documents WHERE storage = 'r2' AND application_id IN (SELECT id FROM p_courier_apps)
-         UNION ALL SELECT file_key FROM seller_application_documents WHERE storage = 'r2' AND application_id IN (SELECT id FROM p_seller_apps)`,
+         UNION ALL SELECT file_key FROM seller_application_documents WHERE storage = 'r2' AND application_id IN (SELECT id FROM p_seller_apps)
+         UNION ALL SELECT file_key FROM chat_attachments WHERE storage = 'r2' AND chat_id IN (SELECT id FROM p_chats)
+         UNION ALL SELECT thumb_key FROM chat_attachments WHERE storage = 'r2' AND thumb_key IS NOT NULL AND chat_id IN (SELECT id FROM p_chats)`,
         {},
         t,
       );
@@ -364,6 +366,7 @@ export class TestDataService implements OnApplicationBootstrap {
           + (SELECT COUNT(*) FROM courier_documents WHERE courier_id IN (SELECT id FROM p_couriers))
           + (SELECT COUNT(*) FROM courier_application_documents WHERE application_id IN (SELECT id FROM p_courier_apps))
           + (SELECT COUNT(*) FROM seller_application_documents WHERE application_id IN (SELECT id FROM p_seller_apps))
+          + (SELECT COUNT(*) FROM chat_attachments WHERE chat_id IN (SELECT id FROM p_chats))
           + (SELECT COALESCE(SUM(cardinality(customer_photos) + cardinality(photos_before) + cardinality(photos_after)
                                  + cardinality(final_amount_photos) + (failure_photo IS NOT NULL)::int), 0)
                FROM service_jobs WHERE order_id IN (SELECT id FROM p_orders))

@@ -13,6 +13,8 @@ import { Sequelize } from 'sequelize-typescript';
 import { pushTo } from 'src/deliveries/push';
 import { ChatActor, storeCan } from './chat-auth';
 import { ChatHub, clientRoom, storeRoom } from './chat-hub';
+import { attachmentsSummary } from './chat-files';
+import { AttachmentView, ChatFilesService } from './chat-files.service';
 import { SendMessageDto } from './dto';
 
 type Side = 'client' | 'store';
@@ -40,10 +42,15 @@ export class ChatsService {
   constructor(
     @InjectConnection() private readonly db: Sequelize,
     private readonly hub: ChatHub,
+    private readonly files: ChatFilesService,
   ) {}
 
   // ------------------------------------------------------------ REST
-  async getOrCreate(actor: ChatActor, storeId: number) {
+  /**
+   * `base` — havolalar uchun API manzili (`https://host`): fayl `url` lari
+   * imzoli va absolyut (topshiriq №46, 3-band).
+   */
+  async getOrCreate(actor: ChatActor, storeId: number, base: string) {
     if (actor.kind !== 'client') throw new ForbiddenException("Suhbatni faqat xaridor boshlaydi");
     const [store]: any[] = await this.db.query('SELECT id FROM stores WHERE id = :id AND is_active', {
       replacements: { id: storeId },
@@ -56,22 +63,22 @@ export class ChatsService {
        RETURNING id`,
       { replacements: { client: actor.user_id, store: storeId }, type: QueryTypes.SELECT },
     );
-    return (await this.views('c.id = :id', { id: row.id }, 'client'))[0];
+    return (await this.views('c.id = :id', { id: row.id }, 'client', base))[0];
   }
 
-  async list(actor: ChatActor, storeId?: number) {
-    if (actor.kind === 'client') return this.views('c.client_id = :me', { me: actor.user_id }, 'client');
+  async list(actor: ChatActor, base: string, storeId?: number) {
+    if (actor.kind === 'client') return this.views('c.client_id = :me', { me: actor.user_id }, 'client', base);
     if (actor.kind === 'store') {
       if (!storeCan(actor, 'chat.view')) throw this.noPerm('chat.view');
-      return this.views('c.store_id = :store', { store: actor.store_id }, 'store');
+      return this.views('c.store_id = :store', { store: actor.store_id }, 'store', base);
     }
     // superadmin — faqat o'qish; `?store_id=` bilan bitta do'kon
     return storeId
-      ? this.views('c.store_id = :store', { store: storeId }, 'store')
-      : this.views('TRUE', {}, 'store');
+      ? this.views('c.store_id = :store', { store: storeId }, 'store', base)
+      : this.views('TRUE', {}, 'store', base);
   }
 
-  async messages(actor: ChatActor, chatId: number, beforeId?: number, limit?: number) {
+  async messages(actor: ChatActor, chatId: number, base: string, beforeId?: number, limit?: number) {
     await this.chatFor(actor, chatId, 'chat.view');
     const n = Math.min(Math.max(Number(limit) || 30, 1), 100);
     const rows: any[] = await this.db.query(
@@ -79,17 +86,32 @@ export class ChatsService {
         ORDER BY m.id DESC LIMIT :n`,
       { replacements: { chat: chatId, before: Number(beforeId) || 0, n }, type: QueryTypes.SELECT },
     );
-    return rows.map(messageView);
+    return this.hydrate(rows, base);
   }
 
-  async send(actor: ChatActor, chatId: number, dto: SendMessageDto) {
+  /** Fayl yuklash (№46): a'zolik va `chat.reply` shu yerda, qolgani `ChatFilesService` da. */
+  async upload(actor: ChatActor, chatId: number, file: Express.Multer.File | undefined, base: string) {
+    if (actor.kind === 'super') throw new ForbiddenException('Superadmin suhbatlarni faqat o\'qiydi');
+    await this.chatFor(actor, chatId, 'chat.reply');
+    const side: Side = actor.kind === 'client' ? 'client' : 'store';
+    const uid = actor.kind === 'client' ? actor.user_id : actor.store_user_id;
+    return this.files.upload(chatId, side, uid, file, base);
+  }
+
+  async send(actor: ChatActor, chatId: number, dto: SendMessageDto, base: string) {
     if (actor.kind === 'super') throw new ForbiddenException('Superadmin suhbatlarni faqat o\'qiydi');
     const chat = await this.chatFor(actor, chatId, 'chat.reply');
     const side: Side = actor.kind === 'client' ? 'client' : 'store';
 
     const text = cleanText(dto.text);
     const productId = dto.product_id ? Number(dto.product_id) : null;
-    if (!text && !productId) throw new BadRequestException("Xabar bo'sh — matn yoki mahsulot kerak");
+    const attachmentIds = (dto.attachment_ids || []).map(Number);
+    if (new Set(attachmentIds).size !== attachmentIds.length) {
+      throw new BadRequestException('attachment_ids takrorlanmasin');
+    }
+    if (!text && !productId && !attachmentIds.length) {
+      throw new BadRequestException("Xabar bo'sh — matn, mahsulot yoki fayl kerak");
+    }
     if (text && text.length > TEXT_MAX) throw new BadRequestException(`Matn ${TEXT_MAX} belgidan oshmasin`);
     if (productId) {
       const [p]: any[] = await this.db.query('SELECT id FROM products WHERE id = :id', {
@@ -102,44 +124,52 @@ export class ChatsService {
     // Idempotent: shu `client_msg_id` bilan xabar bor bo'lsa — o'shani qaytaramiz,
     // qayta socket/push yo'q (ilova internet uzilganda qayta yuboradi).
     if (dto.client_msg_id) {
-      const existing = await this.messageBy('m.chat_id = :chat AND m.client_msg_id = :cm', {
-        chat: chatId,
-        cm: dto.client_msg_id,
-      });
+      const existing = await this.messageBy(
+        'm.chat_id = :chat AND m.client_msg_id = :cm',
+        { chat: chatId, cm: dto.client_msg_id },
+        base,
+      );
       if (existing) return existing;
     }
     this.rateLimit(actor);
 
     const senderUserId = actor.kind === 'client' ? actor.user_id : actor.store_user_id;
-    const inserted: any[] = await this.db.query(
-      `INSERT INTO chat_messages (chat_id, sender, sender_user_id, text, product_id, client_msg_id)
-       VALUES (:chat, :sender, :uid, :text, :product, :cm)
-       ON CONFLICT (chat_id, client_msg_id) DO NOTHING
-       RETURNING id`,
-      {
-        replacements: {
-          chat: chatId,
-          sender: side,
-          uid: senderUserId,
-          text: text || null,
-          product: productId,
-          cm: dto.client_msg_id || null,
+    // Xabar va fayllarni bog'lash — bitta tranzaksiyada: fayl yaroqsiz bo'lsa (400) xabar ham yozilmaydi
+    const id = await this.db.transaction(async (t) => {
+      const inserted: any[] = await this.db.query(
+        `INSERT INTO chat_messages (chat_id, sender, sender_user_id, text, product_id, client_msg_id)
+         VALUES (:chat, :sender, :uid, :text, :product, :cm)
+         ON CONFLICT (chat_id, client_msg_id) DO NOTHING
+         RETURNING id`,
+        {
+          replacements: {
+            chat: chatId,
+            sender: side,
+            uid: senderUserId,
+            text: text || null,
+            product: productId,
+            cm: dto.client_msg_id || null,
+          },
+          type: QueryTypes.SELECT,
+          transaction: t,
         },
-        type: QueryTypes.SELECT,
-      },
-    );
-    if (!inserted.length) {
+      );
+      if (!inserted.length) return null;
+      const newId = Number(inserted[0].id);
+      await this.files.link(t, attachmentIds, chatId, side, senderUserId, newId);
+      // O'z xabari o'qilmagan bo'lib qolmasin — yuboruvchi tomon shu xabargacha o'qigan
+      await this.db.query(
+        `UPDATE chats SET updated_at = now(), ${side}_last_read_id = GREATEST(${side}_last_read_id, :id) WHERE id = :chat`,
+        { replacements: { id: newId, chat: chatId }, transaction: t },
+      );
+      return newId;
+    });
+    if (id === null) {
       // Parallel ikki so'rov — ikkinchisi birinchisining yozuvini oladi
-      return this.messageBy('m.chat_id = :chat AND m.client_msg_id = :cm', { chat: chatId, cm: dto.client_msg_id });
+      return this.messageBy('m.chat_id = :chat AND m.client_msg_id = :cm', { chat: chatId, cm: dto.client_msg_id }, base);
     }
-    const id = Number(inserted[0].id);
-    // O'z xabari o'qilmagan bo'lib qolmasin — yuboruvchi tomon shu xabargacha o'qigan
-    await this.db.query(
-      `UPDATE chats SET updated_at = now(), ${side}_last_read_id = GREATEST(${side}_last_read_id, :id) WHERE id = :chat`,
-      { replacements: { id, chat: chatId } },
-    );
-    const message = await this.messageBy('m.id = :id', { id });
-    await this.deliver(chat, message, side);
+    const message = await this.messageBy('m.id = :id', { id }, base);
+    await this.deliver(chat, message, side, base);
     return message;
   }
 
@@ -222,19 +252,25 @@ export class ChatsService {
     }
   }
 
-  private async messageBy(where: string, rep: Record<string, unknown>) {
-    const [row]: any[] = await this.db.query(`${MESSAGE_SQL} WHERE ${where} LIMIT 1`, {
+  private async messageBy(where: string, rep: Record<string, unknown>, base: string) {
+    const rows: any[] = await this.db.query(`${MESSAGE_SQL} WHERE ${where} LIMIT 1`, {
       replacements: rep,
       type: QueryTypes.SELECT,
     });
-    return row ? messageView(row) : null;
+    return rows.length ? (await this.hydrate(rows, base))[0] : null;
+  }
+
+  /** Xabar qatorlari + fayllari (bitta so'rov bilan). */
+  private async hydrate(rows: any[], base: string) {
+    const files = await this.files.forMessages(rows.map((r) => Number(r.id)), base);
+    return rows.map((r) => messageView(r, files.get(Number(r.id)) ?? []));
   }
 
   /**
    * Suhbat obyekti `side` nuqtai nazaridan: `unread` — shu tomonning
    * o'qilmaganlari, `peer_last_read_id` — qarshi tomon o'qigan oxirgi xabar.
    */
-  private async views(where: string, rep: Record<string, unknown>, side: Side) {
+  private async views(where: string, rep: Record<string, unknown>, side: Side, base: string) {
     const peer: Side = side === 'client' ? 'store' : 'client';
     const rows: any[] = await this.db.query(
       `SELECT c.id, c.client_id, c.store_id, c.updated_at,
@@ -260,7 +296,7 @@ export class ChatsService {
         replacements: { ids: lastIds },
         type: QueryTypes.SELECT,
       });
-      for (const m of msgs) last.set(Number(m.id), messageView(m));
+      for (const m of await this.hydrate(msgs, base)) last.set(m.id, m);
     }
     return rows.map((r) => ({
       id: Number(r.id),
@@ -279,14 +315,19 @@ export class ChatsService {
     chat: { id: number; client_id: number; store_id: number; store_name: string; client_name: string | null },
     message: any,
     from: Side,
+    apiBase: string,
   ) {
     try {
-      const [forClient] = await this.views('c.id = :id', { id: chat.id }, 'client');
-      const [forStore] = await this.views('c.id = :id', { id: chat.id }, 'store');
+      const [forClient] = await this.views('c.id = :id', { id: chat.id }, 'client', apiBase);
+      const [forStore] = await this.views('c.id = :id', { id: chat.id }, 'store', apiBase);
       this.hub.emit(clientRoom(chat.client_id), 'message', { chat_id: chat.id, message, chat: forClient });
       this.hub.emit(storeRoom(chat.store_id), 'message', { chat_id: chat.id, message, chat: forStore });
 
-      const body = message.text ? truncate(message.text, PUSH_TEXT_MAX) : 'Mahsulot haqida savol';
+      // Matn bo'lmasa — birinchi fayl bo'yicha (№46, 4-band), keyin mahsulot
+      const body = truncate(
+        message.text || attachmentsSummary(message.attachments) || 'Mahsulot haqida savol',
+        PUSH_TEXT_MAX,
+      );
       const base = { body, channel: 'chat', tag: `chat-${chat.id}` };
       if (from === 'store') {
         if (await this.hub.isEmpty(clientRoom(chat.client_id))) {
@@ -329,7 +370,7 @@ const MESSAGE_SQL = `
     FROM chat_messages m
     LEFT JOIN products p ON p.id = m.product_id`;
 
-function messageView(r: any) {
+function messageView(r: any, attachments: AttachmentView[]) {
   return {
     id: Number(r.id),
     chat_id: Number(r.chat_id),
@@ -345,6 +386,8 @@ function messageView(r: any) {
           image: r.p_image ?? null,
         }
       : null,
+    // №46: yo'q bo'lsa `[]` (null emas)
+    attachments,
     client_msg_id: r.client_msg_id ?? null,
     created_at: r.created_at,
   };
