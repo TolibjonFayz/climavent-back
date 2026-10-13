@@ -144,8 +144,21 @@ export class ProductsService {
     const wordSql = words.map((word) => {
       const variants = searchVariants(word).map(stem);
       const any = (column: string) => variants.map((v) => like(column, v)).join(' OR ');
+      // Kategoriya nomi ham (o'zi va ota kategoriyasi): masalan "VRF" so'zi
+      // mahsulot nomida yo'q ("Hi-flexi s mavo+tashqi birligi"), faqat
+      // kategoriyada ("Tashqi VRF bloki") — ilgari bunday qidiruv bo'sh qaytardi.
+      const anyName = (alias: string) =>
+        `${any(`${alias}.name_uz`)} OR ${any(`${alias}.name_ru`)} OR ${any(`${alias}.name_en`)}`;
       return `(
         ${any('p.name_uz')} OR ${any('p.name_ru')} OR ${any('p.name_en')}
+        OR EXISTS (
+          SELECT 1 FROM category k
+           WHERE k.id = p.category_id
+             AND (
+               ${anyName('k')}
+               OR EXISTS (SELECT 1 FROM category kp WHERE kp.id = k.category_id AND (${anyName('kp')}))
+             )
+        )
         OR EXISTS (
           SELECT 1 FROM characteristics c
            WHERE c.product_id = p.id
