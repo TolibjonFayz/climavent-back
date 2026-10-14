@@ -20,6 +20,7 @@ import {
   Min,
   MinLength,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import {
   COURIER_DOCUMENT_TYPES,
@@ -1007,4 +1008,79 @@ export class DeliveryFeeDecisionDto {
   @IsString()
   @MaxLength(500)
   reason?: string;
+}
+
+/**
+ * Buyurtma berishda «Kim olib ketadi» (№48, A2) — hamma maydon ixtiyoriy: mijoz
+ * hali bilmasligi mumkin. Yetkazish yaratilganda to'liq bo'lsa ko'chadi, aks holda
+ * buyurtmada qoladi va mijoz `PATCH /orders/:id/pickup-info` bilan to'ldiradi.
+ */
+export class OrderPickupInfoDto {
+  @ApiProperty({ required: false, example: 'Bobur Aliyev' })
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  driver_name?: string;
+
+  @ApiProperty({ required: false, example: '+998901234567' })
+  @IsOptional()
+  @Matches(PHONE, { message: PHONE_MSG })
+  driver_phone?: string;
+
+  @ApiProperty({ required: false, example: '01A777AA' })
+  @IsOptional()
+  @IsString()
+  @MinLength(4)
+  @MaxLength(20)
+  vehicle_plate?: string;
+
+  @ApiProperty({ required: false, enum: VEHICLE_CLASSES })
+  @IsOptional()
+  @IsIn(VEHICLE_CLASSES as unknown as string[], { message: CLASS_MSG })
+  vehicle_class?: string;
+
+  @ApiProperty({ required: false, example: '2026-10-15T10:00:00+05:00' })
+  @IsOptional()
+  @IsDateString()
+  arrive_from?: string;
+
+  @ApiProperty({ required: false, example: '2026-10-15T12:00:00+05:00' })
+  @IsOptional()
+  @IsDateString()
+  arrive_to?: string;
+
+  @ApiProperty({ required: false, example: '145' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  poa_number?: string;
+}
+
+/** Savat yuki (№48, A3) — `items` bo'lmasa xaridorning savati. */
+export class CartLoadLineDto {
+  @ApiProperty({ example: 11, description: 'characteristics.id (model)' })
+  @IsInt()
+  characteristic_id: number;
+
+  @ApiProperty({ required: false, example: 25, description: 'product-model-inside.id (variant)' })
+  @IsOptional()
+  @IsInt()
+  product_model_inside_id?: number;
+
+  @ApiProperty({ example: 2 })
+  @IsInt()
+  @Min(1)
+  @Max(100000)
+  quantity: number;
+}
+
+export class CartLoadDto {
+  @ApiProperty({ required: false, type: [CartLoadLineDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(300)
+  @ValidateNested({ each: true })
+  @Type(() => CartLoadLineDto)
+  items?: CartLoadLineDto[];
 }

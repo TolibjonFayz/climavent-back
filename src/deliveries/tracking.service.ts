@@ -243,7 +243,7 @@ export async function customerDeliveryView(d: Delivery, opts: { owner?: boolean 
         : null,
     // №47: FAQAT egaga. Yetkazish haqi — mijoz to'lovchi bo'lsagina (store — null);
     // olib ketishda — qanday mashina yuborish kerakligi va yuborilgan haydovchi.
-    fee: opts.owner ? customerFeeView(d) : null,
+    fee: opts.owner ? await customerFeeView(d) : null,
     pickup: opts.owner && d.mode === 'pickup' ? await customerPickupView(d) : null,
   };
 }

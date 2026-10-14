@@ -1,6 +1,7 @@
 import { QueryTypes, Transaction } from 'sequelize';
 import { Delivery, DeliveryPickupInfo } from './model/models';
 import { LoadLine, LoadSummary, VehicleClass, classCovers, summarizeLoad } from './vehicle-classes';
+import { settingNumber } from 'src/crews/trust';
 
 /**
  * Yetkazish qatorlarining yuki (topshiriq №47, 3-bo'lim; №26, 7-band).
@@ -54,11 +55,93 @@ export const loadView = (s: LoadSummary) => ({
   dimensions_missing: s.dimensions_missing,
 });
 
-/** Mijozga ko'rinadigan yetkazish haqi (№47, 8-bo'lim) — faqat `customer` to'lovchida. */
-export const customerFeeView = (d: Delivery) =>
-  d.fee_payer === 'customer' && d.fee_status
-    ? { amount: d.fee_cash ?? d.delivery_fee, payer: 'customer', status: d.fee_status, invoice_required: !!d.fee_invoice_required }
-    : null;
+/** Javobsiz taklif muddati (№48, A1) — daqiqada, `settings` dan. */
+export const feeExpireMinutes = () => settingNumber(Delivery.sequelize, 'delivery_fee_expire_minutes', 240);
+export const feeRemindMinutes = () => settingNumber(Delivery.sequelize, 'delivery_fee_remind_minutes', 60);
+
+/**
+ * Mijozga ko'rinadigan yetkazish haqi (№47, 8-bo'lim) — faqat `customer` to'lovchida.
+ * №48: `proposed` da `expires_at` — sayt va ilova qolgan vaqtni ko'rsatadi.
+ */
+export async function customerFeeView(d: Delivery) {
+  if (d.fee_payer !== 'customer' || !d.fee_status) return null;
+  const expiresAt =
+    d.fee_status === 'proposed' && d.fee_proposed_at
+      ? new Date(new Date(d.fee_proposed_at).getTime() + (await feeExpireMinutes()) * 60000)
+      : null;
+  return {
+    amount: d.fee_cash ?? d.delivery_fee,
+    payer: 'customer',
+    status: d.fee_status,
+    invoice_required: !!d.fee_invoice_required,
+    proposed_at: d.fee_proposed_at,
+    expires_at: expiresAt,
+  };
+}
+
+/**
+ * Savat (katalog qatorlari) bo'yicha yuk (№48, A3) — buyurtma berishdan oldin, do'kon
+ * kesimida: har do'kon o'z omboridan alohida yuklanadi.
+ */
+export async function catalogLoad(lines: { characteristic_id: number; product_model_inside_id?: number | null; quantity: number }[]) {
+  const ids = [...new Set(lines.map((l) => Number(l.characteristic_id)).filter(Boolean))];
+  if (!ids.length) return { ...loadView(summarizeLoad([])), stores: [] };
+  const vids = [...new Set(lines.map((l) => Number(l.product_model_inside_id)).filter(Boolean))];
+  const chars: any[] = await Delivery.sequelize.query(
+    `SELECT c.id, c.weight_kg, c.length_cm, c.width_cm, c.height_cm, c.packages, c.needs_crane, c.stackable,
+            p.store_id, s.name AS store_name, s.lat AS store_lat, s.lng AS store_lng, s.address AS store_address
+       FROM characteristics c JOIN products p ON p.id = c.product_id LEFT JOIN stores s ON s.id = p.store_id
+      WHERE c.id IN (:ids)`,
+    { replacements: { ids }, type: QueryTypes.SELECT },
+  );
+  const variants: any[] = vids.length
+    ? await Delivery.sequelize.query(
+        `SELECT id, product_model_id, weight_kg, length_cm, width_cm, height_cm, packages, needs_crane, stackable
+           FROM "product-model-inside" WHERE id IN (:vids)`,
+        { replacements: { vids }, type: QueryTypes.SELECT },
+      )
+    : [];
+  const num = (x: any) => (x === null || x === undefined ? null : Number(x));
+  const pick = (v: any, c: any, k: string) => (v && v[k] !== null && v[k] !== undefined ? v[k] : c[k]);
+  const byStore = new Map<number, { store: any; lines: LoadLine[] }>();
+  const all: LoadLine[] = [];
+  lines.forEach((l, i) => {
+    const c = chars.find((x) => Number(x.id) === Number(l.characteristic_id));
+    if (!c) return;
+    const v = variants.find((x) => Number(x.id) === Number(l.product_model_inside_id) && Number(x.product_model_id) === Number(c.id));
+    const line: LoadLine = {
+      // Savatda qator raqami — tartib (0 dan); `dimensions_missing` shunga ishora qiladi
+      order_item_id: i,
+      quantity: Number(l.quantity),
+      weight_kg: num(pick(v, c, 'weight_kg')),
+      length_cm: num(pick(v, c, 'length_cm')),
+      width_cm: num(pick(v, c, 'width_cm')),
+      height_cm: num(pick(v, c, 'height_cm')),
+      packages: num(pick(v, c, 'packages')),
+      needs_crane: pick(v, c, 'needs_crane') === null ? null : !!pick(v, c, 'needs_crane'),
+      stackable: pick(v, c, 'stackable') === null ? null : !!pick(v, c, 'stackable'),
+    };
+    all.push(line);
+    const sid = Number(c.store_id);
+    if (!byStore.has(sid)) {
+      byStore.set(sid, {
+        store: {
+          id: sid,
+          name: c.store_name,
+          address: c.store_address ?? null,
+          lat: c.store_lat === null ? null : Number(c.store_lat),
+          lng: c.store_lng === null ? null : Number(c.store_lng),
+        },
+        lines: [],
+      });
+    }
+    byStore.get(sid).lines.push(line);
+  });
+  return {
+    ...loadView(summarizeLoad(all)),
+    stores: [...byStore.values()].map((x) => ({ store: x.store, ...loadView(summarizeLoad(x.lines)) })),
+  };
+}
 
 export const pickupInfoView = (i: DeliveryPickupInfo) => ({
   driver_name: i.driver_name,

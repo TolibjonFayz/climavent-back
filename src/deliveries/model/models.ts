@@ -105,6 +105,8 @@ export class Delivery extends Model {
   @Column({ type: DataType.STRING(10), allowNull: true }) fee_status: string | null;
   @Column({ type: DataType.DATE, allowNull: true }) fee_proposed_at: Date | null;
   @Column({ type: DataType.DATE, allowNull: true }) fee_responded_at: Date | null;
+  /** Javobsiz taklif uchun takroriy push yuborilgan vaqt (№48, A1) — bir marta. */
+  @Column({ type: DataType.DATE, allowNull: true }) fee_reminded_at: Date | null;
   /** Haydovchi mijozdan oladigan yetkazish haqi — `cod_amount` dan ALOHIDA. */
   @Column(num('fee_cash', DataType.BIGINT)) fee_cash: number | null;
   @Column(num('fee_cash_collected', DataType.BIGINT)) fee_cash_collected: number | null;

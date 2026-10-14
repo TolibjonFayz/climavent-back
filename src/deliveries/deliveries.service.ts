@@ -65,7 +65,7 @@ import {
   vehicleCapacity,
   vehicleMismatch,
 } from './vehicle-classes';
-import { customerFeeView, customerPickupView, loadSummaryOf, loadView, pickupInfoView } from './load';
+import { catalogLoad, customerFeeView, customerPickupView, feeExpireMinutes, feeRemindMinutes, loadSummaryOf, loadView, pickupInfoView } from './load';
 import { decryptJobCode, encryptJobCode, newJobCode } from 'src/service_jobs/job-code';
 import { settingNumber } from 'src/crews/trust';
 import { recordCourierEvent } from './courier-events';
@@ -73,6 +73,7 @@ import { REGIONS } from 'src/regions/regions.data';
 import { CourierVehiclesService } from './courier-vehicles.service';
 import { CourierWorkService } from './courier-work.service';
 import { recordOrderEvent, OrderEventName } from 'src/orders/order-events';
+import { emitOrderUpdated } from 'src/orders/order-signal';
 import { syncOrderStatus } from 'src/orders/order-progress';
 import { ProofStorageService } from './proof-storage.service';
 import { haversineKm, newTrackingToken, trackingSmsLink, trackingUrl } from './tracking.service';
@@ -218,7 +219,10 @@ export class DeliveriesService {
     private readonly sms: OtpService,
     private readonly vehicles: CourierVehiclesService,
     private readonly work: CourierWorkService,
-  ) {}
+  ) {
+    // Buyurtmalar moduli «Yig'ildi» da chaqiradi (№48) — DI sikli bo'lmasin
+    deliveriesRef = this;
+  }
 
   // ============================================================ ADMINKA
   private isSuper = (r: StoreRequester) => r?.role === 'superadmin';
@@ -232,7 +236,9 @@ export class DeliveriesService {
     return d;
   }
 
-  async create(dto: CreateDeliveryDto, r: StoreRequester) {
+  /** `opts.actor` — tarixda kim (№48: «Yig'ildi» da avtomatik yaratish — `system`). */
+  async create(dto: CreateDeliveryDto, r: StoreRequester, opts: { actor?: Actor } = {}) {
+    const actor = opts.actor ?? backofficeActor(r);
     // Do'kon admini `store_id` siz yuborishi mumkin (№44, 3.2: `{ order_id, mode }`)
     if (dto.store_id === undefined || dto.store_id === null) {
       if (this.isSuper(r)) throw new BadRequestException('store_id majburiy');
@@ -243,7 +249,7 @@ export class DeliveriesService {
     }
     const mode = dto.mode || 'self';
     const [order]: any[] = await Delivery.sequelize.query(
-      `SELECT o.id, o.status, o.location, o.address_details, o.lat, o.lng, o.recipient_name, o.recipient_phone, o.company_tin,
+      `SELECT o.id, o.status, o.location, o.address_details, o.lat, o.lng, o.recipient_name, o.recipient_phone, o.company_tin, o.user_id, o.pickup_info,
               u.name AS user_name, u.surname AS user_surname, u.phone_number AS user_phone
          FROM orders o LEFT JOIN users u ON u.id = o.user_id WHERE o.id = :id`,
       { replacements: { id: dto.order_id }, type: QueryTypes.SELECT },
@@ -340,13 +346,13 @@ export class DeliveriesService {
         // Kuryer yo'lga chiqqanda kod yangilanadi (SMS bilan ketadi).
         const code = newJobCode();
         await d.update({ proof_code_hash: codeHash(d.id, code), proof_code_enc: encryptJobCode(code) } as any, { transaction: t });
-        await this.event(d.id, null, 'pending', backofficeActor(r), {}, mode === 'pickup' ? 'Yaratildi: mijoz olib ketadi' : 'Yaratildi', t);
+        await this.event(d.id, null, 'pending', actor, {}, mode === 'pickup' ? 'Yaratildi: mijoz olib ketadi' : 'Yaratildi', t);
         await recordOrderEvent({
           order_id: d.order_id,
           store_id: d.store_id,
           event: 'delivery_created',
-          actor_type: this.isSuper(r) ? 'superadmin' : 'store',
-          actor_id: r?.user_id ?? null,
+          actor_type: actor.type,
+          actor_id: actor.id,
           note: `Yetkazish #${d.id} yaratildi${mode === 'pickup' ? ' (olib ketish)' : ''}`,
           transaction: t,
         });
@@ -363,7 +369,11 @@ export class DeliveriesService {
         );
         return d;
       }).then(async (d) => {
-        if (mode === 'pickup') await this.pushReadyForPickup(d);
+        if (mode === 'pickup') {
+          await this.pushReadyForPickup(d);
+          // №48, A2: buyurtmada berilgan «Kim olib ketadi» — yetkazishga ko'chadi
+          await this.copyOrderPickupInfo(d, order);
+        }
         // Hisob natijasi javobda (№47, 3-bo'lim): taklif, yuklovchilar, o'lchamsiz qatorlar
         const v = loadView(load);
         return {
@@ -517,6 +527,7 @@ export class DeliveriesService {
             ...common,
             fee_status: 'proposed',
             fee_proposed_at: now,
+            fee_reminded_at: null,
             fee_responded_at: null,
             fee_cash: quote.delivery_fee,
             fee_invoice_required: !!order.company_tin,
@@ -534,6 +545,7 @@ export class DeliveriesService {
           ...common,
           fee_status: null,
           fee_proposed_at: null,
+          fee_reminded_at: null,
           fee_responded_at: null,
           fee_cash: null,
           opened_at: now,
@@ -549,9 +561,10 @@ export class DeliveriesService {
     const { d } = res;
     if (res.proposed) {
       await this.pushFeeProposed(d);
+      emitOrderUpdated(d.order_id);
       return {
         ...(await this.present(d, { full: false })),
-        fee: customerFeeView(d),
+        fee: await customerFeeView(d),
         awaiting_customer: true,
         notified_couriers: 0,
         warnings: res.warnings,
@@ -566,12 +579,14 @@ export class DeliveriesService {
    * Mijozga taklif qilingan (hali javob bermagan) haq ham shu bilan qaytariladi (№47).
    */
   async unpublish(id: number, r: StoreRequester) {
-    const feeReset = { fee_payer: 'store', fee_status: null, fee_cash: null, fee_proposed_at: null, fee_responded_at: null };
+    const feeReset = { fee_payer: 'store', fee_status: null, fee_cash: null, fee_proposed_at: null, fee_responded_at: null, fee_reminded_at: null };
     const d = await Delivery.sequelize.transaction(async (t) => {
       const d = await this.loadScoped(id, r, t, true);
       if (d.status === 'pending' && d.fee_status === 'proposed') {
         await d.update({ mode: 'self', payout_status: null, ...feeReset } as any, { transaction: t });
         await this.event(d.id, d.status, d.status, backofficeActor(r), {}, 'Mijozga taklif qilingan yetkazish haqi qaytarib olindi', t, 'fee_withdrawn');
+        // Sayt kartani yashirsin (№48)
+        emitOrderUpdated(d.order_id, { transaction: t });
         return d;
       }
       if (d.status !== 'open') throw new ConflictException(d.courier_id ? 'Kuryer allaqachon olgan' : `${d.status} holatida qaytarib bo'lmaydi`);
@@ -641,6 +656,8 @@ export class DeliveriesService {
       }
       return d;
     });
+    // №48: sayt sahifasi buyurtma signali bilan yangilanadi
+    emitOrderUpdated(d.order_id);
     const msg = accept
       ? { title: 'Mijoz yetkazishni tasdiqladi', body: `Yetkazish #${d.id}: ${d.delivery_fee} so'm — kuryer qidirilmoqda`, event: 'delivery_fee_accepted' }
       : { title: 'Mijoz yetkazish haqini rad etdi', body: `Yetkazish #${d.id}${dto.reason ? `: ${dto.reason}` : ''} — boshqa usulni tanlang yoki o'zingiz to'lang`, event: 'delivery_fee_rejected' };
@@ -651,7 +668,7 @@ export class DeliveriesService {
       channel: 'orders',
     });
     if (accept) await this.notifyOpen(d, 0, Number(d.publish_radius_km || base));
-    return { delivery_id: d.id, status: d.status, fee: customerFeeView(d) };
+    return { delivery_id: d.id, status: d.status, fee: await customerFeeView(d) };
   }
 
   /**
@@ -660,21 +677,11 @@ export class DeliveriesService {
    */
   async savePickupInfo(orderId: number, userId: number, dto: PickupInfoDto) {
     await this.ownedOrder(orderId, userId);
-    const all = await Delivery.findAll({ where: { order_id: orderId, status: { [Op.ne]: 'cancelled' } }, order: [['id', 'ASC']] });
-    const pickups = all.filter((x) => x.mode === 'pickup');
-    const target = this.pickOne(pickups, dto.delivery_id, () => {
-      throw new ConflictException(
-        all.length ? "Bu buyurtma olib ketish (pickup) usulida emas" : "Do'kon hali olib ketishni tayyorlamagan",
-      );
-    });
-    if (target.status !== 'pending') throw new ConflictException(`Yetkazish ${target.status} holatida — o'zgartirib bo'lmaydi`);
     const from = new Date(dto.arrive_from);
     const to = new Date(dto.arrive_to);
     if (to.getTime() <= from.getTime()) throw new BadRequestException("arrive_to arrive_from dan keyin bo'lsin");
-    if (dto.poa_document_id) await this.assertPoaDocument(dto.poa_document_id, userId, target.store_id);
-
-    const payload = {
-      delivery_id: target.id,
+    const all = await Delivery.findAll({ where: { order_id: orderId, status: { [Op.ne]: 'cancelled' } }, order: [['id', 'ASC']] });
+    const info = {
       user_id: userId,
       driver_name: dto.driver_name.trim(),
       driver_phone: dto.driver_phone,
@@ -685,37 +692,199 @@ export class DeliveriesService {
       poa_number: dto.poa_number?.trim() || null,
       poa_document_id: dto.poa_document_id ?? null,
     };
+
+    // №48, A2: yetkazish hali yaratilmagan — buyurtmaning o'zida saqlanadi va
+    // afzallik `pickup` bo'ladi; do'kon «Yig'ildi» qilganda yetkazishga ko'chadi.
+    if (!all.length && !dto.delivery_id) {
+      const [o]: any[] = await Delivery.sequelize.query(
+        `SELECT o.status, array_remove(array_agg(DISTINCT i.store_id), NULL) AS stores,
+                array_remove(array_agg(i.id) FILTER (WHERE i.item_type = 'product'), NULL) AS items
+           FROM orders o LEFT JOIN "order-items" i ON i.order_id = o.id WHERE o.id = :id GROUP BY o.id`,
+        { replacements: { id: orderId }, type: QueryTypes.SELECT },
+      );
+      if (['cancelled', 'done'].includes(o?.status)) throw new ConflictException(`${o.status} holatidagi buyurtma`);
+      if (dto.poa_document_id) await this.assertPoaDocument(dto.poa_document_id, userId, (o?.stores || []).map(Number));
+      const stored = { ...info, arrive_from: from.toISOString(), arrive_to: to.toISOString() };
+      delete (stored as any).user_id;
+      await Delivery.sequelize.query(
+        `UPDATE orders SET pickup_info = CAST(:info AS jsonb), delivery_preference = 'pickup', "updatedAt" = now() WHERE id = :id`,
+        { replacements: { id: orderId, info: JSON.stringify(stored) } },
+      );
+      return {
+        saved_on: 'order',
+        ...(await customerPickupView({ id: null, items: (o?.items || []).map(Number) } as any, { ...info, updated_at: new Date() } as any)),
+      };
+    }
+
+    const pickups = all.filter((x) => x.mode === 'pickup');
+    const target = this.pickOne(pickups, dto.delivery_id, () => {
+      throw new ConflictException("Bu buyurtma olib ketish (pickup) usulida emas");
+    });
+    if (target.status !== 'pending') throw new ConflictException(`Yetkazish ${target.status} holatida — o'zgartirib bo'lmaydi`);
+    if (dto.poa_document_id) await this.assertPoaDocument(dto.poa_document_id, userId, [target.store_id]);
+    await this.writePickupInfo(target, { delivery_id: target.id, ...info }, { type: 'customer', id: userId });
+    return { saved_on: 'delivery', ...(await customerPickupView(target)) };
+  }
+
+  /** Yozuv + tarix + do'konga push (`pickup_info_updated`) — mijoz va buyurtmadan ko'chirish uchun bitta yo'l. */
+  private async writePickupInfo(target: Delivery, payload: any, actor: Actor) {
     await Delivery.sequelize.transaction(async (t) => {
       const d = await Delivery.findByPk(target.id, { transaction: t, lock: t.LOCK.UPDATE });
       if (!d || d.status !== 'pending') throw new ConflictException("Yetkazish holati o'zgargan");
-      await DeliveryPickupInfo.upsert(payload as any, { transaction: t });
+      await DeliveryPickupInfo.upsert(payload, { transaction: t });
       await this.event(
-        d.id, d.status, d.status, { type: 'customer', id: userId }, {},
-        `Olib ketish: ${payload.driver_name}, ${payload.vehicle_plate}${payload.vehicle_class ? ` (${payload.vehicle_class})` : ''}`,
+        d.id, d.status, d.status, actor, {},
+        `Olib ketish: ${payload.driver_name}, ${payload.vehicle_plate}${payload.vehicle_class ? ` (${payload.vehicle_class})` : ''}` +
+          (actor.type === 'system' ? ' — buyurtmadan' : ''),
         t, 'pickup_info_updated',
       );
     });
     await pushToStoreAdmins([target.store_id], {
       title: 'Mijoz mashinasi',
-      body: `Buyurtma #${orderId}: ${payload.driver_name}, ${payload.vehicle_plate}`.slice(0, 180),
-      data: { type: 'order', event: 'pickup_info_updated', order_id: orderId, delivery_id: target.id },
+      body: `Buyurtma #${target.order_id}: ${payload.driver_name}, ${payload.vehicle_plate}`.slice(0, 180),
+      data: { type: 'order', event: 'pickup_info_updated', order_id: target.order_id, delivery_id: target.id },
       channel: 'orders',
     });
-    return customerPickupView(target);
+  }
+
+  /**
+   * Buyurtmada berilgan «Kim olib ketadi» (№48, A2) yangi `pickup` yetkazishga ko'chadi —
+   * faqat to'liq bo'lsa (haydovchi, telefon, raqam, kelish oralig'i); aks holda buyurtmada
+   * qoladi va mijoz `PATCH /orders/:id/pickup-info` bilan to'ldiradi.
+   */
+  private async copyOrderPickupInfo(d: Delivery, order: { user_id?: number | null; pickup_info?: any }) {
+    const p = order?.pickup_info;
+    if (!p || !order.user_id) return;
+    const from = p.arrive_from ? new Date(p.arrive_from) : null;
+    const to = p.arrive_to ? new Date(p.arrive_to) : null;
+    const complete =
+      p.driver_name && p.driver_phone && p.vehicle_plate && from && to && !isNaN(from.getTime()) && !isNaN(to.getTime()) && to > from;
+    if (!complete) return;
+    try {
+      await this.writePickupInfo(
+        d,
+        {
+          delivery_id: d.id,
+          user_id: order.user_id,
+          driver_name: String(p.driver_name).trim(),
+          driver_phone: p.driver_phone,
+          vehicle_plate: normPlate(p.vehicle_plate),
+          vehicle_class: isVehicleClass(p.vehicle_class) ? p.vehicle_class : null,
+          arrive_from: from,
+          arrive_to: to,
+          poa_number: p.poa_number || null,
+          poa_document_id: p.poa_document_id ?? null,
+        },
+        { type: 'system', id: null },
+      );
+    } catch (e) {
+      this.logger.warn(`Yetkazish #${d.id}: buyurtmadagi pickup_info ko'chmadi — ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * «Yig'ildi» (№48, A2): mijoz «O'zim olib ketaman» degan bo'lsa va do'kon yetkazish
+   * yaratmagan bo'lsa — `mode: pickup` bilan avtomatik yaratiladi. Do'konda `pickup`
+   * o'chiq bo'lsa — yaratilmaydi (do'kon o'zi tanlaydi). Xato buyurtma bosqichini buzmaydi.
+   */
+  async autoPickupOnReady(orderId: number, storeId: number): Promise<number | null> {
+    try {
+      const [row]: any[] = await Delivery.sequelize.query(
+        `SELECT o.delivery_preference, o.status, s.delivery_modes,
+                EXISTS (SELECT 1 FROM deliveries d WHERE d.order_id = o.id AND d.store_id = :s AND d.status <> 'cancelled') AS has_delivery
+           FROM orders o, stores s WHERE o.id = :o AND s.id = :s`,
+        { replacements: { o: orderId, s: storeId }, type: QueryTypes.SELECT },
+      );
+      if (!row || row.delivery_preference !== 'pickup' || row.has_delivery || row.status === 'cancelled') return null;
+      if (!(row.delivery_modes || []).includes('pickup')) return null;
+      const d: any = await this.create(
+        { order_id: orderId, store_id: storeId, mode: 'pickup' } as CreateDeliveryDto,
+        { role: 'superadmin', store_id: null, user_id: null } as any,
+        { actor: { type: 'system', id: null } },
+      );
+      return d?.id ?? null;
+    } catch (e) {
+      this.logger.warn(`Buyurtma #${orderId}, do'kon ${storeId}: avtomatik pickup yaratilmadi — ${(e as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Javobsiz yetkazish narxi (№48, A1): `delivery_fee_remind_minutes` da mijozga bitta
+   * takroriy push, `delivery_fee_expire_minutes` da muddat o'tadi — №47 dagi `reject`
+   * kabi `pending` + `self`, do'konga push, tarixda `delivery_fee_expired` (system).
+   */
+  async tickFeeOffers() {
+    const remind = await feeRemindMinutes();
+    const expire = await feeExpireMinutes();
+    const rows = await Delivery.findAll({ where: { fee_status: 'proposed', status: 'pending', fee_proposed_at: { [Op.ne]: null } } });
+    let reminded = 0;
+    let expired = 0;
+    for (const x of rows) {
+      const minutes = (Date.now() - new Date(x.fee_proposed_at).getTime()) / 60000;
+      if (minutes >= expire) {
+        const d = await Delivery.sequelize.transaction(async (t) => {
+          const d = await Delivery.findByPk(x.id, { transaction: t, lock: t.LOCK.UPDATE });
+          if (!d || d.status !== 'pending' || d.fee_status !== 'proposed') return null;
+          await d.update({ fee_status: 'expired', fee_responded_at: new Date(), mode: 'self', payout_status: null, fee_cash: null } as any, { transaction: t });
+          await this.event(d.id, d.status, d.status, { type: 'system', id: null }, {}, `Mijoz ${Math.round(minutes)} daqiqada javob bermadi — taklif muddati o'tdi`, t, 'delivery_fee_expired');
+          return d;
+        });
+        if (!d) continue;
+        expired++;
+        emitOrderUpdated(d.order_id);
+        await pushToStoreAdmins([d.store_id], {
+          title: 'Mijoz javob bermadi',
+          body: `Yetkazish #${d.id}: yetkazish narxi taklifining muddati o'tdi — boshqa usulni tanlang yoki o'zingiz to'lang`.slice(0, 180),
+          data: { type: 'order', event: 'delivery_fee_expired', order_id: d.order_id, delivery_id: d.id },
+          channel: 'orders',
+        });
+      } else if (minutes >= remind && !x.fee_reminded_at) {
+        const [n] = await Delivery.update({ fee_reminded_at: new Date() } as any, { where: { id: x.id, fee_status: 'proposed', fee_reminded_at: null } });
+        if (!n) continue;
+        reminded++;
+        const left = Math.max(1, Math.round(expire - minutes));
+        await sendToCustomer(await orderOwnerId(x.order_id), (lang) => ({
+          title: t3(lang, 'Yetkazish narxi kutilmoqda', 'Ждём ответа по доставке', 'Delivery fee awaiting'),
+          body: t3(
+            lang,
+            `Buyurtma #${x.order_id}: yetkazish ${x.fee_cash} so'm — ${left} daqiqa ichida javob bering`,
+            `Заказ #${x.order_id}: доставка ${x.fee_cash} сум — ответьте в течение ${left} мин`,
+            `Order #${x.order_id}: delivery ${x.fee_cash} UZS — please reply within ${left} min`,
+          ),
+          data: { type: 'order', order_id: x.order_id, delivery_id: x.id, event: 'delivery_fee_reminder' },
+        }));
+      }
+    }
+    return { proposed: rows.length, reminded, expired };
+  }
+
+  /** Savat yuki (№48, A3): `items` bo'lmasa — xaridorning savati. */
+  async cartLoad(userId: number, items?: { characteristic_id: number; product_model_inside_id?: number; quantity: number }[]) {
+    let lines = items;
+    if (!lines) {
+      lines = (await Delivery.sequelize.query(
+        `SELECT ci.characteristic_id, ci.product_model_inside_id, ci.quantity
+           FROM cart_item ci JOIN cart c ON c.id = ci.cart_id
+          WHERE c.user_id = :u AND ci.characteristic_id IS NOT NULL ORDER BY ci.id`,
+        { replacements: { u: userId }, type: QueryTypes.SELECT },
+      )) as any[];
+    }
+    return catalogLoad(lines);
   }
 
   /**
    * Ishonchnoma fayli — mijozning SHU do'kon bilan chatiga yuborilgan fayl (№46).
    * Xabarga bog'lanmagan fayl 24 soatda o'chadi, shuning uchun faqat bog'langani.
    */
-  private async assertPoaDocument(id: number, userId: number, storeId: number) {
+  private async assertPoaDocument(id: number, userId: number, storeIds: number[]) {
     let ok = false;
     try {
       const [row]: any[] = await Delivery.sequelize.query(
         `SELECT a.id FROM chat_attachments a JOIN chats c ON c.id = a.chat_id
           WHERE a.id = :id AND a.uploader_side = 'client' AND a.uploader_user_id = :u
-            AND a.message_id IS NOT NULL AND c.client_id = :u AND c.store_id = :s`,
-        { replacements: { id, u: userId, s: storeId }, type: QueryTypes.SELECT },
+            AND a.message_id IS NOT NULL AND c.client_id = :u AND c.store_id IN (:s)`,
+        { replacements: { id, u: userId, s: storeIds.length ? storeIds : [0] }, type: QueryTypes.SELECT },
       );
       ok = !!row;
     } catch (e) {
@@ -1461,7 +1630,8 @@ export class DeliveriesService {
              COALESCE(SUM(delivery_fee) FILTER (WHERE status = 'delivered' AND mode = 'platform' AND fee_payer = 'customer'), 0)::bigint AS customer_charged,
              COALESCE(SUM(fee_cash_collected) FILTER (WHERE status = 'delivered'), 0)::bigint AS customer_cash_collected,
              COUNT(*) FILTER (WHERE fee_status = 'proposed')::int AS awaiting_customer,
-             COUNT(*) FILTER (WHERE fee_status = 'rejected')::int AS rejected_by_customer
+             COUNT(*) FILTER (WHERE fee_status = 'rejected')::int AS rejected_by_customer,
+             COUNT(*) FILTER (WHERE fee_status = 'expired')::int AS expired
         FROM deliveries d WHERE ${W}`);
     return {
       ...totals,
@@ -1472,6 +1642,7 @@ export class DeliveriesService {
         customer_cash_collected: Number(fees.customer_cash_collected),
         awaiting_customer: fees.awaiting_customer,
         rejected_by_customer: fees.rejected_by_customer,
+        expired: fees.expired,
       },
       failures,
       couriers: couriers.map((c) => ({ ...c, cash_collected: Number(c.cash_collected) })),
@@ -2228,6 +2399,15 @@ export class DeliveriesService {
  * Buyurtma bekor qilinganda faol yetkazishlar ham bekor + kuryerga push (3-band).
  * Buyurtmalar moduli chaqiradi — DI siklini oldini olish uchun statik funksiya.
  */
+let deliveriesRef: DeliveriesService | null = null;
+
+/**
+ * «Yig'ildi» bo'lganda avtomatik `pickup` yetkazish (№48, A2). Buyurtmalar moduli
+ * chaqiradi — `cancelDeliveriesForOrder` bilan bir xil sabab (DI sikli).
+ */
+export const autoPickupOnReady = (orderId: number, storeId: number) =>
+  deliveriesRef ? deliveriesRef.autoPickupOnReady(orderId, storeId) : Promise.resolve(null);
+
 export async function cancelDeliveriesForOrder(orderId: number, actor: Actor) {
   const logger = new Logger('Deliveries');
   try {

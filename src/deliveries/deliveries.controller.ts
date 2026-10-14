@@ -25,6 +25,7 @@ import { CouriersService } from './couriers.service';
 import { DeliveriesService } from './deliveries.service';
 import {
   AssignDto,
+  CartLoadDto,
   CashHandoverDto,
   CommentDto,
   CreateCourierDto,
@@ -303,5 +304,22 @@ export class StoreDimensionsController {
   @Get(':id/dimensions-missing')
   dimensionsMissing(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     return this.deliveries.dimensionsMissing(id, req.storeUser);
+  }
+}
+
+/** Savat yuki (№48, A3) — mijoz qanday mashina yuborishni buyurtmadan OLDIN biladi. */
+@ApiTags('Cart')
+@ApiBearerAuth()
+@UseGuards(UserGuard)
+@Controller('cart')
+export class CartLoadController {
+  constructor(private readonly deliveries: DeliveriesService) {}
+
+  @ApiOperation({ summary: "Savat yuki: og'irlik, hajm, taklif qilingan mashina sinfi (jami va do'kon kesimida)" })
+  @ApiResponse({ status: 200, schema: { example: { total_weight_kg: 2000, total_volume_m3: 22.08, suggested_class: 'truck_10t', needs_crane: false, split_suggested: null, dimensions_missing: [], stores: [{ store: { id: 2, name: 'Jihozvent', lat: 41.31, lng: 69.28 }, suggested_class: 'truck_10t' }] } } })
+  @HttpCode(200)
+  @Post('load')
+  load(@Body() dto: CartLoadDto, @Req() req: any) {
+    return this.deliveries.cartLoad(Number(req.user?.id), dto.items);
   }
 }

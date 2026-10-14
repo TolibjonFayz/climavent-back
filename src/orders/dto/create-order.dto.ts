@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { OrderPickupInfoDto } from 'src/deliveries/dto/dto';
 import {
   ORDER_KINDS,
   ORDER_STATUSES,
@@ -311,4 +312,16 @@ export class CreateOrderDto {
   @ValidateNested()
   @Type(() => OrderAddressDto)
   address?: OrderAddressDto;
+
+  // №48, A2: «O'zim olib ketaman» — do'kon «Yig'ildi» qilganda yetkazish `mode: pickup` bilan yaratiladi
+  @ApiProperty({ required: false, enum: ['delivery', 'pickup'], default: 'delivery' })
+  @IsOptional()
+  @IsIn(['delivery', 'pickup'], { message: 'delivery_preference: delivery yoki pickup' })
+  delivery_preference?: string;
+
+  @ApiProperty({ required: false, type: OrderPickupInfoDto, description: "Kim olib ketadi (pickup da; hamma maydon ixtiyoriy)" })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => OrderPickupInfoDto)
+  pickup_info?: OrderPickupInfoDto;
 }

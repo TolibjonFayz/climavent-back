@@ -21,6 +21,8 @@ interface OrderAtr {
   comment?: string | null;
   company_name?: string | null;
   company_tin?: string | null;
+  delivery_preference?: string;
+  pickup_info?: any;
   region_code?: string | null;
   district_code?: string | null;
 }
@@ -99,6 +101,19 @@ export class Order extends Model<Order, OrderAtr> {
   @ApiProperty({ required: false, example: '301234567' })
   @Column({ type: DataType.STRING(9), allowNull: true })
   company_tin: string;
+
+  // Mijozning yetkazish afzalligi (topshiriq №48, A2): `pickup` — «O'zim olib
+  // ketaman». Do'kon «Yig'ildi» qilganda yetkazish avtomatik `mode: pickup` bilan
+  // yaratiladi (do'konda `pickup` yoqilgan bo'lsa).
+  @ApiProperty({ example: 'delivery', enum: ['delivery', 'pickup'] })
+  @Column({ type: DataType.STRING(10), allowNull: false, defaultValue: 'delivery' })
+  delivery_preference: string;
+
+  // Buyurtmada berilgan «Kim olib ketadi» (№47, 7-bo'lim maydonlari) — yetkazish
+  // yaratilganda `delivery_pickup_info` ga ko'chadi.
+  @ApiProperty({ required: false, nullable: true })
+  @Column({ type: DataType.JSONB, allowNull: true })
+  pickup_info: any;
 
   // Yetkazish uchun (topshiriq №22, 2-band)
   @ApiProperty({ required: false, example: 'Aziz Karimov' })

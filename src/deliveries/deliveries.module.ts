@@ -10,7 +10,7 @@ import { CourierLocation, DELIVERY_MODELS } from './model/models';
 import { CouriersService } from './couriers.service';
 import { DeliveriesService } from './deliveries.service';
 import { ProofStorageService } from './proof-storage.service';
-import { CouriersController, CustomerDeliveryController, DeliveriesController, StoreDimensionsController } from './deliveries.controller';
+import { CartLoadController, CouriersController, CustomerDeliveryController, DeliveriesController, StoreDimensionsController } from './deliveries.controller';
 import { CourierAppController, DevicesController } from './courier-app.controller';
 import { TrackingController } from './tracking.controller';
 import { TrackingService } from './tracking.service';
@@ -70,6 +70,13 @@ export class DeliveriesJobs implements OnApplicationBootstrap, OnModuleDestroy {
     } catch (e) {
       this.logger.error(`Ochiq yetkazishlar fon ishi yiqildi: ${(e as Error).message}`);
     }
+    // №48, A1: javobsiz yetkazish narxi — eslatma va muddat
+    try {
+      const f = await this.deliveries.tickFeeOffers();
+      if (f.reminded || f.expired) this.logger.log(`Yetkazish narxi takliflari: ${f.proposed}, eslatma ${f.reminded}, muddati o'tdi ${f.expired}`);
+    } catch (e) {
+      this.logger.error(`Yetkazish narxi fon ishi yiqildi: ${(e as Error).message}`);
+    }
   }
 
   async tick() {
@@ -115,6 +122,7 @@ export class DeliveriesJobs implements OnApplicationBootstrap, OnModuleDestroy {
     DeliveriesController,
     CustomerDeliveryController,
     StoreDimensionsController,
+    CartLoadController,
     CourierAppController,
     DevicesController,
     TrackingController,

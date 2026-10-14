@@ -1,10 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { OrderPickupInfoDto } from 'src/deliveries/dto/dto';
 import {
   ArrayMaxSize,
   ArrayNotEmpty,
   IsArray,
   IsDateString,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -95,6 +97,18 @@ export class AcceptQuoteDto {
   @IsOptional()
   @Matches(/^\d{9}$/, { message: "company_tin 9 raqamdan iborat bo'lsin" })
   company_tin?: string;
+
+  // №48, A2: KP qabul qilinganda ham yetkazish afzalligi beriladi
+  @ApiProperty({ required: false, enum: ['delivery', 'pickup'] })
+  @IsOptional()
+  @IsIn(['delivery', 'pickup'], { message: 'delivery_preference: delivery yoki pickup' })
+  delivery_preference?: string;
+
+  @ApiProperty({ required: false, type: OrderPickupInfoDto, description: 'Kim olib ketadi (pickup da; hamma maydon ixtiyoriy)' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => OrderPickupInfoDto)
+  pickup_info?: OrderPickupInfoDto;
 }
 
 /** `POST /orders/:id/quote/reject` — mijoz rad etadi. */

@@ -21,7 +21,7 @@ import {
 } from './order-status';
 import { BadRequestException } from '@nestjs/common';
 import Sequelize, { Op } from 'sequelize';
-import { cancelDeliveriesForOrder } from 'src/deliveries/deliveries.service';
+import { autoPickupOnReady, cancelDeliveriesForOrder } from 'src/deliveries/deliveries.service';
 import { Delivery } from 'src/deliveries/model/models';
 import { pushOrderStatus } from 'src/deliveries/customer-push';
 import { OrderItemsService } from 'src/order_items/order_items.service';
@@ -139,6 +139,11 @@ export class OrdersService {
     const area = resolveArea(orderFields.region_code, orderFields.district_code);
     orderFields.region_code = area.region_code;
     orderFields.district_code = area.district_code;
+    // №48, A2: «Kim olib ketadi» berilgan bo'lsa — afzallik avtomatik `pickup`
+    if (orderFields.pickup_info) {
+      orderFields.pickup_info = { ...orderFields.pickup_info };
+      orderFields.delivery_preference = 'pickup';
+    }
     const preparedServices = await prepareServiceLines(serviceInputs, {
       ...area,
       productIndexes: new Set(productLines.map((l) => l.index)),
@@ -363,9 +368,22 @@ export class OrdersService {
       ],
       order: [['updatedAt', 'DESC']],
     });
+    // №48, B1: ro'yxatda belgi — mijoz javobini kutayotgan yetkazish narxi bor
+    const ids = userOrder.map((o) => o.id);
+    const proposed = new Set<number>(
+      ids.length
+        ? ((await this.OrderRepository.sequelize.query(
+            `SELECT DISTINCT order_id FROM deliveries WHERE order_id IN (:ids) AND fee_status = 'proposed' AND status = 'pending'`,
+            { replacements: { ids }, type: 'SELECT' as any },
+          )) as any[]).map((r) => Number(r.order_id))
+        : [],
+    );
     // Profildagi "Buyurtmalarim": KP kartochkasi uchun versiyalar va tarix
     return Promise.all(
-      userOrder.map((o) => this.withQuoteInfo(o.get({ plain: true }), { forCustomer: true })),
+      userOrder.map(async (o) => ({
+        ...(await this.withQuoteInfo(o.get({ plain: true }), { forCustomer: true })),
+        delivery_fee_proposed: proposed.has(Number(o.id)),
+      })),
     );
   }
 
@@ -605,10 +623,13 @@ export class OrdersService {
       });
       return { from, row };
     });
+    // №48, A2: mijoz «O'zim olib ketaman» degan — yetkazish avtomatik `pickup`
+    const autoDeliveryId = stage === 'ready' ? await autoPickupOnReady(orderId, storeId) : null;
     const order = await this.OrderRepository.findByPk(orderId, { attributes: ['id', 'status'] });
     return {
       order_id: orderId,
       store_id: storeId,
+      ...(autoDeliveryId ? { delivery_id: autoDeliveryId, delivery_mode: 'pickup' } : {}),
       stage: result.row.stage,
       packing_at: result.row.packing_at,
       ready_at: result.row.ready_at,

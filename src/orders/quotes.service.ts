@@ -489,6 +489,8 @@ export class QuotesService {
             comment: src.comment ?? null,
             company_name: dto.company_name?.trim() || src.company_name || null,
             company_tin: dto.company_tin?.trim() || src.company_tin || null,
+            delivery_preference: dto.pickup_info ? 'pickup' : dto.delivery_preference || src.delivery_preference || 'delivery',
+            pickup_info: dto.pickup_info ?? src.pickup_info ?? null,
             recipient_name: src.recipient_name ?? null,
             recipient_phone: src.recipient_phone ?? null,
             address_details: src.address_details ?? null,
@@ -544,6 +546,9 @@ export class QuotesService {
           quote_accepted_version: maxVersion,
           ...(dto.company_name ? { company_name: dto.company_name.trim() } : {}),
           ...(dto.company_tin ? { company_tin: dto.company_tin.trim() } : {}),
+          // №48, A2: «O'zim olib ketaman» KP qabul qilinganda ham
+          ...(dto.delivery_preference ? { delivery_preference: dto.delivery_preference } : {}),
+          ...(dto.pickup_info ? { pickup_info: dto.pickup_info, delivery_preference: 'pickup' } : {}),
         } as any,
         { where: { id: orderId }, transaction: t },
       );

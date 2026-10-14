@@ -32,7 +32,7 @@ export async function orderTracking(orderId: number) {
   );
   const storeIds = [...new Set(items.map((i) => Number(i.store_id)).filter(Boolean))];
   const stores: any[] = storeIds.length
-    ? await seq.query('SELECT id, name, phone FROM stores WHERE id IN (:ids)', {
+    ? await seq.query('SELECT id, name, phone, address, lat, lng FROM stores WHERE id IN (:ids)', {
         replacements: { ids: storeIds },
         type: QueryTypes.SELECT,
       })
@@ -47,7 +47,10 @@ export async function orderTracking(orderId: number) {
     // Bir do'konda bir nechta yetkazish bo'lsa (`retry`) — faqat OXIRGI faoli
     const d = deliveries.find((x) => Number(x.store_id) === storeId && x.status !== 'cancelled') ?? null;
     parts.push({
-      store: s ? { id: storeId, name: s.name, phone: s.phone ?? null } : { id: storeId, name: null, phone: null },
+      // Ombor manzili va nuqtasi (№48, B2) — mijoz o'zi olib ketganda xaritada
+      store: s
+        ? { id: storeId, name: s.name, phone: s.phone ?? null, address: s.address ?? null, lat: s.lat === null ? null : Number(s.lat), lng: s.lng === null ? null : Number(s.lng) }
+        : { id: storeId, name: null, phone: null, address: null, lat: null, lng: null },
       // Faqat xizmat sotayotgan hamkor qismida yig'ish bosqichi yo'q
       stage: stages.get(storeId) ?? null,
       items: items
