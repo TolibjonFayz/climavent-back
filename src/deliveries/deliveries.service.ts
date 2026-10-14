@@ -58,6 +58,7 @@ import {
 import {
   CLASS_SPEC,
   LoadSummary,
+  VOLUME_UNKNOWN_WARNING,
   VehicleClass,
   classCovers,
   classOf,
@@ -325,8 +326,8 @@ export class DeliveriesService {
                 store_id: dto.store_id,
                 vehicle_class: choice.vehicle_class,
                 vehicle_type: requiredVehicle,
-                pickup_lat: dto.pickup_lat ?? null,
-                pickup_lng: dto.pickup_lng ?? null,
+                pickup_lat: dto.pickup_lat ?? store.lat ?? null,
+                pickup_lng: dto.pickup_lng ?? store.lng ?? null,
                 dropoff_lat: dto.dropoff_lat ?? order.lat ?? null,
                 dropoff_lng: dto.dropoff_lng ?? order.lng ?? null,
                 floor,
@@ -405,11 +406,12 @@ export class DeliveriesService {
     const hasElevator = dto.has_elevator ?? d.has_elevator;
     const load = await this.refreshLoad(d, { floor, has_elevator: hasElevator });
     const pickup = await this.pickupPoint(d);
+    const dropoff = await this.dropoffPoint(d);
     const base = {
       pickup_lat: pickup.lat,
       pickup_lng: pickup.lng,
-      dropoff_lat: d.dropoff_lat,
-      dropoff_lng: d.dropoff_lng,
+      dropoff_lat: dropoff.lat,
+      dropoff_lng: dropoff.lng,
       floor,
       has_elevator: hasElevator,
       loaders_needed: dto.loaders_needed ?? d.loaders_needed,
@@ -423,6 +425,7 @@ export class DeliveriesService {
         ? await this.work.platformFee({ ...base, vehicle_class: choice.vehicle_class, vehicle_type: choice.required_vehicle })
         : { delivery_fee: null, distance_km: options[0]?.distance_km ?? null };
     const warnings = this.classWarnings(choice.vehicle_class, load);
+    warnings.push(...this.pointWarnings(pickup, dropoff));
     if (choice.required_vehicle && fee.delivery_fee === null) {
       warnings.push(`${choice.vehicle_class ?? choice.required_vehicle} uchun platforma tarifi yo'q — boshqa sinfni tanlang`);
     }
@@ -476,18 +479,19 @@ export class DeliveriesService {
       const choice = this.chooseClass(dto, load);
       if (!choice.required_vehicle) {
         throw new BadRequestException(
-          `vehicle_class majburiy: o'lchami yo'q qatorlar bor (${load.dimensions_missing.join(', ')}) — sinfni o'zingiz tanlang`,
+          `vehicle_class majburiy: og'irligi yo'q qatorlar bor (${load.dimensions_missing.join(', ')}) — sinfni o'zingiz tanlang`,
         );
       }
       const label = choice.vehicle_class ?? choice.required_vehicle;
       const pickup = await this.pickupPoint(d, t);
+      const dropoff = await this.dropoffPoint(d, t);
       const quote = await this.work.platformFee({
         vehicle_class: choice.vehicle_class,
         vehicle_type: choice.required_vehicle,
         pickup_lat: pickup.lat,
         pickup_lng: pickup.lng,
-        dropoff_lat: d.dropoff_lat,
-        dropoff_lng: d.dropoff_lng,
+        dropoff_lat: dropoff.lat,
+        dropoff_lng: dropoff.lng,
         floor,
         has_elevator: hasElevator,
         loaders_needed: dto.loaders_needed ?? d.loaders_needed,
@@ -511,9 +515,12 @@ export class DeliveriesService {
         published_at: d.published_at ?? now,
         pickup_lat: d.pickup_lat ?? pickup.lat,
         pickup_lng: d.pickup_lng ?? pickup.lng,
+        // №49: buyurtmada xaritadan belgilangan nuqta yetkazishga ham yoziladi (kuryer va kuzatish uchun)
+        dropoff_lat: d.dropoff_lat ?? dropoff.lat,
+        dropoff_lng: d.dropoff_lng ?? dropoff.lng,
         fee_payer: payer,
       };
-      const warnings = this.classWarnings(choice.vehicle_class, load);
+      const warnings = [...this.classWarnings(choice.vehicle_class, load), ...this.pointWarnings(pickup, dropoff)];
 
       if (payer === 'customer') {
         const [order]: any[] = await Delivery.sequelize.query('SELECT user_id, company_tin FROM orders WHERE id = :id', {
@@ -968,7 +975,10 @@ export class DeliveriesService {
   private classWarnings(cls: VehicleClass | null, load: LoadSummary): string[] {
     const out: string[] = [];
     if (load.dimensions_missing.length) {
-      out.push(`O'lchami yo'q qatorlar: ${load.dimensions_missing.join(', ')} — sinfni o'zingiz tanlang`);
+      out.push(`Og'irligi yo'q qatorlar: ${load.dimensions_missing.join(', ')} — sinfni o'zingiz tanlang`);
+    }
+    if (load.volume_unknown) {
+      out.push(VOLUME_UNKNOWN_WARNING);
     }
     if (load.needs_crane && cls && cls !== 'crane') out.push('Yukda kran talab qiladigan tovar bor — crane sinfini tanlang');
     if (load.split_suggested) out.push(`Yuk bitta mashinaga sig'maydi — ${load.split_suggested.length} ta ${load.split_suggested[0].class} kerak`);
@@ -1214,6 +1224,28 @@ export class DeliveriesService {
       channel: 'orders',
     });
     return this.present(d, { forCourier: true, full: true });
+  }
+
+  /**
+   * Tushirish nuqtasi (№49): yetkazishdagi, bo'lmasa buyurtmaning `lat/lng` (checkout'da
+   * xaritadan belgilanadi). Ikkalasi ham yo'q — `null`, narx masofasiz.
+   */
+  private async dropoffPoint(d: Delivery, t?: Transaction) {
+    if (d.dropoff_lat !== null && d.dropoff_lng !== null) return { lat: Number(d.dropoff_lat), lng: Number(d.dropoff_lng) };
+    const [o]: any[] = await Delivery.sequelize.query('SELECT lat, lng FROM orders WHERE id = :id', {
+      replacements: { id: d.order_id },
+      type: QueryTypes.SELECT,
+      transaction: t,
+    });
+    return o && o.lat !== null && o.lng !== null ? { lat: Number(o.lat), lng: Number(o.lng) } : { lat: null, lng: null };
+  }
+
+  /** Masofa hisoblanmasa — nega (№49). */
+  private pointWarnings(pickup: { lat: number | null }, dropoff: { lat: number | null }): string[] {
+    const out: string[] = [];
+    if (pickup.lat === null) out.push("Do'kon nuqtasi xaritada belgilanmagan — narx masofasiz");
+    if (dropoff.lat === null) out.push('Manzil xaritada belgilanmagan — narx masofasiz');
+    return out;
   }
 
   /** Pickup nuqtasi: yetkazishdagi yoki do'kon koordinatasi. */

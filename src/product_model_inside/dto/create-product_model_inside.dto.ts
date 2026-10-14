@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsIn,
   IsInt,
@@ -11,6 +12,15 @@ import {
   ValidateIf,
   IsBoolean,
 } from 'class-validator';
+
+/** Santimetr: son (yoki "133,5") butunga yaxlitlanadi; boshqasi tekshiruvga o'zgarishsiz (400). */
+// `enableImplicitConversion` "60,6" ni NaN ga aylantirib qo'yadi — asl qiymat `obj[key]` dan
+const roundCm = ({ value: converted, obj, key }: { value: any; obj: any; key: string }) => {
+  const value = obj?.[key] ?? converted;
+  if (value === null || value === undefined || value === '' || typeof value === 'boolean') return value;
+  const n = Number(String(value).replace(',', '.'));
+  return Number.isFinite(n) ? Math.round(n) : value;
+};
 
 export class CreateProductModelInsideDto {
   @ApiProperty({
@@ -62,6 +72,8 @@ export class CreateProductModelInsideDto {
   @ApiProperty({ example: 120, required: false, nullable: true, description: 'Uzunlik, sm' })
   @IsOptional()
   @ValidateIf((_, v) => v !== null)
+  // №49: katalogda «133,5 sm» uchraydi — butun santimetrga yaxlitlanadi (400 emas)
+  @Transform(roundCm)
   @IsInt()
   @Min(0)
   @Max(10000)
@@ -70,6 +82,8 @@ export class CreateProductModelInsideDto {
   @ApiProperty({ example: 80, required: false, nullable: true, description: 'Eni, sm' })
   @IsOptional()
   @ValidateIf((_, v) => v !== null)
+  // №49: katalogda «133,5 sm» uchraydi — butun santimetrga yaxlitlanadi (400 emas)
+  @Transform(roundCm)
   @IsInt()
   @Min(0)
   @Max(10000)
@@ -78,6 +92,8 @@ export class CreateProductModelInsideDto {
   @ApiProperty({ example: 60, required: false, nullable: true, description: 'Balandlik, sm' })
   @IsOptional()
   @ValidateIf((_, v) => v !== null)
+  // №49: katalogda «133,5 sm» uchraydi — butun santimetrga yaxlitlanadi (400 emas)
+  @Transform(roundCm)
   @IsInt()
   @Min(0)
   @Max(10000)

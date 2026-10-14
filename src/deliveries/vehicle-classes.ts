@@ -82,16 +82,22 @@ export interface LoadLine {
 }
 
 export interface LoadSummary {
-  /** Hamma qatorda o'lcham bo'lsagina — aks holda `null` (taxmin qilmaymiz). */
+  /** Hamma qatorda og'irlik bo'lsagina — aks holda `null` (taxmin qilmaymiz). */
   total_weight_kg: number | null;
+  /** Hamma qatorda gabarit ham bo'lsagina; aks holda `null` va `volume_unknown` (№49). */
   total_volume_m3: number | null;
   needs_crane: boolean;
   /** Eng og'ir bitta joy (dona og'irligi / joylar soni). */
   max_package_kg: number | null;
+  /** Og'irligi YO'Q qatorlar — sinfni do'kon o'zi tanlaydi (№49 dan faqat og'irlik). */
   dimensions_missing: number[];
+  /** Og'irligi bor, gabariti yo'q qatorlar (№49). */
+  volume_missing: number[];
+  /** Hajm noma'lum — sinf faqat og'irlik bo'yicha (zaxira bilan) tanlandi (№49). */
+  volume_unknown: boolean;
   suggested_class: VehicleClass | null;
   /** Eng katta sinfga ham sig'masa — bir necha mashina. */
-  split_suggested: { class: VehicleClass; weight_kg: number; volume_m3: number }[] | null;
+  split_suggested: { class: VehicleClass; weight_kg: number; volume_m3: number | null }[] | null;
   loaders_suggested: number;
 }
 
@@ -109,26 +115,34 @@ export function suggestLoaders(maxPackageKg: number | null, floor?: number | nul
   return n;
 }
 
-const fits = (cls: VehicleClass, kg: number, m3: number) => CLASS_SPEC[cls].kg >= kg && CLASS_SPEC[cls].m3 >= m3;
+/** Hajm noma'lum bo'lsa og'irlikka zaxira (№49): sinf `capacity_kg` ≥ og'irlik × 1.1. */
+export const WEIGHT_ONLY_RESERVE = 1.1;
+
+/** `m3: null` — hajm noma'lum, faqat og'irlik tekshiriladi. */
+const fits = (cls: VehicleClass, kg: number, m3: number | null) => CLASS_SPEC[cls].kg >= kg && (m3 === null || CLASS_SPEC[cls].m3 >= m3);
 
 /** Og'irlik VA hajm sig'adigan eng kichik sinf (kran kerak bo'lsa — faqat `crane`). */
-export function smallestClass(kg: number, m3: number, crane: boolean): VehicleClass | null {
+export function smallestClass(kg: number, m3: number | null, crane: boolean): VehicleClass | null {
   if (crane) return fits('crane', kg, m3) ? 'crane' : null;
   return ROAD_CLASSES.find((c) => fits(c, kg, m3)) ?? null;
 }
 
 /** Bitta mashinaga sig'masa — teng bo'laklarga bo'lib, har bo'lakka eng kichik sinf. */
-export function splitLoad(kg: number, m3: number, crane: boolean) {
+export function splitLoad(kg: number, m3: number | null, crane: boolean) {
   const biggest: VehicleClass = crane ? 'crane' : 'truck_20t';
-  const n = Math.max(2, Math.ceil(Math.max(kg / CLASS_SPEC[biggest].kg, m3 / CLASS_SPEC[biggest].m3)));
+  const n = Math.max(2, Math.ceil(Math.max(kg / CLASS_SPEC[biggest].kg, m3 === null ? 0 : m3 / CLASS_SPEC[biggest].m3)));
   const partKg = round(kg / n, 2);
-  const partM3 = round(m3 / n, 3);
+  const partM3 = m3 === null ? null : round(m3 / n, 3);
   const cls = smallestClass(partKg, partM3, crane) ?? biggest;
   return Array.from({ length: n }, () => ({ class: cls, weight_kg: partKg, volume_m3: partM3 }));
 }
 
+/** Hajm noma'lum bo'lganda javob va ogohlantirishlardagi matn (№49). */
+export const VOLUME_UNKNOWN_WARNING = "Hajm noma'lum — mashina og'irlik bo'yicha tanlandi";
+
 export function summarizeLoad(lines: LoadLine[], opts: { floor?: number | null; has_elevator?: boolean | null } = {}): LoadSummary {
   const missing: number[] = [];
+  const noVolume: number[] = [];
   let kg = 0;
   let m3 = 0;
   let maxPkg: number | null = null;
@@ -136,27 +150,32 @@ export function summarizeLoad(lines: LoadLine[], opts: { floor?: number | null; 
   for (const l of lines) {
     if (l.needs_crane) crane = true;
     const q = Math.max(0, Number(l.quantity) || 0);
-    if (l.weight_kg !== null && l.weight_kg !== undefined) {
-      const perPackage = Number(l.weight_kg) / Math.max(1, Number(l.packages) || 1);
-      maxPkg = Math.max(maxPkg ?? 0, perPackage);
-    }
-    if ([l.weight_kg, l.length_cm, l.width_cm, l.height_cm].some((x) => x === null || x === undefined)) {
+    if (l.weight_kg === null || l.weight_kg === undefined) {
       missing.push(Number(l.order_item_id));
       continue;
     }
+    const perPackage = Number(l.weight_kg) / Math.max(1, Number(l.packages) || 1);
+    maxPkg = Math.max(maxPkg ?? 0, perPackage);
     kg += Number(l.weight_kg) * q;
+    if ([l.length_cm, l.width_cm, l.height_cm].some((x) => x === null || x === undefined)) {
+      noVolume.push(Number(l.order_item_id));
+      continue;
+    }
     const factor = l.stackable === false ? VOLUME_FACTOR_NOT_STACKABLE : VOLUME_FACTOR;
     m3 += ((Number(l.length_cm) * Number(l.width_cm) * Number(l.height_cm)) / 1e6) * q * factor;
   }
-  const complete = lines.length > 0 && missing.length === 0;
-  const totalKg = complete ? round(kg, 2) : null;
-  const totalM3 = complete ? round(m3, 3) : null;
+  const weightKnown = lines.length > 0 && missing.length === 0;
+  const volumeKnown = weightKnown && noVolume.length === 0;
+  const totalKg = weightKnown ? round(kg, 2) : null;
+  const totalM3 = volumeKnown ? round(m3, 3) : null;
   let suggested: VehicleClass | null = null;
   let split: LoadSummary['split_suggested'] = null;
-  if (complete) {
-    suggested = smallestClass(totalKg, totalM3, crane);
+  if (weightKnown) {
+    // Hajm noma'lum — faqat og'irlik, 10% zaxira bilan (№49)
+    const needKg = volumeKnown ? totalKg : round(totalKg * WEIGHT_ONLY_RESERVE, 2);
+    suggested = smallestClass(needKg, totalM3, crane);
     if (!suggested) {
-      split = splitLoad(totalKg, totalM3, crane);
+      split = splitLoad(needKg, totalM3, crane);
       suggested = split[0].class;
     }
   }
@@ -166,6 +185,8 @@ export function summarizeLoad(lines: LoadLine[], opts: { floor?: number | null; 
     needs_crane: crane,
     max_package_kg: maxPkg === null ? null : round(maxPkg, 2),
     dimensions_missing: missing,
+    volume_missing: noVolume,
+    volume_unknown: weightKnown && !volumeKnown,
     suggested_class: suggested,
     split_suggested: split,
     loaders_suggested: suggestLoaders(maxPkg, opts.floor, opts.has_elevator),

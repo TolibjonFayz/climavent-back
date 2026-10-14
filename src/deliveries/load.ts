@@ -1,6 +1,6 @@
 import { QueryTypes, Transaction } from 'sequelize';
 import { Delivery, DeliveryPickupInfo } from './model/models';
-import { LoadLine, LoadSummary, VehicleClass, classCovers, summarizeLoad } from './vehicle-classes';
+import { LoadLine, LoadSummary, VOLUME_UNKNOWN_WARNING, VehicleClass, classCovers, summarizeLoad } from './vehicle-classes';
 import { settingNumber } from 'src/crews/trust';
 
 /**
@@ -53,6 +53,10 @@ export const loadView = (s: LoadSummary) => ({
   split_suggested: s.split_suggested,
   loaders_suggested: s.loaders_suggested,
   dimensions_missing: s.dimensions_missing,
+  // №49: og'irligi bor, gabariti yo'q — sinf faqat og'irlik bo'yicha
+  volume_missing: s.volume_missing,
+  volume_unknown: s.volume_unknown,
+  warnings: s.volume_unknown ? [VOLUME_UNKNOWN_WARNING] : [],
 });
 
 /** Javobsiz taklif muddati (№48, A1) — daqiqada, `settings` dan. */
@@ -162,7 +166,8 @@ export async function customerPickupView(d: Delivery, info?: DeliveryPickupInfo 
   const warnings: string[] = [];
   if (load.needs_crane) warnings.push('Yukni ortish uchun kran (manipulyator) kerak — kranli mashina yuboring');
   if (load.split_suggested) warnings.push(`Yuk bitta mashinaga sig'maydi — ${load.split_suggested.length} ta mashina kerak`);
-  if (load.dimensions_missing.length) warnings.push("Yuk o'lchami to'liq kiritilmagan — mashinani do'kon bilan kelishing");
+  if (load.dimensions_missing.length) warnings.push("Yuk og'irligi to'liq kiritilmagan — mashinani do'kon bilan kelishing");
+  if (load.volume_unknown) warnings.push(VOLUME_UNKNOWN_WARNING);
   if (info?.vehicle_class && load.suggested_class && !classCovers(info.vehicle_class as VehicleClass, load.suggested_class)) {
     warnings.push(`${info.vehicle_class} kichik — kamida ${load.suggested_class} kerak`);
   }
@@ -171,6 +176,7 @@ export async function customerPickupView(d: Delivery, info?: DeliveryPickupInfo 
     pickup_info: info ? pickupInfoView(info) : null,
     total_weight_kg: load.total_weight_kg,
     total_volume_m3: load.total_volume_m3,
+    volume_unknown: load.volume_unknown,
     suggested_class: load.suggested_class,
     needs_crane: load.needs_crane,
     split_suggested: load.split_suggested,
