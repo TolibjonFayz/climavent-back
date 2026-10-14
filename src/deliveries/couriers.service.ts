@@ -335,7 +335,9 @@ export class CouriersService {
   async cashBalance(courierId: number) {
     const [row]: any[] = await Courier.sequelize.query(
       `SELECT
-         (COALESCE((SELECT SUM(cash_collected) FROM deliveries WHERE courier_id = :id AND status = 'delivered'), 0)
+         -- Mijoz to'lagan yetkazish haqi (№47) ham kuryer qo'lidagi naqd
+         (COALESCE((SELECT SUM(COALESCE(cash_collected, 0) + COALESCE(fee_cash_collected, 0)) FROM deliveries
+                     WHERE courier_id = :id AND status = 'delivered'), 0)
           + COALESCE((SELECT SUM(cash_collected) FROM service_jobs WHERE worker_id = :id AND status IN ('completed', 'failed')), 0))::bigint AS collected,
          COALESCE((SELECT SUM(amount) FROM cash_handovers WHERE courier_id = :id), 0)::bigint AS handed_over`,
       { replacements: { id: courierId }, type: QueryTypes.SELECT },

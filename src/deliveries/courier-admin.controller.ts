@@ -26,6 +26,7 @@ import { CourierDocumentsService } from './courier-documents.service';
 import { CourierVehiclesService } from './courier-vehicles.service';
 import { CourierWorkService } from './courier-work.service';
 import {
+  ApproveVehicleDto,
   CourierDocumentDto,
   CourierPayoutDto,
   CourierRateDto,
@@ -155,15 +156,17 @@ export class CourierAdminController {
     });
   }
 
+  @ApiOperation({ summary: "Tasdiqlash; tanada ixtiyoriy vehicle_class / capacity_kg / capacity_m3 (№47) — tasdiqlangan transportda ham" })
   @HttpCode(200)
   @Post(':id/vehicles/:vid/approve')
   async approveVehicle(
     @Param('id', ParseIntPipe) id: number,
     @Param('vid', ParseIntPipe) vid: number,
+    @Body() dto: ApproveVehicleDto,
     @Req() req: any,
   ) {
     const courier = await this.couriers.getOwned(id, req.storeUser);
-    return this.vehicles.approve(courier, vid, req.storeUser);
+    return this.vehicles.approve(courier, vid, req.storeUser, dto);
   }
 
   @HttpCode(200)

@@ -12,6 +12,7 @@ import {
 } from './constants';
 import { Courier, CourierVehicle, Delivery, DeliveryEvent } from './model/models';
 import { decryptJobCode } from 'src/service_jobs/job-code';
+import { customerFeeView, customerPickupView } from './load';
 
 /**
  * Havola kaliti: **16 bayt tasodifiy -> 32 ta hex belgi** (`0-9a-f`).
@@ -240,6 +241,10 @@ export async function customerDeliveryView(d: Delivery, opts: { owner?: boolean 
       opts.owner && !finished && (d.status === 'on_the_way' || (d.status === 'pending' && !d.courier_id && d.mode !== 'platform'))
         ? decryptJobCode(d.proof_code_enc)
         : null,
+    // №47: FAQAT egaga. Yetkazish haqi — mijoz to'lovchi bo'lsagina (store — null);
+    // olib ketishda — qanday mashina yuborish kerakligi va yuborilgan haydovchi.
+    fee: opts.owner ? customerFeeView(d) : null,
+    pickup: opts.owner && d.mode === 'pickup' ? await customerPickupView(d) : null,
   };
 }
 

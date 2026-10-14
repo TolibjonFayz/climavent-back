@@ -11,11 +11,16 @@ import {
   Query,
   Req,
   Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { StoreAuthGuard } from 'src/store_auth/store_auth.guard';
+import { UserGuard } from 'src/guards/user.guard';
+import { PROOF_MAX_BYTES } from './constants';
 import { CouriersService } from './couriers.service';
 import { DeliveriesService } from './deliveries.service';
 import {
@@ -24,7 +29,9 @@ import {
   CommentDto,
   CreateCourierDto,
   CreateDeliveryDto,
+  DeliveryFeeDecisionDto,
   HandoverDto,
+  PickupInfoDto,
   PublishDeliveryDto,
   QuoteFeeDto,
   UpdateCourierDto,
@@ -140,11 +147,22 @@ export class DeliveriesController {
     return this.deliveries.unpublish(id, req.storeUser);
   }
 
-  @ApiOperation({ summary: "Do'kon o'zi topshiradi (kuryersiz self yoki pickup) — mijoz kodi bilan" })
+  @ApiOperation({
+    summary:
+      "Do'kon o'zi topshiradi (kuryersiz self yoki pickup) — mijoz kodi bilan. JSON yoki multipart: " +
+      "pickup da ixtiyoriy loaded_photo (yuklangan mashina) va vehicle_plate_actual (№47)",
+  })
+  @ApiConsumes('application/json', 'multipart/form-data')
   @HttpCode(200)
+  @UseInterceptors(FileInterceptor('loaded_photo', { limits: { fileSize: PROOF_MAX_BYTES, files: 1 } }))
   @Post(':id/deliver')
-  deliver(@Param('id', ParseIntPipe) id: number, @Body() dto: HandoverDto, @Req() req: any) {
-    return this.deliveries.handover(id, dto, req.storeUser);
+  deliver(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: HandoverDto,
+    @Req() req: any,
+    @UploadedFile() loadedPhoto?: Express.Multer.File,
+  ) {
+    return this.deliveries.handover(id, dto, req.storeUser, loadedPhoto);
   }
 
   @ApiOperation({ summary: 'Ro\'yxat (?status=a,b&store_id=&courier_id=|null&order_id=&date_from=&date_to=&page=&limit=)' })
@@ -233,5 +251,57 @@ export class DeliveriesController {
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.send(data);
+  }
+}
+
+/**
+ * Xaridor tomoni (topshiriq №47, 7- va 8-bo'lim) — ilova va sayt. Faqat buyurtma
+ * EGASI; begona buyurtma — 404. Buyurtmalar modulida emas: u bilan DI sikli bo'lmasin.
+ */
+@ApiTags('Orders')
+@ApiBearerAuth()
+@UseGuards(UserGuard)
+@Controller('orders')
+export class CustomerDeliveryController {
+  constructor(private readonly deliveries: DeliveriesService) {}
+
+  @ApiOperation({ summary: "Mijoz o'z mashinasini yuboradi (pickup): haydovchi, raqam, kelish vaqti, ishonchnoma" })
+  @ApiResponse({ status: 200, schema: { example: { delivery_id: 12, pickup_info: { driver_name: 'Bobur', vehicle_plate: '01A777AA' }, total_weight_kg: 1800, total_volume_m3: 6.2, suggested_class: 'crane', needs_crane: true, warnings: ['Yukni ortish uchun kran kerak'] } } })
+  @ApiResponse({ status: 404, description: 'Begona buyurtma' })
+  @ApiResponse({ status: 409, description: 'Yetkazish pickup emas yoki topshirilgan' })
+  @Patch(':id/pickup-info')
+  pickupInfo(@Param('id', ParseIntPipe) id: number, @Body() dto: PickupInfoDto, @Req() req: any) {
+    return this.deliveries.savePickupInfo(id, Number(req.user?.id), dto);
+  }
+
+  @ApiOperation({ summary: "Yetkazish haqini tasdiqlash — shundan keyin birjaga chiqadi (fee_payer = customer)" })
+  @HttpCode(200)
+  @Post(':id/delivery-fee/accept')
+  acceptFee(@Param('id', ParseIntPipe) id: number, @Body() dto: DeliveryFeeDecisionDto, @Req() req: any) {
+    return this.deliveries.decideFee(id, Number(req.user?.id), dto, true);
+  }
+
+  @ApiOperation({ summary: "Yetkazish haqini rad etish — do'konga push, yetkazish pending da qoladi" })
+  @HttpCode(200)
+  @Post(':id/delivery-fee/reject')
+  rejectFee(@Param('id', ParseIntPipe) id: number, @Body() dto: DeliveryFeeDecisionDto, @Req() req: any) {
+    return this.deliveries.decideFee(id, Number(req.user?.id), dto, false);
+  }
+}
+
+/** O'lchami yo'q mahsulotlar (№47, 1-bo'lim) — do'kon to'ldirishi uchun. */
+@ApiTags('Stores')
+@ApiBearerAuth()
+@ApiSecurity('service-key')
+@UseGuards(StoreAuthGuard)
+@Controller('stores')
+export class StoreDimensionsController {
+  constructor(private readonly deliveries: DeliveriesService) {}
+
+  @ApiOperation({ summary: "O'lchami (og'irlik, L/W/H) yo'q mahsulotlar — variant yoki model kesimida" })
+  @ApiResponse({ status: 200, schema: { example: { store_id: 1, total: 2, products: 1, items: [{ product_id: 5, characteristic_id: 9, variant_id: null, reason: 'missing', missing: ['weight_kg'] }] } } })
+  @Get(':id/dimensions-missing')
+  dimensionsMissing(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.deliveries.dimensionsMissing(id, req.storeUser);
   }
 }

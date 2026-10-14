@@ -276,6 +276,8 @@ export const STAFF_ROUTES: Record<string, Rule> = {
   'GET /api/services/:id': 'any',
   'GET /api/products/:id/services': 'any',
   'GET /api/stores/:id/service-areas': 'any',
+  // №47: o'lchami yo'q mahsulotlar (to'ldirish — products.edit / prices bilan)
+  'GET /api/stores/:id/dimensions-missing': 'products.view',
   'GET /api/stores/:id/service-reviews': 'any',
 
   // --- buyurtmalar

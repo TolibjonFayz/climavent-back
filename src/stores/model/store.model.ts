@@ -47,9 +47,10 @@ export class Store extends Model<Store, StoreAtr> {
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false })
   is_test: boolean;
 
-  // Yetkazish usullari (№44, 3.1): self · platform · pickup. `platform` ni faqat superadmin yoqadi.
-  @ApiProperty({ example: ['self'], description: 'self | platform | pickup' })
-  @Column({ type: DataType.ARRAY(DataType.TEXT), allowNull: false, defaultValue: ['self'] })
+  // Yetkazish usullari (№44, 3.1): self · platform · pickup. `platform` ni faqat superadmin
+  // yoqadi/o'chiradi. Yangi do'kon (ariza tasdig'i ham) — uchalasi (№47, 6.1, egasi qarori).
+  @ApiProperty({ example: ['self', 'platform', 'pickup'], description: 'self | platform | pickup' })
+  @Column({ type: DataType.ARRAY(DataType.TEXT), allowNull: false, defaultValue: ['self', 'platform', 'pickup'] })
   delivery_modes: string[];
 
   @ApiProperty({ required: false, description: "Do'kon haqida (uz)" })

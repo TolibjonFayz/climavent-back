@@ -36,6 +36,7 @@ import {
   Delivery,
   DeliveryEvent,
   DeliveryIncident,
+  DeliveryPickupInfo,
   DeliveryProof,
 } from './model/models';
 import {
@@ -45,13 +46,26 @@ import {
   CourierFailDto,
   CourierPickupDto,
   CreateDeliveryDto,
+  DeliveryFeeDecisionDto,
   HandoverDto,
   IncidentDto,
   LocationDto,
+  PickupInfoDto,
   PublishDeliveryDto,
   QuoteFeeDto,
   UpdateDeliveryDto,
 } from './dto/dto';
+import {
+  CLASS_SPEC,
+  LoadSummary,
+  VehicleClass,
+  classCovers,
+  classOf,
+  isVehicleClass,
+  vehicleCapacity,
+  vehicleMismatch,
+} from './vehicle-classes';
+import { customerFeeView, customerPickupView, loadSummaryOf, loadView, pickupInfoView } from './load';
 import { decryptJobCode, encryptJobCode, newJobCode } from 'src/service_jobs/job-code';
 import { settingNumber } from 'src/crews/trust';
 import { recordCourierEvent } from './courier-events';
@@ -185,6 +199,9 @@ function areaName(region?: string | null, district?: string | null) {
   };
 }
 
+/** Davlat raqamini solishtirish uchun: bo'sh joy va defissiz, katta harf. */
+const normPlate = (p?: string | null) => String(p || '').replace(/[\s-]/g, '').toUpperCase();
+
 /** Kuryer hududlari ichidami (bo'sh — cheklanmagan). */
 function inAreas(areas: { region_code: string; district_code?: string | null }[] | null | undefined, region?: string | null, district?: string | null) {
   if (!areas?.length) return true;
@@ -226,7 +243,7 @@ export class DeliveriesService {
     }
     const mode = dto.mode || 'self';
     const [order]: any[] = await Delivery.sequelize.query(
-      `SELECT o.id, o.status, o.location, o.address_details, o.lat, o.lng, o.recipient_name, o.recipient_phone,
+      `SELECT o.id, o.status, o.location, o.address_details, o.lat, o.lng, o.recipient_name, o.recipient_phone, o.company_tin,
               u.name AS user_name, u.surname AS user_surname, u.phone_number AS user_phone
          FROM orders o LEFT JOIN users u ON u.id = o.user_id WHERE o.id = :id`,
       { replacements: { id: dto.order_id }, type: QueryTypes.SELECT },
@@ -257,13 +274,14 @@ export class DeliveriesService {
     }
     this.validateWindow(dto.window_from, dto.window_to);
 
-    // Og'irlik va hajm (topshiriq №26, 7-band): HVAC uskunasining ko'pi
-    // yengil mashinaga sig'maydi. Jami og'irlik/hajmdan kerakli transport
-    // TAKLIF qilinadi — operator adminkada o'zgartira oladi.
-    const load = await this.loadOf(items);
-    const requiredVehicle = dto.required_vehicle || this.suggestVehicle(load) || 'car';
+    // Og'irlik va hajm (№26, 7-band; №47, 3-bo'lim): HVAC uskunasining ko'pi
+    // yengil mashinaga sig'maydi. Jami og'irlik/hajmdan mashina sinfi TAKLIF
+    // qilinadi — do'kon kattaroqni tanlashi mumkin.
     const floor = dto.floor ?? null;
     const hasElevator = dto.has_elevator ?? null;
+    const load = await loadSummaryOf(items, { floor, has_elevator: hasElevator });
+    const choice = this.chooseClass(dto, load);
+    const requiredVehicle = choice.required_vehicle || 'car';
 
     const recipientPhone = dto.recipient_phone ?? order.recipient_phone ?? (/^\+998\d{9}$/.test(order.user_phone || '') ? order.user_phone : null);
     try {
@@ -276,6 +294,10 @@ export class DeliveriesService {
             provider: 'own',
             mode,
             required_vehicle: requiredVehicle,
+            vehicle_class: choice.vehicle_class,
+            needs_crane: load.needs_crane,
+            // Yuridik shaxsga yetkazish haqi uchun alohida hisob-faktura (№47, 8 — hozir belgi)
+            fee_invoice_required: !!order.company_tin,
             // Manzil berilmasa — do'kondan (olish) va buyurtmadan (topshirish)
             pickup_address: dto.pickup_address ?? store.address ?? null,
             pickup_lat: dto.pickup_lat ?? store.lat ?? null,
@@ -295,6 +317,7 @@ export class DeliveriesService {
               dto.delivery_fee ??
               (await this.work.suggestFee({
                 store_id: dto.store_id,
+                vehicle_class: choice.vehicle_class,
                 vehicle_type: requiredVehicle,
                 pickup_lat: dto.pickup_lat ?? null,
                 pickup_lng: dto.pickup_lng ?? null,
@@ -303,11 +326,12 @@ export class DeliveriesService {
                 floor,
                 has_elevator: hasElevator,
               })),
+            // Taklif (`loaders_suggested`) faqat javobda — narxga do'kon o'zi qo'shadi
             loaders_needed: dto.loaders_needed ?? 0,
             floor,
             has_elevator: hasElevator,
-            total_weight_kg: load.weight_kg,
-            total_volume_m3: load.volume_m3,
+            total_weight_kg: load.total_weight_kg,
+            total_volume_m3: load.total_volume_m3,
           } as any,
           { transaction: t },
         );
@@ -340,7 +364,16 @@ export class DeliveriesService {
         return d;
       }).then(async (d) => {
         if (mode === 'pickup') await this.pushReadyForPickup(d);
-        return d;
+        // Hisob natijasi javobda (№47, 3-bo'lim): taklif, yuklovchilar, o'lchamsiz qatorlar
+        const v = loadView(load);
+        return {
+          ...(await this.present(d, { full: false })),
+          suggested_class: v.suggested_class,
+          split_suggested: v.split_suggested,
+          loaders_suggested: v.loaders_suggested,
+          dimensions_missing: v.dimensions_missing,
+          warnings: this.classWarnings(choice.vehicle_class, load),
+        };
       });
     } catch (e) {
       if (e instanceof UniqueConstraintError) {
@@ -351,33 +384,70 @@ export class DeliveriesService {
   }
 
   // ============================================================ №44: ommaga chiqarish
-  /** `publish` dan oldin narx (3.4) — platforma tarifi bo'yicha. */
+  /**
+   * `publish` dan oldin narx (№44, 3.4; №47, 3-bo'lim): yuk hisobi, taklif
+   * qilingan sinf va HAR SINF uchun platforma narxi (tarifi yo'q sinf chiqmaydi).
+   * Kattaroq sinf — bemalol, kichikrog'i — `warnings[]` bilan.
+   */
   async quoteFee(id: number, dto: QuoteFeeDto, r: StoreRequester) {
     const d = await this.loadScoped(id, r);
+    const floor = dto.floor ?? d.floor;
+    const hasElevator = dto.has_elevator ?? d.has_elevator;
+    const load = await this.refreshLoad(d, { floor, has_elevator: hasElevator });
     const pickup = await this.pickupPoint(d);
-    const fee = await this.work.platformFee({
-      vehicle_type: dto.required_vehicle,
+    const base = {
       pickup_lat: pickup.lat,
       pickup_lng: pickup.lng,
       dropoff_lat: d.dropoff_lat,
       dropoff_lng: d.dropoff_lng,
-      floor: dto.floor ?? d.floor,
-      has_elevator: dto.has_elevator ?? d.has_elevator,
+      floor,
+      has_elevator: hasElevator,
       loaders_needed: dto.loaders_needed ?? d.loaders_needed,
-    });
-    return { ...fee, required_vehicle: dto.required_vehicle, payer: 'store' };
+    };
+    const options = await this.work.platformOptions(base);
+    const choice = this.chooseClass(dto, load);
+    const fromOptions = choice.vehicle_class ? options.find((o) => o.class === choice.vehicle_class) : null;
+    const fee = fromOptions
+      ? { delivery_fee: fromOptions.delivery_fee, distance_km: fromOptions.distance_km }
+      : choice.required_vehicle
+        ? await this.work.platformFee({ ...base, vehicle_class: choice.vehicle_class, vehicle_type: choice.required_vehicle })
+        : { delivery_fee: null, distance_km: options[0]?.distance_km ?? null };
+    const warnings = this.classWarnings(choice.vehicle_class, load);
+    if (choice.required_vehicle && fee.delivery_fee === null) {
+      warnings.push(`${choice.vehicle_class ?? choice.required_vehicle} uchun platforma tarifi yo'q — boshqa sinfni tanlang`);
+    }
+    const suggested = load.suggested_class;
+    return {
+      delivery_fee: fee.delivery_fee,
+      distance_km: fee.distance_km,
+      required_vehicle: choice.required_vehicle,
+      vehicle_class: choice.vehicle_class,
+      payer: dto.fee_payer || 'store',
+      ...loadView(load),
+      options: options.map((o) => ({
+        ...o,
+        // `null` — o'lcham to'liq emas, sig'ishini bilmaymiz
+        fits: suggested ? classCovers(o.class, suggested) : null,
+        warning: suggested && !classCovers(o.class, suggested) ? `${o.class} taklif qilingan ${suggested} dan kichik — yuk sig'masligi mumkin` : null,
+      })),
+      warnings,
+    };
   }
 
   /**
-   * Climavent kuryerlariga chiqarish (3.2): do'konda `platform` yoqilgan bo'lishi
-   * shart (aks holda 403). `pending -> open`, narx — platforma tarifi (do'kon
-   * to'laydi, hisob-kitobda ushlanadi), `payout_status: pending`. Radiusdagi mos
-   * kuryerlarga push.
+   * Climavent kuryerlariga chiqarish (№44, 3.2): do'konda `platform` yoqilgan bo'lishi
+   * shart (aks holda 403). Narx — platforma tarifi (sinf bo'yicha, №47).
+   *   - `fee_payer: store` (standart) — `pending -> open` darhol, summa do'kon
+   *     hisob-kitobida ushlanadi; radiusdagi mos kuryerlarga push.
+   *   - `fee_payer: customer` (№47, 8-bo'lim) — holat `pending` da QOLADI, mijozga
+   *     taklif (`delivery_fee_proposed`); birjaga faqat mijoz tasdiqlagach chiqadi.
+   * Yetkazish narxi KP ga ham, buyurtma summasiga ham QO'SHILMAYDI.
    */
   async publish(id: number, dto: PublishDeliveryDto, r: StoreRequester) {
     this.validateWindow(dto.window_from, dto.window_to);
     const base = await settingNumber(Delivery.sequelize, 'open_delivery_radius_km', 10);
-    const d = await Delivery.sequelize.transaction(async (t) => {
+    const payer = dto.fee_payer || 'store';
+    const res = await Delivery.sequelize.transaction(async (t) => {
       const d = await this.loadScoped(id, r, t, true);
       const [store]: any[] = await Delivery.sequelize.query('SELECT delivery_modes FROM stores WHERE id = :id', {
         replacements: { id: d.store_id },
@@ -389,63 +459,127 @@ export class DeliveriesService {
       }
       if (d.mode === 'pickup') throw new ConflictException("Olib ketish (pickup) yetkazishini ommaga chiqarib bo'lmaydi");
       if (d.courier_id) throw new ConflictException('Kuryer biriktirilgan — avval bekor qiling');
+      if (d.status !== 'pending') throw new ConflictException(`${d.status} dan open ga o'tib bo'lmaydi`);
+      const floor = dto.floor ?? d.floor;
+      const hasElevator = dto.has_elevator ?? d.has_elevator;
+      const load = await this.refreshLoad(d, { floor, has_elevator: hasElevator, transaction: t });
+      const choice = this.chooseClass(dto, load);
+      if (!choice.required_vehicle) {
+        throw new BadRequestException(
+          `vehicle_class majburiy: o'lchami yo'q qatorlar bor (${load.dimensions_missing.join(', ')}) — sinfni o'zingiz tanlang`,
+        );
+      }
+      const label = choice.vehicle_class ?? choice.required_vehicle;
       const pickup = await this.pickupPoint(d, t);
       const quote = await this.work.platformFee({
-        vehicle_type: dto.required_vehicle,
+        vehicle_class: choice.vehicle_class,
+        vehicle_type: choice.required_vehicle,
         pickup_lat: pickup.lat,
         pickup_lng: pickup.lng,
         dropoff_lat: d.dropoff_lat,
         dropoff_lng: d.dropoff_lng,
-        floor: dto.floor ?? d.floor,
-        has_elevator: dto.has_elevator ?? d.has_elevator,
+        floor,
+        has_elevator: hasElevator,
         loaders_needed: dto.loaders_needed ?? d.loaders_needed,
       });
       if (quote.delivery_fee === null) {
-        throw new ConflictException(`Platforma tarifi yo'q (${dto.required_vehicle}) — superadmin courier_rates (store_id = null) ni kiritsin`);
+        throw new ConflictException(`Platforma tarifi yo'q (${label}) — superadmin courier_rates (store_id = null) ni kiritsin`);
       }
       const now = new Date();
+      const common = {
+        mode: 'platform',
+        required_vehicle: choice.required_vehicle,
+        vehicle_class: choice.vehicle_class,
+        ...(dto.loaders_needed !== undefined ? { loaders_needed: dto.loaders_needed } : {}),
+        ...(dto.floor !== undefined ? { floor: dto.floor } : {}),
+        ...(dto.has_elevator !== undefined ? { has_elevator: dto.has_elevator } : {}),
+        ...(dto.window_from !== undefined ? { window_from: dto.window_from } : {}),
+        ...(dto.window_to !== undefined ? { window_to: dto.window_to } : {}),
+        publish_note: dto.note?.trim() || null,
+        delivery_fee: quote.delivery_fee,
+        payout_status: 'pending',
+        published_at: d.published_at ?? now,
+        pickup_lat: d.pickup_lat ?? pickup.lat,
+        pickup_lng: d.pickup_lng ?? pickup.lng,
+        fee_payer: payer,
+      };
+      const warnings = this.classWarnings(choice.vehicle_class, load);
+
+      if (payer === 'customer') {
+        const [order]: any[] = await Delivery.sequelize.query('SELECT user_id, company_tin FROM orders WHERE id = :id', {
+          replacements: { id: d.order_id },
+          type: QueryTypes.SELECT,
+          transaction: t,
+        });
+        if (!order?.user_id) throw new ConflictException("Buyurtmada mijoz hisobi yo'q — yetkazish haqini mijozga taklif qilib bo'lmaydi");
+        await d.update(
+          {
+            ...common,
+            fee_status: 'proposed',
+            fee_proposed_at: now,
+            fee_responded_at: null,
+            fee_cash: quote.delivery_fee,
+            fee_invoice_required: !!order.company_tin,
+          } as any,
+          { transaction: t },
+        );
+        await this.event(d.id, d.status, d.status, backofficeActor(r), {}, `Yetkazish haqi mijozga taklif qilindi: ${quote.delivery_fee} so'm (${label})`, t, 'fee_proposed');
+        return { d, proposed: true, warnings };
+      }
       await this.apply(
         d,
         'publish',
         backofficeActor(r),
         {
-          mode: 'platform',
-          required_vehicle: dto.required_vehicle,
-          ...(dto.loaders_needed !== undefined ? { loaders_needed: dto.loaders_needed } : {}),
-          ...(dto.floor !== undefined ? { floor: dto.floor } : {}),
-          ...(dto.has_elevator !== undefined ? { has_elevator: dto.has_elevator } : {}),
-          ...(dto.window_from !== undefined ? { window_from: dto.window_from } : {}),
-          ...(dto.window_to !== undefined ? { window_to: dto.window_to } : {}),
-          publish_note: dto.note?.trim() || null,
-          delivery_fee: quote.delivery_fee,
-          payout_status: 'pending',
-          published_at: d.published_at ?? now,
+          ...common,
+          fee_status: null,
+          fee_proposed_at: null,
+          fee_responded_at: null,
+          fee_cash: null,
           opened_at: now,
           publish_radius_km: base,
           open_warned_at: null,
-          pickup_lat: d.pickup_lat ?? pickup.lat,
-          pickup_lng: d.pickup_lng ?? pickup.lng,
         },
         {},
-        `Climavent kuryerlariga chiqarildi: ${dto.required_vehicle}, ${quote.delivery_fee} so'm`,
+        `Climavent kuryerlariga chiqarildi: ${label}, ${quote.delivery_fee} so'm`,
         t,
       );
-      return d;
+      return { d, proposed: false, warnings };
     });
+    const { d } = res;
+    if (res.proposed) {
+      await this.pushFeeProposed(d);
+      return {
+        ...(await this.present(d, { full: false })),
+        fee: customerFeeView(d),
+        awaiting_customer: true,
+        notified_couriers: 0,
+        warnings: res.warnings,
+      };
+    }
     const notified = await this.notifyOpen(d, 0, Number(d.publish_radius_km));
-    return { ...(await this.present(d, { full: false })), notified_couriers: notified };
+    return { ...(await this.present(d, { full: false })), notified_couriers: notified, warnings: res.warnings };
   }
 
-  /** Hali hech kim olmagan bo'lsa qaytarib olish (`open -> pending`, `self`). */
+  /**
+   * Hali hech kim olmagan bo'lsa qaytarib olish (`open -> pending`, `self`).
+   * Mijozga taklif qilingan (hali javob bermagan) haq ham shu bilan qaytariladi (№47).
+   */
   async unpublish(id: number, r: StoreRequester) {
+    const feeReset = { fee_payer: 'store', fee_status: null, fee_cash: null, fee_proposed_at: null, fee_responded_at: null };
     const d = await Delivery.sequelize.transaction(async (t) => {
       const d = await this.loadScoped(id, r, t, true);
+      if (d.status === 'pending' && d.fee_status === 'proposed') {
+        await d.update({ mode: 'self', payout_status: null, ...feeReset } as any, { transaction: t });
+        await this.event(d.id, d.status, d.status, backofficeActor(r), {}, 'Mijozga taklif qilingan yetkazish haqi qaytarib olindi', t, 'fee_withdrawn');
+        return d;
+      }
       if (d.status !== 'open') throw new ConflictException(d.courier_id ? 'Kuryer allaqachon olgan' : `${d.status} holatida qaytarib bo'lmaydi`);
       await this.apply(
         d,
         'unpublish',
         backofficeActor(r),
-        { mode: 'self', opened_at: null, publish_radius_km: null, open_warned_at: null, payout_status: null },
+        { mode: 'self', opened_at: null, publish_radius_km: null, open_warned_at: null, payout_status: null, ...feeReset },
         {},
         'Ommadan qaytarib olindi',
         t,
@@ -455,11 +589,245 @@ export class DeliveriesService {
     return this.present(d, { full: false });
   }
 
+  // ============================================================ №47: mijoz tomoni
+  /** Buyurtma egasi (sayt admini emas — qaror faqat mijozniki). Begona — 404. */
+  private async ownedOrder(orderId: number, userId: number) {
+    const [o]: any[] = await Delivery.sequelize.query('SELECT id, user_id FROM orders WHERE id = :id', {
+      replacements: { id: orderId },
+      type: QueryTypes.SELECT,
+    });
+    if (!o || Number(o.user_id) !== Number(userId)) throw new NotFoundException('Buyurtma topilmadi');
+    return o;
+  }
+
+  /** Buyurtmaning bitta yetkazishini tanlaydi: bir nechta bo'lsa `delivery_id` majburiy. */
+  private pickOne(rows: Delivery[], deliveryId: number | undefined, none: () => never) {
+    const list = deliveryId ? rows.filter((x) => Number(x.id) === Number(deliveryId)) : rows;
+    if (!list.length) none();
+    if (list.length > 1) throw new BadRequestException(`Buyurtmada bir nechta yetkazish bor — delivery_id ni yuboring (${list.map((x) => x.id).join(', ')})`);
+    return list[0];
+  }
+
+  /**
+   * Mijoz yetkazish haqini tasdiqlaydi yoki rad etadi (№47, 8-bo'lim).
+   * Tasdiq — `pending -> open` (birjaga chiqadi); rad — do'konga push, yetkazish
+   * `pending`/`self` ga qaytadi, do'kon boshqa usulni tanlaydi yoki o'zi to'laydi.
+   */
+  async decideFee(orderId: number, userId: number, dto: DeliveryFeeDecisionDto, accept: boolean) {
+    await this.ownedOrder(orderId, userId);
+    const rows = await Delivery.findAll({ where: { order_id: orderId, fee_status: 'proposed', status: 'pending' }, order: [['id', 'ASC']] });
+    const target = this.pickOne(rows, dto.delivery_id, () => {
+      throw new ConflictException("Tasdiqlanadigan yetkazish haqi yo'q");
+    });
+    const actor: Actor = { type: 'customer', id: userId };
+    const base = await settingNumber(Delivery.sequelize, 'open_delivery_radius_km', 10);
+    const d = await Delivery.sequelize.transaction(async (t) => {
+      const d = await Delivery.findByPk(target.id, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!d || d.status !== 'pending' || d.fee_status !== 'proposed') throw new ConflictException("Taklif o'zgargan — sahifani yangilang");
+      const now = new Date();
+      if (accept) {
+        await this.apply(
+          d,
+          'publish',
+          actor,
+          { fee_status: 'accepted', fee_responded_at: now, opened_at: now, publish_radius_km: base, open_warned_at: null },
+          {},
+          `Mijoz yetkazish haqini tasdiqladi: ${d.fee_cash} so'm`,
+          t,
+        );
+      } else {
+        await d.update({ fee_status: 'rejected', fee_responded_at: now, mode: 'self', payout_status: null, fee_cash: null } as any, { transaction: t });
+        await this.event(d.id, d.status, d.status, actor, {}, ['Mijoz yetkazish haqini rad etdi', dto.reason?.trim()].filter(Boolean).join(': '), t, 'fee_rejected');
+      }
+      return d;
+    });
+    const msg = accept
+      ? { title: 'Mijoz yetkazishni tasdiqladi', body: `Yetkazish #${d.id}: ${d.delivery_fee} so'm — kuryer qidirilmoqda`, event: 'delivery_fee_accepted' }
+      : { title: 'Mijoz yetkazish haqini rad etdi', body: `Yetkazish #${d.id}${dto.reason ? `: ${dto.reason}` : ''} — boshqa usulni tanlang yoki o'zingiz to'lang`, event: 'delivery_fee_rejected' };
+    await pushToStoreAdmins([d.store_id], {
+      title: msg.title,
+      body: msg.body.slice(0, 180),
+      data: { type: 'order', event: msg.event, order_id: d.order_id, delivery_id: d.id },
+      channel: 'orders',
+    });
+    if (accept) await this.notifyOpen(d, 0, Number(d.publish_radius_km || base));
+    return { delivery_id: d.id, status: d.status, fee: customerFeeView(d) };
+  }
+
+  /**
+   * Mijoz o'z mashinasini yuboradi (№47, 7-bo'lim): faqat buyurtma egasi va
+   * `pickup` yetkazishi; topshirilguncha istalgancha o'zgaradi. Do'konga push.
+   */
+  async savePickupInfo(orderId: number, userId: number, dto: PickupInfoDto) {
+    await this.ownedOrder(orderId, userId);
+    const all = await Delivery.findAll({ where: { order_id: orderId, status: { [Op.ne]: 'cancelled' } }, order: [['id', 'ASC']] });
+    const pickups = all.filter((x) => x.mode === 'pickup');
+    const target = this.pickOne(pickups, dto.delivery_id, () => {
+      throw new ConflictException(
+        all.length ? "Bu buyurtma olib ketish (pickup) usulida emas" : "Do'kon hali olib ketishni tayyorlamagan",
+      );
+    });
+    if (target.status !== 'pending') throw new ConflictException(`Yetkazish ${target.status} holatida — o'zgartirib bo'lmaydi`);
+    const from = new Date(dto.arrive_from);
+    const to = new Date(dto.arrive_to);
+    if (to.getTime() <= from.getTime()) throw new BadRequestException("arrive_to arrive_from dan keyin bo'lsin");
+    if (dto.poa_document_id) await this.assertPoaDocument(dto.poa_document_id, userId, target.store_id);
+
+    const payload = {
+      delivery_id: target.id,
+      user_id: userId,
+      driver_name: dto.driver_name.trim(),
+      driver_phone: dto.driver_phone,
+      vehicle_plate: normPlate(dto.vehicle_plate),
+      vehicle_class: dto.vehicle_class ?? null,
+      arrive_from: from,
+      arrive_to: to,
+      poa_number: dto.poa_number?.trim() || null,
+      poa_document_id: dto.poa_document_id ?? null,
+    };
+    await Delivery.sequelize.transaction(async (t) => {
+      const d = await Delivery.findByPk(target.id, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!d || d.status !== 'pending') throw new ConflictException("Yetkazish holati o'zgargan");
+      await DeliveryPickupInfo.upsert(payload as any, { transaction: t });
+      await this.event(
+        d.id, d.status, d.status, { type: 'customer', id: userId }, {},
+        `Olib ketish: ${payload.driver_name}, ${payload.vehicle_plate}${payload.vehicle_class ? ` (${payload.vehicle_class})` : ''}`,
+        t, 'pickup_info_updated',
+      );
+    });
+    await pushToStoreAdmins([target.store_id], {
+      title: 'Mijoz mashinasi',
+      body: `Buyurtma #${orderId}: ${payload.driver_name}, ${payload.vehicle_plate}`.slice(0, 180),
+      data: { type: 'order', event: 'pickup_info_updated', order_id: orderId, delivery_id: target.id },
+      channel: 'orders',
+    });
+    return customerPickupView(target);
+  }
+
+  /**
+   * Ishonchnoma fayli — mijozning SHU do'kon bilan chatiga yuborilgan fayl (№46).
+   * Xabarga bog'lanmagan fayl 24 soatda o'chadi, shuning uchun faqat bog'langani.
+   */
+  private async assertPoaDocument(id: number, userId: number, storeId: number) {
+    let ok = false;
+    try {
+      const [row]: any[] = await Delivery.sequelize.query(
+        `SELECT a.id FROM chat_attachments a JOIN chats c ON c.id = a.chat_id
+          WHERE a.id = :id AND a.uploader_side = 'client' AND a.uploader_user_id = :u
+            AND a.message_id IS NOT NULL AND c.client_id = :u AND c.store_id = :s`,
+        { replacements: { id, u: userId, s: storeId }, type: QueryTypes.SELECT },
+      );
+      ok = !!row;
+    } catch (e) {
+      this.logger.warn(`Ishonchnoma faylini tekshirib bo'lmadi: ${(e as Error).message}`);
+    }
+    if (!ok) throw new BadRequestException("poa_document_id: ishonchnomani do'kon chatiga yuboring va o'sha fayl id sini bering");
+  }
+
+  private async pushFeeProposed(d: Delivery) {
+    await sendToCustomer(await orderOwnerId(d.order_id), (lang) => ({
+      title: t3(lang, 'Yetkazish narxi', 'Стоимость доставки', 'Delivery fee'),
+      body: t3(
+        lang,
+        `Buyurtma #${d.order_id}: yetkazish ${d.fee_cash} so'm — tasdiqlang. Haydovchiga naqd to'lanadi`,
+        `Заказ #${d.order_id}: доставка ${d.fee_cash} сум — подтвердите. Оплата водителю наличными`,
+        `Order #${d.order_id}: delivery ${d.fee_cash} UZS — please confirm. Paid to the driver in cash`,
+      ),
+      data: { type: 'order', order_id: d.order_id, delivery_id: d.id, event: 'delivery_fee_proposed' },
+    }));
+  }
+
+  /**
+   * O'lchami yo'q mahsulotlar (№47, 1-bo'lim) — do'kon to'ldirishi uchun. Har qator:
+   * variant (bo'lsa) yoki model; qiymat variantda bo'lmasa modelnikidan olinadi.
+   * Modeli yo'q mahsulotga o'lcham kiritib bo'lmaydi — `reason: 'no_model'`.
+   */
+  async dimensionsMissing(storeId: number, r: StoreRequester) {
+    if (!this.isSuper(r) && Number(r?.store_id) !== Number(storeId)) throw new ForbiddenException("Boshqa do'kon");
+    const rows: any[] = await Delivery.sequelize.query(
+      `SELECT p.id AS product_id, COALESCE(p.name_uz, p.name_ru, p.name_en) AS product_name, p.is_active,
+              c.id AS characteristic_id, c.title AS model, v.id AS variant_id, v.sap_name AS variant_name,
+              COALESCE(v.weight_kg, c.weight_kg) AS weight_kg, COALESCE(v.length_cm, c.length_cm) AS length_cm,
+              COALESCE(v.width_cm, c.width_cm) AS width_cm, COALESCE(v.height_cm, c.height_cm) AS height_cm
+         FROM products p
+         LEFT JOIN characteristics c ON c.product_id = p.id
+         LEFT JOIN "product-model-inside" v ON v.product_model_id = c.id
+        WHERE p.store_id = :store
+        ORDER BY p.id, c.id, v.id`,
+      { replacements: { store: storeId }, type: QueryTypes.SELECT },
+    );
+    const FIELDS = ['weight_kg', 'length_cm', 'width_cm', 'height_cm'];
+    const items = rows
+      .map((x) => ({
+        product_id: Number(x.product_id),
+        product_name: x.product_name,
+        is_active: x.is_active,
+        characteristic_id: x.characteristic_id === null ? null : Number(x.characteristic_id),
+        model: x.model,
+        variant_id: x.variant_id === null ? null : Number(x.variant_id),
+        variant_name: x.variant_name,
+        reason: x.characteristic_id === null ? 'no_model' : 'missing',
+        missing: FIELDS.filter((f) => x[f] === null || x[f] === undefined),
+      }))
+      .filter((x) => x.missing.length);
+    return { store_id: storeId, total: items.length, products: new Set(items.map((x) => x.product_id)).size, items };
+  }
+
+  // ============================================================ №47: sinf tanlash
+  /**
+   * Sinf: aniq `vehicle_class` > eski `required_vehicle` (taklif shu turdan bo'lsa —
+   * taklif, aks holda eng kichik mos sinf) > taklif. Hech biri yo'q — `null`.
+   */
+  private chooseClass(dto: { vehicle_class?: string; required_vehicle?: string }, load: LoadSummary) {
+    if (isVehicleClass(dto.vehicle_class)) {
+      const type = CLASS_SPEC[dto.vehicle_class].vehicle_type;
+      if (dto.required_vehicle && dto.required_vehicle !== type) {
+        throw new BadRequestException(`required_vehicle (${dto.required_vehicle}) ${dto.vehicle_class} sinfiga mos emas — ${type}`);
+      }
+      return { vehicle_class: dto.vehicle_class as VehicleClass, required_vehicle: type as string };
+    }
+    const s = load.suggested_class;
+    if (dto.required_vehicle) {
+      if (s && CLASS_SPEC[s].vehicle_type === dto.required_vehicle) return { vehicle_class: s, required_vehicle: dto.required_vehicle };
+      return { vehicle_class: classOf(null, dto.required_vehicle), required_vehicle: dto.required_vehicle };
+    }
+    if (s) return { vehicle_class: s, required_vehicle: CLASS_SPEC[s].vehicle_type as string };
+    return { vehicle_class: null as VehicleClass | null, required_vehicle: null as string | null };
+  }
+
+  /** Tanlangan sinf bo'yicha ogohlantirishlar — taqiq emas. */
+  private classWarnings(cls: VehicleClass | null, load: LoadSummary): string[] {
+    const out: string[] = [];
+    if (load.dimensions_missing.length) {
+      out.push(`O'lchami yo'q qatorlar: ${load.dimensions_missing.join(', ')} — sinfni o'zingiz tanlang`);
+    }
+    if (load.needs_crane && cls && cls !== 'crane') out.push('Yukda kran talab qiladigan tovar bor — crane sinfini tanlang');
+    if (load.split_suggested) out.push(`Yuk bitta mashinaga sig'maydi — ${load.split_suggested.length} ta ${load.split_suggested[0].class} kerak`);
+    if (cls && load.suggested_class && !classCovers(cls, load.suggested_class)) {
+      out.push(`${cls} taklif qilingan ${load.suggested_class} dan kichik — yuk sig'masligi mumkin`);
+    }
+    return out;
+  }
+
+  /** Yukni qayta hisoblaydi (o'lcham keyin to'ldirilgan bo'lishi mumkin) va yetkazishga yozadi. */
+  private async refreshLoad(d: Delivery, opts: { floor?: number | null; has_elevator?: boolean | null; transaction?: Transaction }) {
+    const load = await loadSummaryOf(d.items, opts);
+    const patch: any = {};
+    if (load.total_weight_kg !== d.total_weight_kg) patch.total_weight_kg = load.total_weight_kg;
+    if (load.total_volume_m3 !== d.total_volume_m3) patch.total_volume_m3 = load.total_volume_m3;
+    if (load.needs_crane !== !!d.needs_crane) patch.needs_crane = load.needs_crane;
+    if (Object.keys(patch).length) await d.update(patch, { transaction: opts.transaction });
+    return load;
+  }
+
   /**
    * Do'kon o'zi topshiradi (№44, 3.2): kuryersiz `self` yoki `pickup` — mijoz kodi
    * bilan (kod 5 marta xato — blok). Naqd bo'lsa summa majburiy.
+   * №47, 7-bo'lim: `pickup` da ixtiyoriy `loaded_photo` (yuklangan mashina) va
+   * `vehicle_plate_actual` — mijoz aytganidan farq qilsa tarixga yoziladi; kelgan
+   * mashina sinfi taklifdan kichik bo'lsa — ogohlantirish, taqiq emas.
    */
-  async handover(id: number, dto: HandoverDto, r: StoreRequester) {
+  async handover(id: number, dto: HandoverDto, r: StoreRequester, loadedPhoto?: Express.Multer.File) {
     const pre = await this.loadScoped(id, r);
     if (pre.courier_id) throw new ConflictException('Kuryer biriktirilgan — topshirishni kuryer qiladi');
     if (pre.mode === 'platform') throw new ConflictException('Climavent kuryeriga chiqarilgan — avval qaytarib oling (unpublish)');
@@ -483,6 +851,12 @@ export class DeliveriesService {
       throw new HttpException("Kod 5 marta noto'g'ri kiritildi va bloklandi — superadmin bilan bog'laning", HttpStatus.TOO_MANY_REQUESTS);
     }
     if (res !== 'ok') throw new BadRequestException(`Topshirish kodi xato (qolgan urinish: ${res.split(':')[1]})`);
+    const info = pre.mode === 'pickup' ? await DeliveryPickupInfo.findByPk(id) : null;
+    const plate = dto.vehicle_plate_actual?.trim() ? normPlate(dto.vehicle_plate_actual) : null;
+    const plateNote = plate
+      ? `mashina ${plate}${info && info.vehicle_plate !== plate ? ` (mijoz aytgani: ${info.vehicle_plate})` : ''}`
+      : null;
+    const proof = loadedPhoto?.buffer?.length ? await this.proofs.save(id, 'pickup', loadedPhoto) : null;
     const d = await Delivery.sequelize.transaction(async (t) => {
       const d = await this.loadScoped(id, r, t, true);
       await this.apply(
@@ -494,9 +868,11 @@ export class DeliveriesService {
           payment_method: d.cod_amount > 0 ? 'cash' : null,
           received_by_name: dto.received_by_name?.trim() || null,
           proof_comment: dto.comment?.trim() || null,
+          ...(plate ? { vehicle_plate_actual: plate } : {}),
+          ...(proof ? { proof_photo_url: `/api/deliveries/${d.id}/proofs/${proof.id}` } : {}),
         },
         {},
-        [d.mode === 'pickup' ? "Mijoz olib ketdi (kod bilan)" : "Do'kon topshirdi (kod bilan)", dto.received_by_name?.trim(), dto.comment?.trim()]
+        [d.mode === 'pickup' ? "Mijoz olib ketdi (kod bilan)" : "Do'kon topshirdi (kod bilan)", dto.received_by_name?.trim(), plateNote, dto.comment?.trim()]
           .filter(Boolean)
           .join(': '),
         t,
@@ -505,7 +881,15 @@ export class DeliveriesService {
     });
     await this.syncOrderAfterDelivered(d.order_id);
     await pushOrderDelivered(d.order_id, await orderOwnerId(d.order_id));
-    return this.present(d, { full: false });
+    const warnings: string[] = [];
+    if (d.mode === 'pickup' && info?.vehicle_class) {
+      const load = await loadSummaryOf(d.items);
+      if (load.suggested_class && !classCovers(info.vehicle_class as VehicleClass, load.suggested_class)) {
+        warnings.push(`Kelgan mashina (${info.vehicle_class}) taklif qilingan ${load.suggested_class} dan kichik`);
+      }
+    }
+    if (plate && info && info.vehicle_plate !== plate) warnings.push(`Mashina raqami mijoz aytganidan farq qiladi (${info.vehicle_plate})`);
+    return { ...(await this.present(d, { full: false })), loaded_proof_id: proof?.id ?? null, warnings };
   }
 
   // ============================================================ №44: Pro ilovasi (platforma kuryeri)
@@ -544,7 +928,8 @@ export class DeliveriesService {
     const rows = await this.openRows(courier);
     const items = [];
     for (const x of rows) {
-      if (!vehicleFits(vehicle.vehicle_type, x.required_vehicle)) continue;
+      // №47, 4-bo'lim: sig'im (aniq yoki sinf standarti) ≥ yuk, kran — faqat crane
+      if (vehicleMismatch(vehicle, x, vehicleFits)) continue;
       if (!inAreas(courier.service_areas, x.region_code, x.district_code)) continue;
       const pLat = x.pickup_lat ?? x.store_lat;
       const pLng = x.pickup_lng ?? x.store_lng;
@@ -554,12 +939,21 @@ export class DeliveriesService {
       items.push(this.openView(x, km));
     }
     items.sort((a, b) => a.distance_km - b.distance_km);
-    return { eligible: true, reason: null, vehicle_type: vehicle.vehicle_type, items };
+    const cap = vehicleCapacity(vehicle);
+    return {
+      eligible: true,
+      reason: null,
+      vehicle_type: vehicle.vehicle_type,
+      vehicle_class: cap.vehicle_class,
+      capacity_kg: cap.kg,
+      capacity_m3: cap.m3,
+      items,
+    };
   }
 
   private async openRows(courier: Courier, onlyId?: number) {
     return (await Delivery.sequelize.query(
-      `SELECT d.id, d.order_id, d.required_vehicle, d.pickup_address, d.pickup_lat, d.pickup_lng,
+      `SELECT d.id, d.order_id, d.required_vehicle, d.vehicle_class, d.needs_crane, d.fee_cash, d.pickup_address, d.pickup_lat, d.pickup_lng,
               d.dropoff_lat, d.dropoff_lng, d.delivery_fee, d.total_weight_kg, d.total_volume_m3, d.loaders_needed,
               d.floor, d.has_elevator, d.window_from, d.window_to, d.publish_note, d.published_at, d.opened_at,
               d.publish_radius_km, cardinality(d.items) AS items_count,
@@ -592,6 +986,10 @@ export class DeliveriesService {
       route_km: route === null ? null : Math.round(route * 10) / 10,
       delivery_fee: x.delivery_fee === null ? null : Number(x.delivery_fee),
       required_vehicle: x.required_vehicle,
+      vehicle_class: x.vehicle_class,
+      needs_crane: !!x.needs_crane,
+      // Mijoz to'laydigan yetkazish haqi (№47, 8) — haydovchi naqd oladi, cod dan alohida
+      fee_cash: x.fee_cash === null ? null : Number(x.fee_cash),
       total_weight_kg: x.total_weight_kg === null ? null : Number(x.total_weight_kg),
       total_volume_m3: x.total_volume_m3 === null ? null : Number(x.total_volume_m3),
       loaders_needed: Number(x.loaders_needed || 0),
@@ -625,9 +1023,8 @@ export class DeliveriesService {
       if (d.status !== 'open') throw new ConflictException({ statusCode: 409, error: 'already_taken', message: 'Boshqa kuryer oldi' });
       const [x] = await this.openRows(courier, d.id);
       if (!x) throw new NotFoundException('Yetkazish topilmadi');
-      if (!vehicleFits(vehicle.vehicle_type, d.required_vehicle)) {
-        throw new ConflictException(`Transportingiz (${vehicle.vehicle_type}) ${d.required_vehicle} talabiga mos emas`);
-      }
+      const mismatch = vehicleMismatch(vehicle, d, vehicleFits);
+      if (mismatch) throw new ConflictException(`Transportingiz mos emas: ${mismatch}`);
       if (!inAreas(courier.service_areas, x.region_code, x.district_code)) throw new ForbiddenException('Yetkazish hududingizdan tashqarida');
       const pLat = x.pickup_lat ?? x.store_lat;
       const pLng = x.pickup_lng ?? x.store_lng;
@@ -691,10 +1088,11 @@ export class DeliveriesService {
         const km = haversineKm(Number(c.last_lat), Number(c.last_lng), pickup.lat, pickup.lng);
         if (km <= fromKm || km > toKm) continue;
         const { reason, vehicle } = await this.platformEligibility(c);
-        if (reason || !vehicle || !vehicleFits(vehicle.vehicle_type, d.required_vehicle)) continue;
+        if (reason || !vehicle || vehicleMismatch(vehicle, d, vehicleFits)) continue;
+        const cls = d.vehicle_class ?? d.required_vehicle;
         await courierPush(d, c.id, 'delivery_open', {
-          uz: ['Yangi buyurtma', `${d.required_vehicle} · ${Math.round(km * 10) / 10} km · ${d.delivery_fee ?? '—'} so'm`],
-          ru: ['Новый заказ', `${d.required_vehicle} · ${Math.round(km * 10) / 10} км · ${d.delivery_fee ?? '—'} сум`],
+          uz: ['Yangi buyurtma', `${cls} · ${Math.round(km * 10) / 10} km · ${d.delivery_fee ?? '—'} so'm`],
+          ru: ['Новый заказ', `${cls} · ${Math.round(km * 10) / 10} км · ${d.delivery_fee ?? '—'} сум`],
         });
         n++;
       }
@@ -804,11 +1202,33 @@ export class DeliveriesService {
       if (!Object.keys(payload).length) return { d, addressChanged: false };
       this.validateWindow(payload.window_from ?? d.window_from, payload.window_to ?? d.window_to);
 
-      if (payload.required_vehicle && d.courier_id) {
-        const c = await Courier.findByPk(d.courier_id, { transaction: t });
-        if (c && !vehicleFits(c.vehicle_type, payload.required_vehicle)) {
-          throw new ConflictException(`Biriktirilgan kuryer transporti (${c.vehicle_type}) ${payload.required_vehicle} talabiga mos emas`);
+      // Sinf (№47): berilsa tur shundan; faqat eski tur berilsa — sinf tashlanadi
+      if (payload.vehicle_class) {
+        const type = CLASS_SPEC[payload.vehicle_class as VehicleClass].vehicle_type;
+        if (payload.required_vehicle && payload.required_vehicle !== type) {
+          throw new BadRequestException(`required_vehicle (${payload.required_vehicle}) ${payload.vehicle_class} sinfiga mos emas — ${type}`);
         }
+        payload.required_vehicle = type;
+      } else if (payload.required_vehicle && payload.required_vehicle !== d.required_vehicle) {
+        payload.vehicle_class = null;
+      }
+      if ((payload.required_vehicle || payload.vehicle_class) && d.courier_id) {
+        const c = await Courier.findByPk(d.courier_id, { transaction: t });
+        const v = c?.active_vehicle_id ? await CourierVehicle.findByPk(c.active_vehicle_id, { transaction: t }) : null;
+        const mismatch = v
+          ? vehicleMismatch(
+              v,
+              {
+                ...this.classOnly(d),
+                vehicle_class: payload.vehicle_class !== undefined ? payload.vehicle_class : d.vehicle_class,
+                required_vehicle: payload.required_vehicle ?? d.required_vehicle,
+              },
+              vehicleFits,
+            )
+          : c && !vehicleFits(c.vehicle_type, payload.required_vehicle)
+            ? `${c.vehicle_type} ${payload.required_vehicle} talabiga mos emas`
+            : null;
+        if (mismatch) throw new ConflictException(`Biriktirilgan kuryer transporti mos emas: ${mismatch}`);
       }
       const addressChanged = ['dropoff_address', 'dropoff_lat', 'dropoff_lng', 'dropoff_details', 'pickup_address', 'window_from', 'window_to']
         .some((k) => payload[k] !== undefined);
@@ -831,6 +1251,10 @@ export class DeliveriesService {
       // Ochiq (Climavent kuryerlariga chiqarilgan) — qo'lda faqat superadmin (№44, 3.3)
       if (d.status === 'open' && !this.isSuper(r)) {
         throw new ConflictException('Yetkazish Climavent kuryerlariga chiqarilgan — avval qaytarib oling (unpublish)');
+      }
+      // Mijozga yetkazish haqi taklif qilingan (№47, 8) — javobini kutmay boshqa kuryer bermaymiz
+      if (d.fee_status === 'proposed') {
+        throw new ConflictException("Mijoz yetkazish haqiga javob bermagan — avval taklifni qaytarib oling (unpublish)");
       }
       const courier = await Courier.findByPk(courierId, { transaction: t });
       if (!courier) throw new NotFoundException('Kuryer topilmadi');
@@ -855,11 +1279,9 @@ export class DeliveriesService {
       if (!vehicle || vehicle.status !== 'approved') {
         throw new ConflictException('Kuryerda faol (tasdiqlangan) transport yo\'q');
       }
-      if (!vehicleFits(vehicle.vehicle_type, d.required_vehicle)) {
-        throw new ConflictException(
-          `Kuryer transporti (${vehicle.vehicle_type}) ${d.required_vehicle} talabiga mos emas`,
-        );
-      }
+      // Sinf va kran — 409 (№47); sig'im — pastda OGOHLANTIRISH
+      const mismatch = vehicleMismatch(vehicle, this.classOnly(d), vehicleFits);
+      if (mismatch) throw new ConflictException(`Kuryer transporti mos emas: ${mismatch}`);
       // Sig'im — OGOHLANTIRISH, 409 emas: bir necha qatnovda olib ketish
       // mumkin (7-band).
       const warnings = this.capacityWarnings(d, vehicle);
@@ -1033,9 +1455,24 @@ export class DeliveriesService {
              COALESCE(SUM(d.cash_collected) FILTER (WHERE d.status = 'delivered'), 0)::bigint AS cash_collected
         FROM deliveries d JOIN couriers c ON c.id = d.courier_id
        WHERE ${W} GROUP BY c.id, c.full_name ORDER BY delivered DESC, total DESC`);
+    // Yetkazish tushumi tovar tushumidan ALOHIDA (№47, 8-bo'lim): buyurtma summasiga kirmaydi
+    const [fees] = await sel(`
+      SELECT COALESCE(SUM(delivery_fee) FILTER (WHERE status = 'delivered' AND mode = 'platform' AND fee_payer = 'store'), 0)::bigint AS store_paid,
+             COALESCE(SUM(delivery_fee) FILTER (WHERE status = 'delivered' AND mode = 'platform' AND fee_payer = 'customer'), 0)::bigint AS customer_charged,
+             COALESCE(SUM(fee_cash_collected) FILTER (WHERE status = 'delivered'), 0)::bigint AS customer_cash_collected,
+             COUNT(*) FILTER (WHERE fee_status = 'proposed')::int AS awaiting_customer,
+             COUNT(*) FILTER (WHERE fee_status = 'rejected')::int AS rejected_by_customer
+        FROM deliveries d WHERE ${W}`);
     return {
       ...totals,
       on_time_share: totals.with_window ? Math.round((totals.on_time / totals.with_window) * 1000) / 1000 : null,
+      delivery_fees: {
+        store_paid: Number(fees.store_paid),
+        customer_charged: Number(fees.customer_charged),
+        customer_cash_collected: Number(fees.customer_cash_collected),
+        awaiting_customer: fees.awaiting_customer,
+        rejected_by_customer: fees.rejected_by_customer,
+      },
       failures,
       couriers: couriers.map((c) => ({ ...c, cash_collected: Number(c.cash_collected) })),
     };
@@ -1308,6 +1745,16 @@ export class DeliveriesService {
         throw new BadRequestException(`Olingan summa ${pre.cod_amount} dan farq qiladi — izoh majburiy`);
       }
     }
+    // Yetkazish haqini mijoz to'laydi (№47, 8-bo'lim) — cod dan ALOHIDA summa
+    const feeCash = Number(pre.fee_cash || 0);
+    if (feeCash > 0) {
+      if (dto.fee_cash_collected === undefined || dto.fee_cash_collected === null) {
+        throw new BadRequestException(`fee_cash_collected majburiy: mijozdan yetkazish haqi ${feeCash} so'm olinishi kerak`);
+      }
+      if (Number(dto.fee_cash_collected) !== feeCash && !dto.comment?.trim()) {
+        throw new BadRequestException(`Olingan yetkazish haqi ${feeCash} dan farq qiladi — izoh majburiy`);
+      }
+    }
 
     // Kod — qulf ostida: parallel urinishlar hisoblagichni aylanib o'tmasin
     if (dto.code) {
@@ -1345,6 +1792,9 @@ export class DeliveriesService {
         actor,
         {
           cash_collected: d.cod_amount > 0 ? Number(dto.cash_collected) : dto.cash_collected ?? null,
+          ...(feeCash > 0
+            ? { fee_cash_collected: Number(dto.fee_cash_collected), fee_status: Number(dto.fee_cash_collected) > 0 ? 'paid' : d.fee_status }
+            : {}),
           proof_comment: dto.comment?.trim() || null,
           received_by_name: dto.received_by_name?.trim() || null,
           // 10-band: fiskal chek hozircha faqat SAQLANADI
@@ -1549,57 +1999,26 @@ export class DeliveriesService {
     );
   }
 
-  /**
-   * Yetkazish qatorlarining jami og'irligi va hajmi (topshiriq №26, 7-band).
-   * Variantda qiymat bo'lsa u ustun, bo'lmasa modelniki. Bittasi ham
-   * to'ldirilmagan bo'lsa `null` — taxmin qilmaymiz.
-   */
-  private async loadOf(itemIds: number[]): Promise<{ weight_kg: number | null; volume_m3: number | null }> {
-    if (!itemIds?.length) return { weight_kg: null, volume_m3: null };
-    const [row]: any[] = await Delivery.sequelize.query(
-      `SELECT
-         SUM(i.quantity * COALESCE(v.weight_kg, c.weight_kg)) FILTER
-           (WHERE COALESCE(v.weight_kg, c.weight_kg) IS NOT NULL) AS weight_kg,
-         SUM(i.quantity * COALESCE(v.length_cm, c.length_cm) * COALESCE(v.width_cm, c.width_cm)
-               * COALESCE(v.height_cm, c.height_cm) / 1000000.0) FILTER
-           (WHERE COALESCE(v.length_cm, c.length_cm) IS NOT NULL
-              AND COALESCE(v.width_cm, c.width_cm) IS NOT NULL
-              AND COALESCE(v.height_cm, c.height_cm) IS NOT NULL) AS volume_m3
-         FROM "order-items" i
-         LEFT JOIN characteristics c ON c.id = i.product_model_id
-         LEFT JOIN "product-model-inside" v ON v.id = i.product_model_inside_id
-        WHERE i.id IN (:ids)`,
-      { replacements: { ids: itemIds }, type: QueryTypes.SELECT },
-    );
+  /** Biriktirish uchun: faqat sinf/kran/tur (sig'im — `capacityWarnings` da ogohlantirish). */
+  private classOnly(d: Delivery) {
     return {
-      weight_kg: row?.weight_kg === null || row?.weight_kg === undefined ? null : Number(row.weight_kg),
-      volume_m3: row?.volume_m3 === null || row?.volume_m3 === undefined ? null : Number(row.volume_m3),
+      vehicle_class: d.vehicle_class,
+      required_vehicle: d.required_vehicle,
+      needs_crane: d.needs_crane,
+      total_weight_kg: null,
+      total_volume_m3: null,
     };
   }
 
-  /** Og'irlik/hajmdan kerakli transportni TAKLIF qiladi (7-band). */
-  private suggestVehicle(load: { weight_kg: number | null; volume_m3: number | null }): string | null {
-    const kg = load.weight_kg;
-    const m3 = load.volume_m3;
-    if (kg === null && m3 === null) return null;
-    if ((kg ?? 0) > 1500 || (m3 ?? 0) > 8) return 'truck';
-    if ((kg ?? 0) > 500 || (m3 ?? 0) > 2) return 'van';
-    if ((kg ?? 0) > 15 || (m3 ?? 0) > 0.2) return 'car';
-    return 'bike';
-  }
-
-  /** Sig'im oshsa OGOHLANTIRISH (409 emas — bir necha qatnov mumkin). */
+  /** Sig'im oshsa OGOHLANTIRISH (409 emas — bir necha qatnov mumkin). Sig'im aniq yoki sinf standarti (№47). */
   private capacityWarnings(d: Delivery, v: CourierVehicle): string[] {
     const out: string[] = [];
-    if (v.capacity_kg && d.total_weight_kg && Number(d.total_weight_kg) > Number(v.capacity_kg)) {
-      out.push(
-        `Yuk ${d.total_weight_kg} kg — transport sig'imi ${v.capacity_kg} kg; bir necha qatnov kerak bo'lishi mumkin`,
-      );
+    const cap = vehicleCapacity(v);
+    if (cap.kg && d.total_weight_kg && Number(d.total_weight_kg) > cap.kg) {
+      out.push(`Yuk ${d.total_weight_kg} kg — transport sig'imi ${cap.kg} kg; bir necha qatnov kerak bo'lishi mumkin`);
     }
-    if (v.capacity_m3 && d.total_volume_m3 && Number(d.total_volume_m3) > Number(v.capacity_m3)) {
-      out.push(
-        `Hajm ${d.total_volume_m3} m3 — transport sig'imi ${v.capacity_m3} m3; bir necha qatnov kerak bo'lishi mumkin`,
-      );
+    if (cap.m3 && d.total_volume_m3 && Number(d.total_volume_m3) > cap.m3) {
+      out.push(`Hajm ${d.total_volume_m3} m3 — transport sig'imi ${cap.m3} m3; bir necha qatnov kerak bo'lishi mumkin`);
     }
     return out;
   }
@@ -1785,6 +2204,12 @@ export class DeliveriesService {
         where: { delivery_id: d.id },
         order: [['id', 'ASC']],
       });
+      // №47: yuk hisobi (taklif, o'lchamsiz qatorlar) va mijoz mashinasi
+      plain.load = loadView(await loadSummaryOf(d.items, { floor: d.floor, has_elevator: d.has_elevator }));
+      if (d.mode === 'pickup') {
+        const info = await DeliveryPickupInfo.findByPk(d.id);
+        plain.pickup_info = info ? pickupInfoView(info) : null;
+      }
     }
     return plain;
   }

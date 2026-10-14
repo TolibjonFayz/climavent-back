@@ -8,8 +8,37 @@ import { Op, Transaction, UniqueConstraintError } from 'sequelize';
 import type { StoreRequester } from 'src/store_auth/store_auth.guard';
 import { ACTIVE_STATUSES, LICENSE_FOR_VEHICLE } from './constants';
 import { Courier, CourierVehicle, CourierVehicleEvent, Delivery } from './model/models';
-import { CourierVehicleDto, UpdateCourierVehicleDto } from './dto/dto';
+import { ApproveVehicleDto, CourierVehicleDto, UpdateCourierVehicleDto } from './dto/dto';
 import { pushToStoreAdmins } from './push';
+import { CLASS_SPEC, isVehicleClass, vehicleCapacity } from './vehicle-classes';
+
+/**
+ * Sinf va tur (№47, 2-bo'lim): sinf berilsa tur shundan olinadi (farq qilsa 400);
+ * faqat tur — sinf `null` (eski yozuv, birjada eng kichik mos sinf deb hisoblanadi).
+ */
+function resolveClass(dto: { vehicle_class?: string | null; vehicle_type?: string | null }) {
+  if (isVehicleClass(dto.vehicle_class)) {
+    const type = CLASS_SPEC[dto.vehicle_class].vehicle_type;
+    if (dto.vehicle_type && dto.vehicle_type !== type) {
+      throw new BadRequestException(`vehicle_type (${dto.vehicle_type}) ${dto.vehicle_class} sinfiga mos emas — ${type}`);
+    }
+    return { vehicle_class: dto.vehicle_class, vehicle_type: type };
+  }
+  if (!dto.vehicle_type) throw new BadRequestException('vehicle_class yoki vehicle_type majburiy');
+  return { vehicle_class: null, vehicle_type: dto.vehicle_type };
+}
+
+/** Javobda amaldagi sig'im ham — kuryer ilovasi «Transportim» ko'rsatadi. */
+const withCapacity = (v: CourierVehicle, activeId: number | null) => {
+  const cap = vehicleCapacity(v);
+  return {
+    ...v.get({ plain: true }),
+    is_active: Number(activeId) === Number(v.id),
+    effective_class: cap.vehicle_class,
+    effective_capacity_kg: cap.kg,
+    effective_capacity_m3: cap.m3,
+  };
+};
 
 /**
  * "Mening transportim" (topshiriq №26, 1a-band).
@@ -34,20 +63,19 @@ export class CourierVehiclesService {
       where: { courier_id: courier.id, status: { [Op.ne]: 'archived' } },
       order: [['id', 'ASC']],
     });
-    return rows.map((v) => ({
-      ...v.get({ plain: true }),
-      is_active: Number(courier.active_vehicle_id) === Number(v.id),
-    }));
+    return rows.map((v) => withCapacity(v, courier.active_vehicle_id));
   }
 
   async add(courier: Courier, dto: CourierVehicleDto, opts: { approved?: boolean; actor: Actor } = { actor: { type: 'courier', id: null } }) {
-    this.validatePlate(dto);
+    const kind = resolveClass(dto);
+    this.validatePlate({ ...dto, vehicle_type: kind.vehicle_type });
     try {
       const vehicle = await CourierVehicle.sequelize.transaction(async (t) => {
         const v = await CourierVehicle.create(
           {
             courier_id: courier.id,
-            vehicle_type: dto.vehicle_type,
+            vehicle_type: kind.vehicle_type,
+            vehicle_class: kind.vehicle_class,
             plate: dto.plate?.trim().toUpperCase() || null,
             model: dto.model?.trim() || null,
             color: dto.color?.trim() || null,
@@ -90,8 +118,12 @@ export class CourierVehiclesService {
       );
     }
     const payload: any = {};
-    for (const k of ['vehicle_type', 'model', 'color', 'capacity_kg', 'capacity_m3', 'owner'] as const) {
+    for (const k of ['model', 'color', 'capacity_kg', 'capacity_m3', 'owner'] as const) {
       if (dto[k] !== undefined) payload[k] = dto[k];
+    }
+    if (dto.vehicle_class !== undefined || dto.vehicle_type !== undefined) {
+      // Faqat tur o'zgarsa eski sinf mos kelmay qolishi mumkin — sinf tashlanadi
+      Object.assign(payload, resolveClass({ vehicle_class: dto.vehicle_class, vehicle_type: dto.vehicle_type ?? (dto.vehicle_class ? undefined : v.vehicle_type) }));
     }
     if (dto.plate !== undefined) payload.plate = dto.plate?.trim().toUpperCase() || null;
     this.validatePlate({ ...v.get({ plain: true }), ...payload } as any);
@@ -152,23 +184,38 @@ export class CourierVehiclesService {
   // ============================================================ adminka uchun
   async listFor(courier: Courier) {
     const rows = await CourierVehicle.findAll({ where: { courier_id: courier.id }, order: [['id', 'ASC']] });
-    return rows.map((v) => ({
-      ...v.get({ plain: true }),
-      is_active: Number(courier.active_vehicle_id) === Number(v.id),
-    }));
+    return rows.map((v) => withCapacity(v, courier.active_vehicle_id));
   }
 
-  async approve(courier: Courier, id: number, r: StoreRequester) {
+  /**
+   * Tasdiqlash. №47: tekshiruvchi sinf va aniq sig'imni ham belgilashi mumkin —
+   * tasdiqlangan transportda ham (eski `van`/`truck` yozuvlariga sinf berish uchun).
+   * Turi boshqa sinfga o'tib qolmaydi (`van` damas yoki gazel bo'la oladi, fura emas).
+   */
+  async approve(courier: Courier, id: number, r: StoreRequester, dto: ApproveVehicleDto = {}) {
     const v = await this.owned(courier, id);
-    if (v.status === 'approved') return v;
     if (v.status === 'archived') throw new ConflictException('Arxivdagi transportni tasdiqlab bo\'lmaydi');
+    const spec: any = {};
+    if (dto.vehicle_class !== undefined) {
+      const kind = resolveClass({ vehicle_class: dto.vehicle_class });
+      if (kind.vehicle_type !== v.vehicle_type) {
+        throw new BadRequestException(`${v.vehicle_type} transportiga ${dto.vehicle_class} sinfi berilmaydi — kuryer yangi transport qo'shsin`);
+      }
+      spec.vehicle_class = kind.vehicle_class;
+    }
+    if (dto.capacity_kg !== undefined) spec.capacity_kg = dto.capacity_kg || null;
+    if (dto.capacity_m3 !== undefined) spec.capacity_m3 = dto.capacity_m3 || null;
+    if (v.status === 'approved' && !Object.keys(spec).length) return v;
     await CourierVehicle.sequelize.transaction(async (t) => {
       const from = v.status;
+      const changes = Object.entries(spec).map(([k, x]) => `${k}=${x ?? 'null'}`).join(', ');
       await v.update(
-        { status: 'approved', reject_reason: null, verified_at: new Date(), verified_by: r?.user_id ?? null },
+        v.status === 'approved'
+          ? spec
+          : { ...spec, status: 'approved', reject_reason: null, verified_at: new Date(), verified_by: r?.user_id ?? null },
         { transaction: t },
       );
-      await this.event(v, from, 'approved', this.actorOf(r), null, t);
+      await this.event(v, from, 'approved', this.actorOf(r), changes || null, t);
     });
     return v;
   }

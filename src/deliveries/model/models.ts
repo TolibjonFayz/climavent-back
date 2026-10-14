@@ -92,6 +92,24 @@ export class Delivery extends Model {
   /** Do'kon/olib ketish topshirish kodi SHIFRLANGAN — mijoz ilovada ko'radi (№44, 3.2). */
   @Column({ type: DataType.STRING(200), allowNull: true }) proof_code_enc: string | null;
   @Column({ type: DataType.STRING(10), allowNull: false, defaultValue: 'car' }) required_vehicle: string;
+  /** Mashina sinfi (№47, 2-bo'lim). `null` — eski yozuv, `required_vehicle` bo'yicha. */
+  @Column({ type: DataType.STRING(10), allowNull: true }) vehicle_class: string | null;
+  /** Biror qatorda `needs_crane` — faqat `crane` sinfi (№47, 3-bo'lim). */
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false }) needs_crane: boolean;
+  /** Olib ketishda kelgan mashina raqami (№47, 7-bo'lim) — farq qilsa tarixga. */
+  @Column({ type: DataType.STRING(20), allowNull: true }) vehicle_plate_actual: string | null;
+  // ——— №47, 8-bo'lim: yetkazish to'lovi KP dan ALOHIDA ———
+  /** `store` (standart, hisob-kitobda ushlanadi) · `customer` (mijoz tasdiqlaydi, haydovchiga naqd). */
+  @Column({ type: DataType.STRING(10), allowNull: false, defaultValue: 'store' }) fee_payer: string;
+  /** `customer` da: `proposed` · `accepted` · `rejected` · `paid`. */
+  @Column({ type: DataType.STRING(10), allowNull: true }) fee_status: string | null;
+  @Column({ type: DataType.DATE, allowNull: true }) fee_proposed_at: Date | null;
+  @Column({ type: DataType.DATE, allowNull: true }) fee_responded_at: Date | null;
+  /** Haydovchi mijozdan oladigan yetkazish haqi — `cod_amount` dan ALOHIDA. */
+  @Column(num('fee_cash', DataType.BIGINT)) fee_cash: number | null;
+  @Column(num('fee_cash_collected', DataType.BIGINT)) fee_cash_collected: number | null;
+  /** Mijoz yuridik shaxs — yetkazishga alohida hisob-faktura kerak (keyingi topshiriq, hozir belgi). */
+  @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: false }) fee_invoice_required: boolean;
   @Column({ type: DataType.STRING(500), allowNull: true }) pickup_address: string | null;
   @Column(coord('pickup_lat')) pickup_lat: number | null;
   @Column(coord('pickup_lng')) pickup_lng: number | null;
@@ -228,6 +246,8 @@ export class CourierVehicle extends Model {
   @Column({ type: DataType.INTEGER, autoIncrement: true, primaryKey: true }) id: number;
   @Column({ type: DataType.INTEGER, allowNull: false }) courier_id: number;
   @Column({ type: DataType.STRING(10), allowNull: false }) vehicle_type: string;
+  /** Sinf (№47) — `vehicle_type` shundan olinadi. `null` — eski yozuv (van -> damas, truck -> truck_3t). */
+  @Column({ type: DataType.STRING(10), allowNull: true }) vehicle_class: string | null;
   /** Davlat raqami; `foot` / `bike` da bo'sh bo'lishi mumkin. */
   @Column({ type: DataType.STRING(20), allowNull: true }) plate: string | null;
   @Column({ type: DataType.STRING(100), allowNull: true }) model: string | null;
@@ -286,6 +306,8 @@ export class CourierRate extends Model {
   @Column({ type: DataType.INTEGER, autoIncrement: true, primaryKey: true }) id: number;
   @Column({ type: DataType.INTEGER, allowNull: true }) store_id: number | null;
   @Column({ type: DataType.STRING(10), allowNull: false }) vehicle_type: string;
+  /** Kalit (№47, 5-bo'lim); `null` — faqat foot/bike tariflari. */
+  @Column({ type: DataType.STRING(10), allowNull: true }) vehicle_class: string | null;
   @Column(num('base_fee', DataType.BIGINT, false)) base_fee: number;
   @Column(num('per_km', DataType.BIGINT, false)) per_km: number;
   @Column(num('floor_fee', DataType.BIGINT, false)) floor_fee: number;
@@ -337,6 +359,27 @@ export class DeliveryIncident extends Model {
   declare created_at: Date;
 }
 
+/**
+ * Mijoz o'z mashinasini yuboradi (№47, 7-bo'lim) — `pickup` yetkazishiga
+ * bitta yozuv, kelishdan oldin istalgancha o'zgaradi.
+ */
+@Table({ tableName: 'delivery_pickup_info', createdAt: 'created_at', updatedAt: 'updated_at' })
+export class DeliveryPickupInfo extends Model {
+  @Column({ type: DataType.INTEGER, primaryKey: true }) delivery_id: number;
+  @Column({ type: DataType.INTEGER, allowNull: false }) user_id: number;
+  @Column({ type: DataType.STRING(120), allowNull: false }) driver_name: string;
+  @Column({ type: DataType.STRING(13), allowNull: false }) driver_phone: string;
+  @Column({ type: DataType.STRING(20), allowNull: false }) vehicle_plate: string;
+  @Column({ type: DataType.STRING(10), allowNull: true }) vehicle_class: string | null;
+  @Column({ type: DataType.DATE, allowNull: false }) arrive_from: Date;
+  @Column({ type: DataType.DATE, allowNull: false }) arrive_to: Date;
+  /** Ishonchnoma (yuridik shaxs uchun): raqami va chatga yuklangan fayl (`chat_attachments.id`). */
+  @Column({ type: DataType.STRING(60), allowNull: true }) poa_number: string | null;
+  @Column({ type: DataType.INTEGER, allowNull: true }) poa_document_id: number | null;
+  declare created_at: Date;
+  declare updated_at: Date;
+}
+
 export const DELIVERY_MODELS = [
   CourierEvent,
   Courier,
@@ -354,4 +397,5 @@ export const DELIVERY_MODELS = [
   CourierPayout,
   CourierShift,
   DeliveryIncident,
+  DeliveryPickupInfo,
 ];

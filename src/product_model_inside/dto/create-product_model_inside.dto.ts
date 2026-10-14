@@ -9,6 +9,7 @@ import {
   Max,
   Min,
   ValidateIf,
+  IsBoolean,
 } from 'class-validator';
 
 export class CreateProductModelInsideDto {
@@ -81,4 +82,25 @@ export class CreateProductModelInsideDto {
   @Min(0)
   @Max(10000)
   height_cm?: number | null;
+
+  // ---- №47, 1-bo'lim. `null` — standart (packages 1, needs_crane false, stackable true)
+  @ApiProperty({ example: 2, required: false, nullable: true, description: 'Necha joy (split = 2)' })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  packages?: number | null;
+
+  @ApiProperty({ example: false, required: false, nullable: true, description: 'Kran/manipulyator shart' })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsBoolean()
+  needs_crane?: boolean | null;
+
+  @ApiProperty({ example: true, required: false, nullable: true, description: "Ustma-ust qo'yish mumkinmi" })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsBoolean()
+  stackable?: boolean | null;
 }

@@ -30,6 +30,10 @@ import {
   VEHICLE_OWNERS,
   VEHICLES,
 } from '../constants';
+import { VEHICLE_CLASSES } from '../vehicle-classes';
+
+const CLASS_MSG = 'vehicle_class: car, damas, gazel, truck_3t, truck_10t, truck_20t, crane';
+const FEE_PAYERS = ['store', 'customer'];
 
 const PHONE = /^\+998\d{9}$/;
 const PHONE_MSG = "telefon +998XXXXXXXXX ko'rinishida bo'lsin";
@@ -197,6 +201,11 @@ class AddressFields {
   @IsIn(VEHICLES as unknown as string[])
   required_vehicle?: string;
 
+  @ApiProperty({ required: false, enum: VEHICLE_CLASSES, description: "Mashina sinfi (№47). Berilsa required_vehicle shundan olinadi" })
+  @IsOptional()
+  @IsIn(VEHICLE_CLASSES as unknown as string[], { message: CLASS_MSG })
+  vehicle_class?: string;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
@@ -320,9 +329,20 @@ export class CreateDeliveryDto extends AddressFields {
 
 /** Climavent kuryerlariga chiqarish (№44, 3.2). */
 export class PublishDeliveryDto {
-  @ApiProperty({ enum: VEHICLES, example: 'truck' })
+  @ApiProperty({ enum: VEHICLES, required: false, example: 'truck', description: "Eski kalit. vehicle_class bo'lmasa shundan sinf olinadi" })
+  @IsOptional()
   @IsIn(VEHICLES as unknown as string[])
-  required_vehicle: string;
+  required_vehicle?: string;
+
+  @ApiProperty({ enum: VEHICLE_CLASSES, required: false, example: 'gazel', description: "Mashina sinfi (№47). Ikkalasi ham bo'lmasa — suggested_class" })
+  @IsOptional()
+  @IsIn(VEHICLE_CLASSES as unknown as string[], { message: CLASS_MSG })
+  vehicle_class?: string;
+
+  @ApiProperty({ enum: FEE_PAYERS, required: false, default: 'store', description: "Yetkazish haqini kim to'laydi (№47, 8-bo'lim)" })
+  @IsOptional()
+  @IsIn(FEE_PAYERS)
+  fee_payer?: string;
 
   @ApiProperty({ required: false, example: 2 })
   @IsOptional()
@@ -362,9 +382,20 @@ export class PublishDeliveryDto {
 
 /** `publish` dan oldin narx (3.4). */
 export class QuoteFeeDto {
-  @ApiProperty({ enum: VEHICLES, example: 'van' })
+  @ApiProperty({ enum: VEHICLES, required: false, example: 'van', description: "Eski kalit. vehicle_class bo'lmasa shundan sinf olinadi" })
+  @IsOptional()
   @IsIn(VEHICLES as unknown as string[])
-  required_vehicle: string;
+  required_vehicle?: string;
+
+  @ApiProperty({ enum: VEHICLE_CLASSES, required: false, example: 'gazel', description: "Mashina sinfi (№47). Ikkalasi ham bo'lmasa — suggested_class" })
+  @IsOptional()
+  @IsIn(VEHICLE_CLASSES as unknown as string[], { message: CLASS_MSG })
+  vehicle_class?: string;
+
+  @ApiProperty({ enum: FEE_PAYERS, required: false, default: 'store', description: "Yetkazish haqini kim to'laydi (№47, 8-bo'lim)" })
+  @IsOptional()
+  @IsIn(FEE_PAYERS)
+  fee_payer?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -406,9 +437,16 @@ export class HandoverDto {
 
   @ApiProperty({ required: false, example: 1500000 })
   @IsOptional()
+  @Transform(toNumber)
   @IsInt()
   @Min(0)
   cash_collected?: number;
+
+  @ApiProperty({ required: false, example: '01A777AA', description: "pickup (№47, 7-bo'lim): kelgan mashina raqami — farq qilsa tarixga" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  vehicle_plate_actual?: string;
 }
 
 /** Ochiq yetkazishni olish (3.3): joylashuv ixtiyoriy (bo'lmasa oxirgi ma'lum joy). */
@@ -483,6 +521,13 @@ export class CourierDeliverDto extends Geo {
   @IsInt()
   @Min(0)
   cash_collected?: number;
+
+  @ApiProperty({ required: false, description: "Mijozdan olingan YETKAZISH HAQI (so'm) — cod dan alohida. fee_cash > 0 bo'lsa majburiy (№47)" })
+  @IsOptional()
+  @Transform(toNumber)
+  @IsInt()
+  @Min(0)
+  fee_cash_collected?: number;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -569,9 +614,15 @@ export class IncidentDto {
 
 /** Kuryer transporti (1a-band). */
 export class CourierVehicleDto {
-  @ApiProperty({ example: 'car', enum: VEHICLES })
+  @ApiProperty({ example: 'car', enum: VEHICLES, required: false, description: "vehicle_class berilsa shundan olinadi; ikkalasidan biri majburiy" })
+  @IsOptional()
   @IsIn(VEHICLES as unknown as string[])
-  vehicle_type: string;
+  vehicle_type?: string;
+
+  @ApiProperty({ example: 'gazel', enum: VEHICLE_CLASSES, required: false, description: "Sinf (№47); sig'im berilmasa sinf standarti" })
+  @IsOptional()
+  @IsIn(VEHICLE_CLASSES as unknown as string[], { message: CLASS_MSG })
+  vehicle_class?: string;
 
   @ApiProperty({ required: false, example: '01A123BC', description: "foot / bike da bo'sh bo'lishi mumkin" })
   @IsOptional()
@@ -618,6 +669,11 @@ export class UpdateCourierVehicleDto {
   @IsIn(VEHICLES as unknown as string[])
   vehicle_type?: string;
 
+  @ApiProperty({ required: false, enum: VEHICLE_CLASSES })
+  @IsOptional()
+  @IsIn(VEHICLE_CLASSES as unknown as string[], { message: CLASS_MSG })
+  vehicle_class?: string;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
@@ -656,6 +712,33 @@ export class UpdateCourierVehicleDto {
   @IsOptional()
   @IsIn(VEHICLE_OWNERS as unknown as string[])
   owner?: string;
+}
+
+/**
+ * Tasdiqlash (№47): do'kon/superadmin transportni ko'rib sinf va aniq sig'imni
+ * belgilashi mumkin — tasdiqlangan transportda ham (kuryer o'zi o'zgartira olmaydi).
+ */
+export class ApproveVehicleDto {
+  @ApiProperty({ required: false, enum: VEHICLE_CLASSES })
+  @IsOptional()
+  @IsIn(VEHICLE_CLASSES as unknown as string[], { message: CLASS_MSG })
+  vehicle_class?: string;
+
+  @ApiProperty({ required: false, example: 1500 })
+  @IsOptional()
+  @Transform(toNumber)
+  @IsInt()
+  @Min(0)
+  @Max(100000)
+  capacity_kg?: number;
+
+  @ApiProperty({ required: false, example: 9 })
+  @IsOptional()
+  @Transform(toNumber)
+  @IsNumber()
+  @Min(0)
+  @Max(1000)
+  capacity_m3?: number;
 }
 
 export class RejectVehicleDto {
@@ -697,9 +780,15 @@ export class CourierRateDto {
   @IsInt()
   store_id?: number | null;
 
-  @ApiProperty({ example: 'car', enum: VEHICLES })
+  @ApiProperty({ example: 'car', enum: VEHICLES, required: false, description: "Eski kalit; vehicle_class bo'lmasa sinf shundan (car -> car, van -> damas, truck -> truck_3t)" })
+  @IsOptional()
   @IsIn(VEHICLES as unknown as string[])
-  vehicle_type: string;
+  vehicle_type?: string;
+
+  @ApiProperty({ example: 'gazel', enum: VEHICLE_CLASSES, required: false, description: "Kalit (№47, 5-bo'lim)" })
+  @IsOptional()
+  @IsIn(VEHICLE_CLASSES as unknown as string[], { message: CLASS_MSG })
+  vehicle_class?: string;
 
   @ApiProperty({ example: 25000 })
   @IsInt()
@@ -853,5 +942,69 @@ export class UnverifyDocumentsDto {
   @IsOptional()
   @IsString()
   @MaxLength(1000)
+  reason?: string;
+}
+
+// ============================================================ №47, 7- va 8-bo'lim (xaridor)
+
+/** Mijoz o'z mashinasini yuboradi — `PATCH /orders/:id/pickup-info`. */
+export class PickupInfoDto {
+  @ApiProperty({ required: false, example: 12, description: "Buyurtmada bir nechta olib ketish bo'lsa — qaysi biri" })
+  @IsOptional()
+  @IsInt()
+  delivery_id?: number;
+
+  @ApiProperty({ example: 'Bobur Aliyev' })
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  driver_name: string;
+
+  @ApiProperty({ example: '+998901234567' })
+  @Matches(PHONE, { message: PHONE_MSG })
+  driver_phone: string;
+
+  @ApiProperty({ example: '01A777AA' })
+  @IsString()
+  @MinLength(4)
+  @MaxLength(20)
+  vehicle_plate: string;
+
+  @ApiProperty({ required: false, enum: VEHICLE_CLASSES })
+  @IsOptional()
+  @IsIn(VEHICLE_CLASSES as unknown as string[], { message: CLASS_MSG })
+  vehicle_class?: string;
+
+  @ApiProperty({ example: '2026-10-15T10:00:00+05:00' })
+  @IsDateString()
+  arrive_from: string;
+
+  @ApiProperty({ example: '2026-10-15T12:00:00+05:00' })
+  @IsDateString()
+  arrive_to: string;
+
+  @ApiProperty({ required: false, example: '145', description: 'Ishonchnoma raqami (yuridik shaxs uchun)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  poa_number?: string;
+
+  @ApiProperty({ required: false, example: 331, description: "Ishonchnoma fayli — do'kon chatiga yuborilgan fayl id (chat_attachments)" })
+  @IsOptional()
+  @IsInt()
+  poa_document_id?: number;
+}
+
+/** Mijoz yetkazish haqini tasdiqlaydi / rad etadi (№47, 8-bo'lim). */
+export class DeliveryFeeDecisionDto {
+  @ApiProperty({ required: false, example: 12, description: "Buyurtmada bir nechta taklif bo'lsa — qaysi yetkazish" })
+  @IsOptional()
+  @IsInt()
+  delivery_id?: number;
+
+  @ApiProperty({ required: false, example: "Qimmat, o'zim olib ketaman" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
   reason?: string;
 }

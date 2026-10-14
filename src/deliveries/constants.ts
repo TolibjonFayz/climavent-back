@@ -29,7 +29,8 @@ export const HISTORY_STATUSES: DeliveryStatus[] = ['delivered', 'failed', 'retur
 
 export const FAILURE_REASONS = ['client_unreachable', 'client_refused', 'wrong_address', 'damaged', 'other'] as const;
 
-export type ActorType = 'superadmin' | 'store' | 'courier' | 'system';
+// `customer` — №47: mijoz olib ketish ma'lumotini yuboradi, yetkazish haqini tasdiqlaydi
+export type ActorType = 'superadmin' | 'store' | 'courier' | 'system' | 'customer';
 
 /**
  * Ruxsat etilgan o'tishlar (topshiriq №22, 3-band). Boshqa har qanday o'tish — 409.

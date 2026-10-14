@@ -172,4 +172,17 @@ export class Characteristic extends Model<Characteristic, CharasteristicAtr> {
   @ApiProperty({ example: 60, required: false, nullable: true, description: "Balandlik, sm" })
   @Column({ type: DataType.INTEGER, allowNull: true })
   height_cm: number;
+
+  // ---- №47, 1-bo'lim. `null` — variantda bo'lsa modelniki, u ham bo'lmasa standart.
+  @ApiProperty({ example: 2, required: false, nullable: true, description: "Necha joy (split: ichki + tashqi = 2). Standart 1" })
+  @Column({ type: DataType.SMALLINT, allowNull: true })
+  packages: number;
+
+  @ApiProperty({ example: false, required: false, nullable: true, description: 'Kran/manipulyator shart (chiller, kryshniy blok). Standart false' })
+  @Column({ type: DataType.BOOLEAN, allowNull: true })
+  needs_crane: boolean;
+
+  @ApiProperty({ example: true, required: false, nullable: true, description: "Ustma-ust qo'yish mumkinmi. Standart true" })
+  @Column({ type: DataType.BOOLEAN, allowNull: true })
+  stackable: boolean;
 }

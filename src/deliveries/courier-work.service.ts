@@ -18,6 +18,7 @@ import {
 } from './model/models';
 import { CourierPayoutDto, CourierRateDto, ShiftEndDto, ShiftStartDto } from './dto/dto';
 import { CourierVehiclesService } from './courier-vehicles.service';
+import { CLASS_SPEC, VehicleClass, classOf, isVehicleClass } from './vehicle-classes';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -127,7 +128,8 @@ export class CourierWorkService {
       `SELECT COUNT(*) FILTER (WHERE status = 'delivered')::int AS delivered,
               COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
               COALESCE(SUM(delivery_fee) FILTER (WHERE status = 'delivered'), 0)::bigint AS fees_total,
-              COALESCE(SUM(cash_collected) FILTER (WHERE status = 'delivered'), 0)::bigint AS cash_collected
+              COALESCE(SUM(cash_collected) FILTER (WHERE status = 'delivered'), 0)::bigint AS cash_collected,
+              COALESCE(SUM(fee_cash_collected) FILTER (WHERE status = 'delivered'), 0)::bigint AS fee_cash_collected
          FROM deliveries
         WHERE courier_id = :id AND updated_at >= :from`,
       { replacements: { id: courier.id, from }, type: QueryTypes.SELECT },
@@ -142,9 +144,11 @@ export class CourierWorkService {
       { replacements: { id: courier.id, from }, type: QueryTypes.SELECT },
     );
     // Naqd balans — HAMMA vaqt uchun (davr bilan cheklanmaydi): kuryer
-    // qo'lida qancha pul borligi davr chegarasiga bog'liq emas.
+    // qo'lida qancha pul borligi davr chegarasiga bog'liq emas. Mijoz to'lagan
+    // yetkazish haqi (`fee_cash_collected`, №47) ham shu yerda — u Climavent'niki.
     const [cash]: any[] = await Delivery.sequelize.query(
-      `SELECT COALESCE((SELECT SUM(cash_collected) FROM deliveries WHERE courier_id = :id AND status = 'delivered'), 0)::bigint AS collected,
+      `SELECT COALESCE((SELECT SUM(COALESCE(cash_collected, 0) + COALESCE(fee_cash_collected, 0)) FROM deliveries
+                         WHERE courier_id = :id AND status = 'delivered'), 0)::bigint AS collected,
               COALESCE((SELECT SUM(amount) FROM cash_handovers WHERE courier_id = :id), 0)::bigint AS handed_over`,
       { replacements: { id: courier.id }, type: QueryTypes.SELECT },
     );
@@ -156,6 +160,8 @@ export class CourierWorkService {
       delivered: Number(totals.delivered),
       failed: Number(totals.failed),
       fees_total: Number(totals.fees_total),
+      // Davr ichida mijozdan olingan yetkazish haqi (cod dan alohida)
+      fee_cash_collected: Number(totals.fee_cash_collected),
       cash_collected: collected,
       cash_handed_over: handedOver,
       cash_balance: collected - handedOver,
@@ -192,14 +198,17 @@ export class CourierWorkService {
     return row;
   }
 
-  // ============================================================ 6-band: tariflar
+  // ============================================================ 6-band: tariflar (№47: sinf bo'yicha)
   async listRates(r: StoreRequester) {
     const where: any = {};
     if (r?.role !== 'superadmin') {
       // Do'kon admini o'z tarifini va platforma tarifini ko'radi
       where[Op.or] = [{ store_id: r.store_id }, { store_id: null }];
     }
-    return CourierRate.findAll({ where, order: [['store_id', 'ASC NULLS FIRST'], ['vehicle_type', 'ASC']] });
+    const rows = await CourierRate.findAll({ where, order: [['store_id', 'ASC NULLS FIRST'], ['vehicle_type', 'ASC'], ['id', 'ASC']] });
+    // Adminka «Tariflar» sahifasi 7 sinfni tartib bilan ko'rsatsin
+    const rank = (c: string | null) => (c && isVehicleClass(c) ? Object.keys(CLASS_SPEC).indexOf(c) : -1);
+    return rows.sort((a, b) => (a.store_id ?? 0) - (b.store_id ?? 0) || rank(a.vehicle_class) - rank(b.vehicle_class));
   }
 
   async upsertRate(dto: CourierRateDto, r: StoreRequester) {
@@ -216,11 +225,13 @@ export class CourierWorkService {
       }
       storeId = Number(r.store_id);
     }
+    const key = rateKey(dto.vehicle_class, dto.vehicle_type);
     const [row] = await CourierRate.findOrCreate({
-      where: { store_id: storeId, vehicle_type: dto.vehicle_type },
+      where: { store_id: storeId, ...(key.vehicle_class ? { vehicle_class: key.vehicle_class } : { vehicle_class: null, vehicle_type: key.vehicle_type }) },
       defaults: {
         store_id: storeId,
-        vehicle_type: dto.vehicle_type,
+        vehicle_type: key.vehicle_type,
+        vehicle_class: key.vehicle_class,
         base_fee: dto.base_fee,
         per_km: dto.per_km,
         floor_fee: dto.floor_fee,
@@ -242,59 +253,44 @@ export class CourierWorkService {
   /**
    * Yetkazish yaratilganda taklif qilinadigan haq (6-band).
    * Do'kon tarifi bo'lmasa platforma tarifi; u ham bo'lmasa `null`
-   * (adminkada qo'lda kiritiladi).
+   * (adminkada qo'lda kiritiladi). Kalit — sinf (№47), sinfsiz — `vehicle_type`.
    */
-  async suggestFee(input: {
-    store_id: number;
-    vehicle_type: string;
-    pickup_lat?: number | null;
-    pickup_lng?: number | null;
-    dropoff_lat?: number | null;
-    dropoff_lng?: number | null;
-    floor?: number | null;
-    has_elevator?: boolean | null;
-  }): Promise<number | null> {
+  async suggestFee(input: FeeInput & { store_id: number }): Promise<number | null> {
+    const key = rateKey(input.vehicle_class, input.vehicle_type);
     const rates = await CourierRate.findAll({
-      where: {
-        vehicle_type: input.vehicle_type,
-        is_active: true,
-        [Op.or]: [{ store_id: input.store_id }, { store_id: null }],
-      },
+      where: { ...rateWhere(key), is_active: true, [Op.or]: [{ store_id: input.store_id }, { store_id: null }] },
     });
     if (!rates.length) return null;
     // Do'kon tarifi platformanikidan ustun
     const rate = rates.find((x) => x.store_id !== null) ?? rates[0];
-    const km = distanceKm(input.pickup_lat, input.pickup_lng, input.dropoff_lat, input.dropoff_lng);
-    let fee = Number(rate.base_fee) + (km !== null ? Math.round(km * Number(rate.per_km)) : 0);
-    // Liftsiz binoda har qavat uchun qo'shimcha (1-qavat bepul)
-    if (input.floor && !input.has_elevator) {
-      fee += Math.max(0, Number(input.floor) - 1) * Number(rate.floor_fee);
-    }
-    return fee;
+    // Do'konning o'z kuryeri — yuklovchi alohida kelishiladi (№26 dagi kabi)
+    return feeFromRate(rate, { ...input, loaders_needed: 0 }).delivery_fee;
   }
 
   /**
-   * Platforma tarifi (№44, 3.4): FAQAT `store_id = null` qatorlari — do'kon to'laydi,
-   * kuryerga platforma to'laydi. Tarif yo'q — `delivery_fee: null`.
+   * Platforma tarifi (№44, 3.4): FAQAT `store_id = null` qatorlari — kuryerga platforma
+   * to'laydi. Tarif yo'q sinf — `delivery_fee: null` (№47: `options` da chiqmaydi).
    */
-  async platformFee(input: {
-    vehicle_type: string;
-    pickup_lat?: number | null;
-    pickup_lng?: number | null;
-    dropoff_lat?: number | null;
-    dropoff_lng?: number | null;
-    floor?: number | null;
-    has_elevator?: boolean | null;
-    loaders_needed?: number | null;
-  }): Promise<{ delivery_fee: number | null; distance_km: number | null }> {
-    const km = distanceKm(input.pickup_lat, input.pickup_lng, input.dropoff_lat, input.dropoff_lng);
-    const rate = await CourierRate.findOne({ where: { store_id: null, vehicle_type: input.vehicle_type, is_active: true } });
-    const distance = km === null ? null : Math.round(km * 10) / 10;
-    if (!rate) return { delivery_fee: null, distance_km: distance };
-    let fee = Number(rate.base_fee) + (km !== null ? Math.round(km * Number(rate.per_km)) : 0);
-    if (input.floor && !input.has_elevator) fee += Math.max(0, Number(input.floor) - 1) * Number(rate.floor_fee);
-    fee += Math.max(0, Number(input.loaders_needed || 0)) * Number(rate.loader_fee || 0);
-    return { delivery_fee: fee, distance_km: distance };
+  async platformFee(input: FeeInput): Promise<{ delivery_fee: number | null; distance_km: number | null }> {
+    const rate = await CourierRate.findOne({ where: { store_id: null, ...rateWhere(rateKey(input.vehicle_class, input.vehicle_type)), is_active: true } });
+    if (!rate) {
+      const km = distanceKm(input.pickup_lat, input.pickup_lng, input.dropoff_lat, input.dropoff_lng);
+      return { delivery_fee: null, distance_km: km === null ? null : Math.round(km * 10) / 10 };
+    }
+    return feeFromRate(rate, input);
+  }
+
+  /** Har sinf uchun platforma narxi (№47, 3-bo'lim) — tarifi bor sinflargina. */
+  async platformOptions(input: Omit<FeeInput, 'vehicle_class' | 'vehicle_type'>) {
+    const rates = await CourierRate.findAll({ where: { store_id: null, is_active: true, vehicle_class: { [Op.ne]: null } } });
+    const out: { class: VehicleClass; vehicle_type: string; delivery_fee: number; distance_km: number | null }[] = [];
+    for (const cls of Object.keys(CLASS_SPEC) as VehicleClass[]) {
+      const rate = rates.find((x) => x.vehicle_class === cls);
+      if (!rate) continue;
+      const fee = feeFromRate(rate, input);
+      out.push({ class: cls, vehicle_type: CLASS_SPEC[cls].vehicle_type, delivery_fee: fee.delivery_fee, distance_km: fee.distance_km });
+    }
+    return out;
   }
 
   /** Kutish haqi — `arrived_at` dan topshirishgacha (6-band). */
@@ -302,7 +298,7 @@ export class CourierWorkService {
     if (!delivery.arrived_at) return 0;
     const rate = await CourierRate.findOne({
       where: {
-        vehicle_type: delivery.required_vehicle,
+        ...rateWhere(rateKey(delivery.vehicle_class, delivery.required_vehicle)),
         is_active: true,
         [Op.or]: [{ store_id: delivery.store_id }, { store_id: null }],
       },
@@ -323,6 +319,49 @@ export class CourierWorkService {
     return courier;
   }
 }
+
+export interface FeeInput {
+  vehicle_class?: string | null;
+  vehicle_type?: string | null;
+  pickup_lat?: number | null;
+  pickup_lng?: number | null;
+  dropoff_lat?: number | null;
+  dropoff_lng?: number | null;
+  floor?: number | null;
+  has_elevator?: boolean | null;
+  loaders_needed?: number | null;
+}
+
+/**
+ * Tarif kaliti (№47, 5-bo'lim): sinf; sinfsiz eski so'rov — `vehicle_type` dan eng
+ * yaqin sinf (migratsiya mavjud qatorlarni aynan shunday ko'chirgan). `foot`/`bike`
+ * — sinfi yo'q, `vehicle_type` bo'yicha.
+ */
+export function rateKey(vehicleClass?: string | null, vehicleType?: string | null): { vehicle_class: VehicleClass | null; vehicle_type: string } {
+  if (isVehicleClass(vehicleClass)) {
+    const type = CLASS_SPEC[vehicleClass].vehicle_type;
+    if (vehicleType && vehicleType !== type) {
+      throw new BadRequestException(`vehicle_type (${vehicleType}) ${vehicleClass} sinfiga mos emas — ${type} bo'lishi kerak`);
+    }
+    return { vehicle_class: vehicleClass, vehicle_type: type };
+  }
+  if (!vehicleType) throw new BadRequestException('vehicle_class yoki vehicle_type majburiy');
+  return { vehicle_class: classOf(null, vehicleType), vehicle_type: vehicleType };
+}
+
+const rateWhere = (key: { vehicle_class: string | null; vehicle_type: string }) =>
+  key.vehicle_class ? { vehicle_class: key.vehicle_class } : { vehicle_class: null, vehicle_type: key.vehicle_type };
+
+/** Narx formulasi — yagona joy: asos + km + liftsiz qavat + yuklovchilar. */
+function feeFromRate(rate: CourierRate, input: FeeInput): { delivery_fee: number; distance_km: number | null } {
+  const km = distanceKm(input.pickup_lat, input.pickup_lng, input.dropoff_lat, input.dropoff_lng);
+  let fee = Number(rate.base_fee) + (km !== null ? Math.round(km * Number(rate.per_km)) : 0);
+  // Liftsiz binoda har qavat uchun qo'shimcha (1-qavat bepul)
+  if (input.floor && !input.has_elevator) fee += Math.max(0, Number(input.floor) - 1) * Number(rate.floor_fee);
+  fee += Math.max(0, Number(input.loaders_needed || 0)) * Number(rate.loader_fee || 0);
+  return { delivery_fee: fee, distance_km: km === null ? null : Math.round(km * 10) / 10 };
+}
+
 
 export { distanceKm };
 export type { CourierVehicle };

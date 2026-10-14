@@ -10,7 +10,7 @@ import { CourierLocation, DELIVERY_MODELS } from './model/models';
 import { CouriersService } from './couriers.service';
 import { DeliveriesService } from './deliveries.service';
 import { ProofStorageService } from './proof-storage.service';
-import { CouriersController, DeliveriesController } from './deliveries.controller';
+import { CouriersController, CustomerDeliveryController, DeliveriesController, StoreDimensionsController } from './deliveries.controller';
 import { CourierAppController, DevicesController } from './courier-app.controller';
 import { TrackingController } from './tracking.controller';
 import { TrackingService } from './tracking.service';
@@ -113,6 +113,8 @@ export class DeliveriesJobs implements OnApplicationBootstrap, OnModuleDestroy {
     CourierAdminController,
     CouriersController,
     DeliveriesController,
+    CustomerDeliveryController,
+    StoreDimensionsController,
     CourierAppController,
     DevicesController,
     TrackingController,
