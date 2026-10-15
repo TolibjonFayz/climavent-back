@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { ArrayMaxSize, IsArray, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateIf } from 'class-validator';
 
 // DIQQAT: global ValidationPipe `whitelist: true` — validator dekoratorisiz
 // maydon JIMGINA o'chadi. Har maydonda validator bor.
@@ -32,6 +32,13 @@ export class SendMessageDto {
   @IsInt({ each: true })
   @Min(1, { each: true })
   attachment_ids?: number[];
+
+  @ApiProperty({ required: false, nullable: true, example: 298, description: "Javob (№50): SHU suhbatdagi xabar id si, aks holda 400" })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  reply_to_id?: number | null;
 
   @ApiProperty({ required: false, example: '5f0c1c3e-7a2b-4c1d-9e8f-0a1b2c3d4e5f' })
   @IsOptional()

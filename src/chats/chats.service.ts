@@ -12,7 +12,7 @@ import { QueryTypes } from 'sequelize';
 import { Sequelize } from 'sequelize-typescript';
 import { pushTo } from 'src/deliveries/push';
 import { ChatActor, storeCan } from './chat-auth';
-import { ChatHub, clientRoom, storeRoom } from './chat-hub';
+import { ADMIN_ROOM, ChatHub, clientRoom, storeRoom } from './chat-hub';
 import { attachmentsSummary } from './chat-files';
 import { AttachmentView, ChatFilesService } from './chat-files.service';
 import { SendMessageDto } from './dto';
@@ -131,14 +131,24 @@ export class ChatsService {
       );
       if (existing) return existing;
     }
+    // Javob (№50): faqat SHU suhbatdagi xabarga. Boshqa suhbatdagi yoki yo'q id —
+    // bir xil umumiy 400 (begona xabar borligi oshkor qilinmaydi)
+    const replyToId = dto.reply_to_id ? Number(dto.reply_to_id) : null;
+    if (replyToId) {
+      const [r]: any[] = await this.db.query('SELECT id FROM chat_messages WHERE id = :id AND chat_id = :chat', {
+        replacements: { id: replyToId, chat: chatId },
+        type: QueryTypes.SELECT,
+      });
+      if (!r) throw new BadRequestException('reply_to_id: javob beriladigan xabar topilmadi');
+    }
     this.rateLimit(actor);
 
     const senderUserId = actor.kind === 'client' ? actor.user_id : actor.store_user_id;
     // Xabar va fayllarni bog'lash — bitta tranzaksiyada: fayl yaroqsiz bo'lsa (400) xabar ham yozilmaydi
     const id = await this.db.transaction(async (t) => {
       const inserted: any[] = await this.db.query(
-        `INSERT INTO chat_messages (chat_id, sender, sender_user_id, text, product_id, client_msg_id)
-         VALUES (:chat, :sender, :uid, :text, :product, :cm)
+        `INSERT INTO chat_messages (chat_id, sender, sender_user_id, text, product_id, client_msg_id, reply_to_id)
+         VALUES (:chat, :sender, :uid, :text, :product, :cm, :reply)
          ON CONFLICT (chat_id, client_msg_id) DO NOTHING
          RETURNING id`,
         {
@@ -149,6 +159,7 @@ export class ChatsService {
             text: text || null,
             product: productId,
             cm: dto.client_msg_id || null,
+            reply: replyToId,
           },
           type: QueryTypes.SELECT,
           transaction: t,
@@ -187,6 +198,7 @@ export class ChatsService {
     const last = Number(row.last_read_id);
     const peerRoom = side === 'client' ? storeRoom(Number(row.store_id)) : clientRoom(Number(row.client_id));
     this.hub.emit(peerRoom, 'read', { chat_id: chatId, reader: side, last_message_id: last });
+    this.hub.emit(ADMIN_ROOM, 'read', { chat_id: chatId, reader: side, last_message_id: last });
     return { chat_id: chatId, reader: side, last_message_id: last };
   }
 
@@ -260,10 +272,20 @@ export class ChatsService {
     return rows.length ? (await this.hydrate(rows, base))[0] : null;
   }
 
-  /** Xabar qatorlari + fayllari (bitta so'rov bilan). */
+  /**
+   * Xabar qatorlari + fayllari (bitta so'rov bilan) + №50 `reply_to` (asl xabarlar
+   * va ularning fayllari ham bittadan so'rov). Asl xabar yo'q — `reply_to: null`.
+   */
   private async hydrate(rows: any[], base: string) {
-    const files = await this.files.forMessages(rows.map((r) => Number(r.id)), base);
-    return rows.map((r) => messageView(r, files.get(Number(r.id)) ?? []));
+    const parentIds = [...new Set(rows.map((r) => r.reply_to_id).filter((x) => x !== null && x !== undefined).map(Number))];
+    const parents: any[] = parentIds.length
+      ? await this.db.query(`${MESSAGE_SQL} WHERE m.id IN (:ids)`, { replacements: { ids: parentIds }, type: QueryTypes.SELECT })
+      : [];
+    const files = await this.files.forMessages([...rows.map((r) => Number(r.id)), ...parents.map((p) => Number(p.id))], base);
+    const replies = new Map<number, ReplyView>(parents.map((p) => [Number(p.id), replyView(p, files.get(Number(p.id)) ?? [])]));
+    return rows.map((r) =>
+      messageView(r, files.get(Number(r.id)) ?? [], r.reply_to_id ? replies.get(Number(r.reply_to_id)) ?? null : null),
+    );
   }
 
   /**
@@ -322,6 +344,8 @@ export class ChatsService {
       const [forStore] = await this.views('c.id = :id', { id: chat.id }, 'store', apiBase);
       this.hub.emit(clientRoom(chat.client_id), 'message', { chat_id: chat.id, message, chat: forClient });
       this.hub.emit(storeRoom(chat.store_id), 'message', { chat_id: chat.id, message, chat: forStore });
+      // Superadmin (№50) — do'kon nuqtai nazaridagi suhbat obyekti bilan
+      this.hub.emit(ADMIN_ROOM, 'message', { chat_id: chat.id, message, chat: forStore });
 
       // Matn bo'lmasa — birinchi fayl bo'yicha (№46, 4-band), keyin mahsulot
       const body = truncate(
@@ -364,30 +388,57 @@ export class ChatsService {
 }
 
 const MESSAGE_SQL = `
-  SELECT m.id, m.chat_id, m.sender, m.text, m.client_msg_id, m.created_at,
+  SELECT m.id, m.chat_id, m.sender, m.text, m.client_msg_id, m.created_at, m.reply_to_id,
          p.id AS p_id, p.name_uz AS p_name_uz, p.name_ru AS p_name_ru, p.name_en AS p_name_en,
          (SELECT pi.image_link FROM product_images pi WHERE pi.product_id = p.id ORDER BY pi.id LIMIT 1) AS p_image
     FROM chat_messages m
     LEFT JOIN products p ON p.id = m.product_id`;
 
-function messageView(r: any, attachments: AttachmentView[]) {
+// Mahsulot o'chirilgan bo'lsa ham xabar ochiladi — `product: null`
+const productView = (r: any) =>
+  r.p_id
+    ? {
+        id: Number(r.p_id),
+        name_uz: r.p_name_uz ?? null,
+        name_ru: r.p_name_ru ?? null,
+        name_en: r.p_name_en ?? null,
+        image: r.p_image ?? null,
+      }
+    : null;
+
+/** Iqtibos matni uzunligi (№50). */
+const REPLY_TEXT_MAX = 200;
+
+type ReplyView = ReturnType<typeof replyView>;
+
+/**
+ * Javob iqtibosi (№50) — asl xabarning qisqa nusxasi. Bitta daraja: ichida
+ * `reply_to` yo'q. Fayl — faqat birinchisi (imzoli `thumb_url`, rasm emas — null).
+ */
+function replyView(r: any, attachments: AttachmentView[]) {
+  const first = attachments[0];
+  const text = String(r.text ?? '');
+  return {
+    id: Number(r.id),
+    sender: r.sender,
+    text: text.length > REPLY_TEXT_MAX ? `${text.slice(0, REPLY_TEXT_MAX - 1)}…` : text,
+    product: productView(r),
+    attachment: first ? { id: first.id, kind: first.kind, name: first.name, thumb_url: first.thumb_url } : null,
+    attachments_count: attachments.length,
+  };
+}
+
+function messageView(r: any, attachments: AttachmentView[], replyTo: ReplyView | null) {
   return {
     id: Number(r.id),
     chat_id: Number(r.chat_id),
     sender: r.sender,
     text: r.text ?? '',
-    // Mahsulot o'chirilgan bo'lsa ham xabar ochiladi — `product: null`
-    product: r.p_id
-      ? {
-          id: Number(r.p_id),
-          name_uz: r.p_name_uz ?? null,
-          name_ru: r.p_name_ru ?? null,
-          name_en: r.p_name_en ?? null,
-          image: r.p_image ?? null,
-        }
-      : null,
+    product: productView(r),
     // №46: yo'q bo'lsa `[]` (null emas)
     attachments,
+    // №50: kalit DOIM bor — ilovalar javob berishni shundan yoqadi; javob bo'lmasa null
+    reply_to: replyTo,
     client_msg_id: r.client_msg_id ?? null,
     created_at: r.created_at,
   };

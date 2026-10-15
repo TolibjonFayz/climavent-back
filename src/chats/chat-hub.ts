@@ -39,6 +39,8 @@ export class ChatHub {
 
 export const clientRoom = (userId: number) => `client:${userId}`;
 export const storeRoom = (storeId: number) => `store:${storeId}`;
+/** Superadmin (adminka «Chatlar», №50): hamma suhbatlarning `message` / `read` i — faqat o'qish. */
+export const ADMIN_ROOM = 'admin';
 /**
  * Do'konning BUYURTMA signallari xonasi (topshiriq №36). `store:<id>` dan
  * alohida: u chat xonasi va push sharti (`isEmpty`) unga tayanadi —

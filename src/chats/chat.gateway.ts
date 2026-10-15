@@ -10,7 +10,7 @@ import {
 } from '@nestjs/websockets';
 import type { Namespace, Socket } from 'socket.io';
 import { ChatActor, resolveChatActor, storeCan, storeSeesOrders } from './chat-auth';
-import { ChatHub, clientRoom, storeOrdersRoom, storeRoom } from './chat-hub';
+import { ADMIN_ROOM, ChatHub, clientRoom, storeOrdersRoom, storeRoom } from './chat-hub';
 import { ChatsService } from './chats.service';
 
 const TYPING_MIN_MS = 1000;
@@ -23,8 +23,8 @@ const TYPING_MIN_MS = 1000;
  * o'tgan bo'lsa `connect_error: unauthorized` — ilova tokenni yangilab qayta
  * ulanadi. Xaridor `client:<id>`, do'kon admini/xodimi `store:<store_id>`
  * (chat, `chat.view`) va `store-orders:<store_id>` (buyurtma signali,
- * `orders.view` yoki `carts.view`) xonalariga qo'shiladi. Superadmin va
- * kuryer socketga ulanmaydi (`forbidden`).
+ * `orders.view` yoki `carts.view`) xonalariga qo'shiladi. Superadmin — `admin`
+ * xonasi (№50, faqat o'qish: `message`, `read`). Kuryer socketga ulanmaydi (`forbidden`).
  *
  * Serverdan: `message`, `read`, `typing` (chat) va `order_updated` (№36,
  * `order-signal.ts`). Server faqat `typing` ni qabul qiladi; xabar yuborish — REST.
@@ -48,9 +48,13 @@ export class ChatGateway implements OnGatewayInit {
         const token = socket.handshake.auth?.token ?? socket.handshake.headers?.authorization;
         const actor = await resolveChatActor(this.jwt, token as string);
         if (!actor) return next(new Error('unauthorized'));
-        if (actor.kind === 'super') return next(new Error('forbidden'));
         socket.data.actor = actor;
         socket.data.lastTyping = 0;
+        // Superadmin (№50): faqat o'qiydi — `admin` xonasi (`message`, `read`); `typing` e'tiborsiz
+        if (actor.kind === 'super') {
+          await socket.join(ADMIN_ROOM);
+          return next();
+        }
         if (actor.kind === 'client') {
           await socket.join(clientRoom(actor.user_id));
           return next();
