@@ -72,8 +72,10 @@ export class CharacteristicsService {
     // Narx mahsulot valyutasida (№37); valyutani trigger mahsulotdan oladi
     assertPriceInput(payload, await this.productCurrency(payload.product_id));
     delete payload.currency;
-    payload.content = await this.resolveContentField(payload.content);
-    payload.contentJson = await this.resolveContentField(payload.contentJson);
+    // Ustunlar NOT NULL: bo'sh mazmun (masalan "." / "{}") R2'ga yuklanmaydi,
+    // lekin `undefined` ham qoldirilmaydi — aks holda INSERT 500 beradi.
+    payload.content = (await this.resolveContentField(payload.content)) ?? '';
+    payload.contentJson = (await this.resolveContentField(payload.contentJson)) ?? '';
 
     const created = await this.charecteristicRepository.create(payload);
 
