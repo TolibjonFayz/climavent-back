@@ -122,19 +122,37 @@ export class ProductsController {
   @ApiQuery({
     name: 'view',
     required: false,
-    description: "`card` — yengil ro'yxat: kartochka uchun maydonlar (nom, narx/aksiya, rasmlar, do'kon nomi/aloqasi, reyting). Standart — to'liq",
-    example: 'card',
+    description:
+      "`card` — yengil ro'yxat: kartochka uchun maydonlar (nom, narx/aksiya, rasmlar, do'kon nomi/aloqasi, reyting). " +
+      "`list` — to'liq mahsulot obyekti, lekin `characters`, `reviews`, sizes/opisaniya/naznacheniya/markirovka (+Json) siz; " +
+      "o'rniga `models_count`, `variants_count`. Standart — to'liq",
+    example: 'list',
+  })
+  @ApiQuery({
+    name: 'compact',
+    required: false,
+    description:
+      "`1` — `characters`/`insides` ichida `null` qiymatli kalitlar va `insides[].createdAt/updatedAt` qaytarilmaydi (javob ~2 baravar kichik)",
+    example: '1',
   })
   @ApiResponse({ status: 200, description: 'Mahsulotlar', type: [Product] })
   @Get('all')
   async getAll(
+    @Req() req: any,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('store_id') storeId?: string,
     @Scope() scope?: CatalogScope,
     @Query('on_sale') onSale?: string,
     @Query('view') view?: string,
-  ): Promise<Product[]> {
+    @Query('compact') compact?: string,
+  ): Promise<unknown[]> {
+    const shape: 'full' | 'card' | 'list' = view === 'card' ? 'card' : view === 'list' ? 'list' : 'full';
+    // Javob shakli narxlar hisoblangandan keyin o'zgartiriladi (CatalogShapeInterceptor)
+    req.catalogShape = {
+      compact: compact === '1' || compact === 'true',
+      list: shape === 'list',
+    };
     // Satr sifatida solishtiriladi: `Boolean("false")` true bo'lardi
     return this.productsService.getAllProducts(
       parsePositiveIntParam(page, 'page'),
@@ -142,7 +160,7 @@ export class ProductsController {
       parsePositiveIntParam(storeId, 'store_id'),
       scope,
       onSale === 'true',
-      view === 'card' ? 'card' : 'full',
+      shape,
     );
   }
 

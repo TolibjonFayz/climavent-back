@@ -10,6 +10,7 @@ import { RejectEmptyUpdatePipe } from './common/pipes/reject-empty-update.pipe';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { stripSensitiveFields } from './common/serialization/sensitive-fields';
 import { SalePresentationInterceptor } from './common/pricing/sale-presentation.interceptor';
+import { CatalogShapeInterceptor } from './products/catalog-shape.interceptor';
 import { Sequelize } from 'sequelize-typescript';
 import { responseTime } from './common/middleware/response-time';
 import { logFcmStatus } from './deliveries/push';
@@ -165,7 +166,12 @@ const start = async () => {
     // Aksiya: mehmonga faqat FAOL aksiya, adminkaga xom qiymat + sale_active;
     // mahsulotga on_sale / min_price / min_sale_price (topshiriq №15).
     // Valyuta: price (USD), price_input, price_uzs (topshiriq №37) — kurs kerak.
-    app.useGlobalInterceptors(new SalePresentationInterceptor(app.get(Sequelize)));
+    // `CatalogShapeInterceptor` BIRINCHI (tashqi qavat): `products/all?compact=1|view=list`
+    // shaklini narxlar hisoblangandan KEYIN o'zgartiradi (topshiriq №51).
+    app.useGlobalInterceptors(
+      new CatalogShapeInterceptor(),
+      new SalePresentationInterceptor(app.get(Sequelize)),
+    );
 
     app.use(cookieParser());
     app.useGlobalPipes(

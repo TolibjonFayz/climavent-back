@@ -48,6 +48,21 @@ export class SalePresentationInterceptor implements NestInterceptor {
   }
 }
 
+/**
+ * Javob ALLAQACHON oddiy, shu so'rov uchun yangi yaratilgan obyektlar
+ * (model emas, kesh/umumiy obyekt emas) ekanini bildiradi — masalan
+ * `products/all` (topshiriq №51, `catalog-plain.ts`). Bunday javob
+ * `stringify -> parse` nusxasisiz joyida qayta ishlanadi: 5 MB javobda bu
+ * ~2 ta to'liq nusxa va GC bosimini tejaydi. Natija bir xil — `Date` qiymatlar
+ * `time()` da satr kabi o'qiladi va javobda ISO satrga aylanadi.
+ */
+export const PLAIN_RESPONSE = Symbol.for('climavent.plainResponse');
+
+export function markPlainResponse<T extends object>(data: T): T {
+  Object.defineProperty(data, PLAIN_RESPONSE, { value: true, enumerable: false });
+  return data;
+}
+
 export async function presentPrices(
   data: unknown,
   privileged: boolean,
@@ -56,6 +71,10 @@ export async function presentPrices(
 ): Promise<unknown> {
   if (data === null || typeof data !== 'object') return data;
   if (data instanceof StreamableFile || Buffer.isBuffer(data)) return data;
+  if ((data as any)[PLAIN_RESPONSE] === true) {
+    walk(data, { privileged, now, rate: await rate() });
+    return data;
+  }
 
   let json: string;
   try {

@@ -31,6 +31,7 @@ import {
   productVisibilityWhere,
 } from 'src/common/visibility/catalog-visibility';
 import { searchVariants } from 'src/common/helpers/translit';
+import { loadCatalogPlain } from './catalog-plain';
 
 const SALE_ATTRS = ['sale_price', 'sale_starts_at', 'sale_ends_at'];
 
@@ -220,11 +221,26 @@ export class ProductsService {
     storeId?: number,
     scope: CatalogScope = PUBLIC_SCOPE,
     onSale = false,
-    view: 'full' | 'card' = 'full',
+    view: 'full' | 'card' | 'list' = 'full',
   ) {
     const effectiveLimit = limit || 20;
     const effectivePage = page || 1;
     const offset = (effectivePage - 1) * effectiveLimit;
+    // To'liq va `list` ko'rinishlar — xom so'rovlar bilan (topshiriq №51,
+    // `catalog-plain.ts`). Javob shakli Sequelize include'dagidek.
+    if (view !== 'card') {
+      return loadCatalogPlain({
+        where: {
+          ...this.visibilityWhere(scope),
+          ...(storeId ? { store_id: storeId } : {}),
+          ...this.saleWhere(onSale),
+        },
+        order: [['id', 'ASC']],
+        limit: effectiveLimit,
+        offset,
+        light: view === 'list',
+      });
+    }
     return this.productRepository.findAll({
       where: {
         ...this.visibilityWhere(scope),
@@ -232,9 +248,8 @@ export class ProductsService {
         ...this.saleWhere(onSale),
       },
       // Katalog kartochkalari narxni insides[].price dan oladi
-      ...(view === 'card'
-        ? { attributes: CARD_PRODUCT_ATTRIBUTES, include: this.cardInclude() }
-        : { include: this.catalogInclude() }),
+      attributes: CARD_PRODUCT_ATTRIBUTES,
+      include: this.cardInclude(),
       order: [['id', 'ASC']],
       limit: effectiveLimit,
       offset,
@@ -378,15 +393,26 @@ export class ProductsService {
   private cardInclude(): any[] {
     const sale = ['price', 'currency', 'sale_price', 'sale_starts_at', 'sale_ends_at'];
     return [
+      // `separate` — catalogInclude() dagi izohga qarang (topshiriq №51).
+      // FK ustunlari (`product_id`, `product_model_id`) shu sabab ham kerak.
       {
         model: Characteristic,
+        separate: true,
+        order: [['id', 'ASC']],
         attributes: ['id', 'title', 'product_id', ...sale],
-        include: [{ model: ProductModelInside, attributes: ['id', 'product_model_id', ...sale] }],
+        include: [
+          {
+            model: ProductModelInside,
+            separate: true,
+            order: [['id', 'ASC']],
+            attributes: ['id', 'product_model_id', ...sale],
+          },
+        ],
       },
       { model: Store, attributes: ['id', 'name', 'slug', 'logo_url', 'phone', 'telegram', 'is_active'] },
       { model: Category, attributes: ['id', 'name_uz', 'name_ru', 'name_en', 'category_id'] },
-      { model: ProductImages, attributes: ['id', 'image_link', 'product_id'] },
-      { model: Review, attributes: ['id', 'stars', 'product_id'] },
+      { model: ProductImages, separate: true, order: [['id', 'ASC']], attributes: ['id', 'image_link', 'product_id'] },
+      { model: Review, separate: true, order: [['id', 'ASC']], attributes: ['id', 'stars', 'product_id'] },
     ];
   }
 
@@ -400,10 +426,28 @@ export class ProductsService {
       : { include: this.catalogInclude() };
   }
 
+  /**
+   * To'liq ko'rinish: mahsulotning hamma bog'lanishlari (avval `{ all: true }`).
+   *
+   * TEZLIK (topshiriq №51): `hasMany` bog'lanishlar `separate: true` — har biri
+   * BITTA alohida so'rov (`WHERE product_id IN (...)`), mahsulot soniga
+   * bog'liq emas. Avval hammasi bitta JOIN edi va Postgres characters × insides
+   * × images × reviews ko'paytmasini qaytarardi (500 ta mahsulotda o'n minglab
+   * takroriy qator) — Sequelize esa ularni qayta yig'ib ~1 s yo'qotardi.
+   * Javob shakli o'zgarmaydi: kalitlar va qiymatlar aynan avvalgidek.
+   */
   private catalogInclude(): any[] {
     return [
-      { model: Characteristic, include: [{ model: ProductModelInside }] },
-      { all: true },
+      {
+        model: Characteristic,
+        separate: true,
+        order: [['id', 'ASC']],
+        include: [{ model: ProductModelInside, separate: true, order: [['id', 'ASC']] }],
+      },
+      { model: Category },
+      { model: Store },
+      { model: ProductImages, separate: true, order: [['id', 'ASC']] },
+      { model: Review, separate: true, order: [['id', 'ASC']] },
     ];
   }
 
