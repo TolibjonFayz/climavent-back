@@ -183,6 +183,9 @@ export class UsersController {
   //Verify OTP
   @ApiOperation({ summary: 'Verify OTP' })
   @ApiResponse({ status: 200, description: 'OTP verified successfully' })
+  // Kod taxmin qilishga qarshi IP bo'yicha qo'shimcha cheklov (audit
+  // 2026-11-05). Oddiy foydalanuvchi bir kirishda 1–3 marta chaqiradi.
+  @Throttle({ default: { limit: 20, ttl: 60 * 1000 } })
   @Post('verify-otp')
   verifyOtp(
     @Body() verifyOtpDto: VerifyOtpDto,

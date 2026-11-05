@@ -4,6 +4,7 @@ import {
   Delete,
   Post,
   Query,
+  Req,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -20,12 +21,19 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { CloudinaryService } from './cloudinary.service';
+import { InjectConnection } from '@nestjs/sequelize';
+import { Sequelize } from 'sequelize-typescript';
+import { scopedStoreId } from 'src/common/helpers/store-scope';
+import { assertCloudinaryOwned } from 'src/common/helpers/asset-ownership';
 import { AdminOrStoreGuard } from 'src/guards/admin_or_store.guard';
 
 @ApiTags('Images (Cloudinary)')
 @Controller('images')
 export class CloudinaryController {
-  constructor(private readonly cloudinaryService: CloudinaryService) {}
+  constructor(
+    private readonly cloudinaryService: CloudinaryService,
+    @InjectConnection() private readonly db: Sequelize,
+  ) {}
 
   // Ruxsat etilgan rasm turlari va ularning "magic bytes" imzosi.
   // Mijoz yuborgan mimetype'ga ISHONIB BO'LMAYDI (uni oson soxtalashtirish
@@ -167,10 +175,14 @@ export class CloudinaryController {
   @Delete('upload-image')
   async deleteImage(
     @Query('publicId') publicId: string,
+    @Req() req: any,
   ): Promise<{ success: boolean; message: string }> {
-    if (!publicId) {
+    if (!publicId || !String(publicId).trim()) {
       throw new BadRequestException('publicId parametri majburiy');
     }
+    // Do'kon admini boshqa do'konning (yoki umumiy) rasmini o'chira olmasin
+    // (audit 2026-11-05). Superadmin / servis kaliti — cheklovsiz.
+    await assertCloudinaryOwned(this.db, publicId, scopedStoreId(req));
     await this.cloudinaryService.deleteImage(publicId);
     return { success: true, message: "Rasm o'chirildi" };
   }

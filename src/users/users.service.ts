@@ -27,7 +27,7 @@ import * as bcrypt from 'bcrypt';
 import { SignoutDto } from './dto/signout.dto';
 import { Like } from 'src/likes/model/like.model';
 import { Cart } from 'src/cart/models/cart.model';
-import { Op } from 'sequelize';
+import { Op, literal } from 'sequelize';
 import { ConsentService } from 'src/offers/consent.service';
 import { dropDeviceTokens } from 'src/deliveries/store-push';
 import {
@@ -685,6 +685,30 @@ export class UsersService {
         "Noto'g'ri urinishlar soni tugadi, yangi kod so'rang",
       );
     }
+    // URINISH ATOMIK BAND QILINADI (xavfsizlik auditi 2026-11-05).
+    //
+    // Ilgari: o'qish -> solishtirish -> (xato bo'lsa) `attempts + 1`. Bir
+    // vaqtda yuborilgan 100 ta so'rov hammasi `attempts = 0` ni ko'rib,
+    // 3 ta emas 100 ta kodni sinab ko'rardi (5 xonali kod — 100 000 variant;
+    // bir nechta IP bilan hisobni egallash amaliy bo'lib qolardi).
+    // Endi har urinish solishtirishdan OLDIN bitta shartli UPDATE bilan
+    // band qilinadi — limitdan ortig'i bazaning o'zida rad etiladi.
+    const [reserved] = await this.otpRepo.update(
+      { attempts: literal('attempts + 1') as any },
+      {
+        where: {
+          id: otpDB.id,
+          verified: { [Op.not]: true },
+          attempts: { [Op.lt]: OTP_MAX_ATTEMPTS },
+        },
+      },
+    );
+    if (!reserved) {
+      throw new BadRequestException(
+        "Noto'g'ri urinishlar soni tugadi, yangi kod so'rang",
+      );
+    }
+
     // Kod endi xesh bilan solishtiriladi (topshiriq №19, 8-band).
     // `otp_hash` bo'sh bo'lgan qatorlar — deploy paytida yo'lda qolgan eski
     // kodlar; ular tugaguncha (5 daqiqa) eskicha tekshiriladi.
@@ -692,14 +716,20 @@ export class UsersService {
       ? otpMatches(String(otp), otpDB.phone_number, otpDB.otp_hash)
       : String(otpDB.otp) === String(otp);
     if (!kodTogri) {
-      await this.otpRepo.increment('attempts', { where: { id: otpDB.id } });
       throw new BadRequestException('Tasdiqlash kodi xato');
     }
 
     // Kod to'g'ri — endi OTP ni ishlatilgan deb belgilaymiz, userni aktivlashtiramiz va token beramiz
     // Kod (va xeshi) darhol o'chiriladi: qator sutkalik limitni sanash uchun
     // qoladi, lekin ichida tekshiriladigan hech narsa qolmaydi.
-    await this.makeVerifyTrue(otpDB.unique_id);
+    // Shartli: bir kod bilan parallel ikki so'rov ikkita sessiya olmasin.
+    const [claimed] = await this.otpRepo.update(
+      { verified: true, otp: null, otp_hash: null },
+      { where: { id: otpDB.id, verified: { [Op.not]: true } } },
+    );
+    if (!claimed) {
+      throw new BadRequestException('Tasdiqlash kodi allaqachon qabul qilingan');
+    }
     await this.UsersRepository.update(
       { is_active: true },
       { where: { phone_number } },

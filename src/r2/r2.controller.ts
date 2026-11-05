@@ -7,8 +7,13 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import { InjectConnection } from '@nestjs/sequelize';
+import { Sequelize } from 'sequelize-typescript';
+import { scopedStoreId } from 'src/common/helpers/store-scope';
+import { assertR2KeyOwned, normalizeR2Key } from 'src/common/helpers/asset-ownership';
 import { R2Service } from './r2.service';
 import {
   ApiBearerAuth,
@@ -25,7 +30,10 @@ import { AdminOrStoreGuard } from 'src/guards/admin_or_store.guard';
 @ApiTags('R2')
 @Controller('r2')
 export class R2Controller {
-  constructor(private readonly r2Service: R2Service) {}
+  constructor(
+    private readonly r2Service: R2Service,
+    @InjectConnection() private readonly db: Sequelize,
+  ) {}
 
   //Create R2 text
   @ApiOperation({ summary: 'Create new R2 file' })
@@ -89,14 +97,18 @@ export class R2Controller {
   })
   @UseGuards(AdminOrStoreGuard)
   @Put('r2-update')
-  async updateContent(@Body() updateDto: UpdateR2Dto): Promise<{
+  async updateContent(@Body() updateDto: UpdateR2Dto, @Req() req: any): Promise<{
     success: boolean;
     key: string;
     url: string;
     message: string;
   }> {
+    // Kalit shakli + do'kon egaligi (audit 2026-11-05): ilgari istalgan
+    // do'kon tokeni bucket'dagi ISTALGAN kalitni qayta yozardi.
+    const key = normalizeR2Key(updateDto.key);
+    await assertR2KeyOwned(this.db, key, scopedStoreId(req));
     // O'ramasiz: berilgan mazmun aynan shu holida yoziladi.
-    const url = await this.r2Service.updateJson(updateDto.key, updateDto.data);
+    const url = await this.r2Service.updateJson(key, updateDto.data);
 
     return {
       success: true,
@@ -123,7 +135,7 @@ export class R2Controller {
   })
   @UseGuards(AdminOrStoreGuard)
   @Delete('r2-object')
-  async deleteObject(@Query('key') key: string): Promise<{
+  async deleteObject(@Query('key') key: string, @Req() req: any): Promise<{
     success: boolean;
     key: string;
     message: string;
@@ -131,7 +143,9 @@ export class R2Controller {
     if (!key) {
       throw new BadRequestException('key parametri majburiy');
     }
-    await this.r2Service.deleteFile(key);
+    const k = normalizeR2Key(key);
+    await assertR2KeyOwned(this.db, k, scopedStoreId(req));
+    await this.r2Service.deleteFile(k);
     return { success: true, key, message: "Fayl o'chirildi" };
   }
 
