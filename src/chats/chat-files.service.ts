@@ -11,7 +11,10 @@ import { InjectConnection } from '@nestjs/sequelize';
 import { randomUUID } from 'crypto';
 import { QueryTypes, Transaction } from 'sequelize';
 import { Sequelize } from 'sequelize-typescript';
-import sharp = require('sharp');
+// sharp 0.35: `types` ESM (.d.mts, default eksport), runtime CJS funksiya —
+// tip ESM'dan olinadi, qiymat require bilan (esModuleInterop o'chiq).
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const sharp: typeof import('sharp').default = require('sharp');
 import { R2DocumentsStore } from 'src/seller_applications/r2-documents.store';
 import {
   AttachmentKind,
@@ -31,7 +34,7 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const heicConvert: (o: { buffer: Buffer; format: 'JPEG'; quality: number }) => Promise<ArrayBuffer> = require('heic-convert');
 
-// sharp <0.35 libvips'idagi zaifliklar shu yuklovchilarda (GHSA-f88m-g3jw-g9cj).
+// libvips zaifliklari ko'pincha shu yuklovchilarda (GHSA-f88m-g3jw-g9cj) — 0.35 da ham yopiq turadi.
 // Bizga kerak emas: GIF o'lchami qo'lda o'qiladi, TIFF — oddiy fayl.
 sharp.block({ operation: ['VipsForeignLoadNsgif', 'VipsForeignLoadTiff', 'VipsForeignLoadVips'] });
 
