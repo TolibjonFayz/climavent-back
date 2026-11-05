@@ -55,6 +55,9 @@ export class SalePresentationInterceptor implements NestInterceptor {
  * `stringify -> parse` nusxasisiz joyida qayta ishlanadi: 5 MB javobda bu
  * ~2 ta to'liq nusxa va GC bosimini tejaydi. Natija bir xil — `Date` qiymatlar
  * `time()` da satr kabi o'qiladi va javobda ISO satrga aylanadi.
+ *
+ * SHARTNOMA: belgilangan javob maxfiy kalitlarsiz (`SENSITIVE_RESPONSE_FIELDS`)
+ * bo'lishi shart — `CatalogShapeInterceptor` uni replacer'siz serializatsiya qiladi.
  */
 export const PLAIN_RESPONSE = Symbol.for('climavent.plainResponse');
 
@@ -72,7 +75,7 @@ export async function presentPrices(
   if (data === null || typeof data !== 'object') return data;
   if (data instanceof StreamableFile || Buffer.isBuffer(data)) return data;
   if ((data as any)[PLAIN_RESPONSE] === true) {
-    walk(data, { privileged, now, rate: await rate() });
+    walk(data, { privileged, now, rate: await rate(), plain: true });
     return data;
   }
 
@@ -96,6 +99,12 @@ interface Ctx {
   privileged: boolean;
   now: number;
   rate: number | null;
+  /**
+   * `PLAIN_RESPONSE` javob (№51): kalit `delete` o'rniga `undefined` qilinadi —
+   * `JSON.stringify` uni baribir tashlaydi, `delete` esa har variantni V8'ning
+   * sekin "lug'at" rejimiga o'tkazib, keyingi serializatsiyani sekinlashtirardi.
+   */
+  plain?: boolean;
 }
 
 function walk(node: unknown, ctx: Ctx): void {
@@ -141,12 +150,15 @@ function walk(node: unknown, ctx: Ctx): void {
         if ('sale_price_uzs' in obj) obj.sale_price_uzs = null;
         if ('sale_price_input' in obj) obj.sale_price_input = null;
       }
-      delete obj.sale_starts_at;
+      if (ctx.plain) obj.sale_starts_at = undefined;
+      else delete obj.sale_starts_at;
     }
   }
 
-  for (const value of Object.values(obj)) {
-    if (value !== null && typeof value === 'object') walk(value, ctx);
+  for (const key in obj) {
+    const value = obj[key];
+    // Date — barg qiymat (plain javobda pg'dan shunday keladi), ichiga kirish shart emas
+    if (value !== null && typeof value === 'object' && !(value instanceof Date)) walk(value, ctx);
   }
 }
 

@@ -44,3 +44,26 @@ export const SENSITIVE_RESPONSE_FIELDS: ReadonlySet<string> = new Set([
 export function stripSensitiveFields(key: string, value: unknown): unknown {
   return SENSITIVE_RESPONSE_FIELDS.has(key) ? undefined : value;
 }
+
+/**
+ * Qiymat ichidagi maxfiy kalitlarni HAR QANDAY chuqurlikda joyida o'chiradi
+ * (replacer bilan bir xil natija) va qiymatning o'zini qaytaradi.
+ *
+ * Replacer'siz serializatsiya qilinadigan javoblar uchun (topshiriq №51,
+ * `products/catalog-plain.ts`): replacer funksiyasi V8'ning tez
+ * `JSON.stringify` yo'lini o'chiradi — 5 MB katalogda bu o'nlab ms. U yerda
+ * ustunlar ma'lum, tozalash faqat erkin tuzilmali JSON(B) qiymatlarga kerak.
+ * Faqat shu so'rov uchun yangi o'qilgan qiymatga ishlatilsin (o'zgartiradi).
+ */
+export function scrubSensitiveFields<T>(value: T): T {
+  if (Array.isArray(value)) {
+    for (const item of value) scrubSensitiveFields(item);
+  } else if (value !== null && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    for (const key of Object.keys(obj)) {
+      if (SENSITIVE_RESPONSE_FIELDS.has(key)) delete obj[key];
+      else scrubSensitiveFields(obj[key]);
+    }
+  }
+  return value;
+}
