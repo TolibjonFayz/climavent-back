@@ -7,10 +7,10 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { timingSafeEqual } from 'crypto';
 import { resolveStoreSession } from 'src/store_auth/store-session';
 import { assertOfferAccepted } from 'src/offers/offer-gate';
 import { resolveUserSession, sessionPayload } from 'src/users/user-session';
+import { isServiceKey } from '../common/helpers/service-key';
 
 /**
  * MIJOZ (sayt) yoki ORQA OFIS (adminka) — ikkalasi ham o'tadi
@@ -119,10 +119,6 @@ export class CustomerOrBackofficeGuard implements CanActivate {
 
   private servisKaliti(req: any): boolean {
     const provided = req.headers['x-api-key'];
-    const expected = this.config.get<string>('SERVICE_API_KEY');
-    if (!expected || typeof provided !== 'string') return false;
-    const a = Buffer.from(provided);
-    const b = Buffer.from(expected);
-    return a.length === b.length && timingSafeEqual(a, b);
+    return isServiceKey(provided);
   }
 }

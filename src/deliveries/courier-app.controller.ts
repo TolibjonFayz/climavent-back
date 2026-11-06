@@ -22,7 +22,6 @@ import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express
 import { JwtService } from '@nestjs/jwt';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { timingSafeEqual } from 'crypto';
 import { QueryTypes } from 'sequelize';
 import { resolveStoreSession } from 'src/store_auth/store-session';
 import { resolveUserSession } from 'src/users/user-session';
@@ -50,6 +49,7 @@ import {
   UpdateCourierVehicleDto,
 } from './dto/dto';
 import { CourierVehicle, DeviceToken } from './model/models';
+import { isServiceKey } from '../common/helpers/service-key';
 
 const photo = () => FileInterceptor('photo', { limits: { fileSize: PROOF_MAX_BYTES, files: 1 } });
 /** Topshirishda ikkita fayl bo'lishi mumkin: rasm va imzo (topshiriq №26, 3-band). */
@@ -346,11 +346,7 @@ export class DevicesController {
 
   private isServiceKey(req: any): boolean {
     const provided = req.headers?.['x-api-key'];
-    const expected = process.env.SERVICE_API_KEY;
-    if (!expected || typeof provided !== 'string') return false;
-    const a = Buffer.from(provided);
-    const b = Buffer.from(expected);
-    return a.length === b.length && timingSafeEqual(a, b);
+    return isServiceKey(provided);
   }
 
   /**

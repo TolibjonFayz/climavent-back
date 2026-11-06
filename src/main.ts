@@ -14,7 +14,7 @@ import { CatalogShapeInterceptor } from './products/catalog-shape.interceptor';
 import { Sequelize } from 'sequelize-typescript';
 import { responseTime } from './common/middleware/response-time';
 import { logFcmStatus } from './deliveries/push';
-import { timingSafeEqual } from 'crypto';
+import { isServiceKey } from './common/helpers/service-key';
 
 const start = async () => {
   try {
@@ -147,11 +147,7 @@ const start = async () => {
       // Kalitsiz — 404 (yo'l borligi ham bilinmasin). Sxema birinchi so'rovda yig'iladi.
       let cached: any = null;
       app.getHttpAdapter().get('/api/docs-json', (req: any, res: any) => {
-        const provided = req.headers?.['x-api-key'];
-        const expected = process.env.SERVICE_API_KEY;
-        const a = Buffer.from(String(provided || ''));
-        const b = Buffer.from(String(expected || ''));
-        if (!expected || typeof provided !== 'string' || a.length !== b.length || !timingSafeEqual(a, b)) {
+        if (!isServiceKey(req.headers?.['x-api-key'])) {
           res.status(404).json({ statusCode: 404, message: 'Cannot GET /api/docs-json' });
           return;
         }

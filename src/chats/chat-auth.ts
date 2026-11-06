@@ -1,5 +1,4 @@
 import { JwtService } from '@nestjs/jwt';
-import { timingSafeEqual } from 'crypto';
 import { resolveStoreSession } from 'src/store_auth/store-session';
 import { resolveUserSession } from 'src/users/user-session';
 
@@ -19,13 +18,8 @@ export type ChatActor =
   | { kind: 'store'; store_id: number; store_user_id: number; perms: Set<string> | null }
   | { kind: 'super' };
 
-export const isServiceKey = (provided: unknown): boolean => {
-  const expected = process.env.SERVICE_API_KEY;
-  if (!expected || typeof provided !== 'string') return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-};
+// Servis kaliti tekshiruvi yagona joyda (bir nechta kalit, audit 2026-11-05)
+export { isServiceKey } from '../common/helpers/service-key';
 
 /** `null` — token yaroqsiz yoki bu hisob chatga kira olmaydi. */
 export async function resolveChatActor(jwt: JwtService, token: string | null | undefined): Promise<ChatActor | null> {

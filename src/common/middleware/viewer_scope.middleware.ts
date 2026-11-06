@@ -2,10 +2,10 @@ import { ForbiddenException, Injectable, NestMiddleware } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { NextFunction, Request, Response } from 'express';
-import { timingSafeEqual } from 'crypto';
 import { resolveStoreSession } from 'src/store_auth/store-session';
 import { isCourierAllowedPath } from 'src/store_auth/store_auth.guard';
 import { resolveUserSession } from 'src/users/user-session';
+import { isServiceKey } from '../helpers/service-key';
 
 /**
  * So'rov egasi. `isPrivileged` ko'rinuvchanlik uchun yetarli, lekin do'kon
@@ -132,11 +132,6 @@ export class ViewerScopeMiddleware implements NestMiddleware {
 
   private servisKaliti(req: Request): boolean {
     const provided = req.headers['x-api-key'];
-    const expected = this.config.get<string>('SERVICE_API_KEY');
-    if (!expected || typeof provided !== 'string') return false;
-    const a = Buffer.from(provided);
-    const b = Buffer.from(expected);
-    // Uzunlik oldin: timingSafeEqual teng uzunlik talab qiladi.
-    return a.length === b.length && timingSafeEqual(a, b);
+    return isServiceKey(provided);
   }
 }

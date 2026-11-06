@@ -7,9 +7,9 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { timingSafeEqual } from 'crypto';
 import { resolveStoreSession } from './store-session';
 import { assertOfferAccepted } from 'src/offers/offer-gate';
+import { isServiceKey } from '../common/helpers/service-key';
 
 // So'rov kim tomonidan qilinayotgani. Yozish endpointlari shu asosda
 // cheklanadi (StoreScopeGuard).
@@ -88,11 +88,7 @@ export class StoreAuthGuard implements CanActivate {
 
   private isServiceKey(req: any): boolean {
     const provided = req.headers['x-api-key'];
-    const expected = this.config.get<string>('SERVICE_API_KEY');
-    if (!expected || typeof provided !== 'string') return false;
-    const a = Buffer.from(provided);
-    const b = Buffer.from(expected);
-    return a.length === b.length && timingSafeEqual(a, b);
+    return isServiceKey(provided);
   }
 }
 
