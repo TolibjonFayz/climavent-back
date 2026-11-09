@@ -153,6 +153,7 @@ export class AppModule implements NestModule {
   // endpointlari shu asosda nofaol do'kon mahsulotini yashiradi
   // (topshiriq №14, 1-band).
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(ViewerScopeMiddleware).forRoutes('*');
+    // Express 5 / NestJS 11: nomsiz `*` eskirgan — `{*splat}` (ildiz `/` ham kiradi)
+    consumer.apply(ViewerScopeMiddleware).forRoutes('{*splat}');
   }
 }

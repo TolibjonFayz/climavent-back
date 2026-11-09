@@ -20,7 +20,7 @@ import { Otp } from 'src/otp/models/otp.model';
 import { hashOtp, otpMatches } from 'src/otp/otp-hash';
 import * as otpGenerator from 'otp-generator';
 import { User } from './model/user.model';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
 import { Response } from 'express';
 import * as bcrypt from 'bcrypt';
@@ -436,7 +436,7 @@ export class UsersService {
       },
       {
         secret: process.env.ACCESS_TOKEN_KEY_USER,
-        expiresIn: client === 'mobile' ? MOBILE_ACCESS_TTL : WEB_ACCESS_TTL,
+        expiresIn: (client === 'mobile' ? MOBILE_ACCESS_TTL : WEB_ACCESS_TTL) as JwtSignOptions['expiresIn'],
       },
     );
   }

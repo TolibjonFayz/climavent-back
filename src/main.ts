@@ -43,6 +43,10 @@ const start = async () => {
     // oldiga qo'shib yuborgan taqdirda ham 2 bo'g'in o'ngdan sanaladi — soxta
     // qiymat baribir tanlanmaydi.
     app.set('trust proxy', 2);
+    // Express 5 da standart query parser `simple` (ichma-ich `a[b]=1`, `ids[]=1`
+    // o'qilmaydi). Express 4 dagi `extended` (qs) saqlanadi — mijozlar
+    // yuboradigan query'lar avvalgidek tushunilsin (NestJS 11 ga o'tish, 2026-11-09).
+    app.set('query parser', 'extended');
 
     // SWAGGER: prod'da YOPIQ (2026-09-22).
     //

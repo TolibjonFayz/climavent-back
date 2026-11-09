@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { QueryTypes } from 'sequelize';
 import { StoreUser } from 'src/store_users/model/store_user.model';
@@ -208,7 +208,8 @@ export class StoreAuthService {
       },
       {
         secret: process.env.STORE_TOKEN_KEY || process.env.ACCESS_TOKEN_KEY,
-        expiresIn: expiresIn || process.env.STORE_TOKEN_TIME || '12h',
+        // @nestjs/jwt 11: expiresIn tipi '15m' | number (StringValue); env qiymati satr
+        expiresIn: (expiresIn || process.env.STORE_TOKEN_TIME || '12h') as JwtSignOptions['expiresIn'],
       },
     );
   }
