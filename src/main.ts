@@ -116,8 +116,16 @@ const start = async () => {
       ]),
     ];
 
+    // Sayt (Climavent_front_nuxt) ning Vercel PREVIEW deploylari — branch'ni
+    // prodga chiqarmasdan telefonda sinash uchun (2026-11-09, Nuxt 4 sinovida
+    // preview'da faqat SSR ishladi, brauzerdan API so'rovlari CORS'da
+    // to'xtadi). Faqat shu loyiha va shu Vercel jamoasi: begona birov bu
+    // nomdagi domenda deploy qila olmaydi. API cookie bilan emas, token bilan
+    // ishlaydi — ruxsat sessiyani ochib bermaydi.
+    const PREVIEW_ORIGIN = /^https:\/\/climavent-front-nuxt-[a-z0-9-]+-tolibjonfayzgmailcoms-projects\.vercel\.app$/;
+
     app.enableCors({
-      origin: allowedOrigins,
+      origin: [...allowedOrigins, PREVIEW_ORIGIN],
       methods: 'GET,PUT,PATCH,POST,DELETE',
       allowedHeaders: 'Content-Type, Authorization',
       credentials: true,
