@@ -1,5 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { MailerService } from '@nestjs-modules/mailer';
+import { MailerService } from 'src/mail/mailer.service';
 
 /** Sotuvchi kabineti (parol o'rnatish sahifasi shu yerda). */
 const PORTAL_URL = (

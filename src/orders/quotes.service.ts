@@ -8,7 +8,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
-import { MailerService } from '@nestjs-modules/mailer';
+import { MailerService } from 'src/mail/mailer.service';
 import { QueryTypes, Transaction } from 'sequelize';
 import { OtpService } from 'src/otp/otp.service';
 import { pushToStoreAdmins } from 'src/deliveries/push';

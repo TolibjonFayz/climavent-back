@@ -1,4 +1,4 @@
-import { MailerService } from '@nestjs-modules/mailer';
+import { MailerService } from './mailer.service';
 import { User } from 'src/users/model/user.model';
 import { Injectable } from '@nestjs/common';
 
