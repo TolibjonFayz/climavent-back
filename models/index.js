@@ -6,7 +6,8 @@ const Sequelize = require('sequelize');
 const process = require('process');
 const basename = path.basename(__filename);
 const env = process.env.NODE_ENV || 'development';
-const config = require(__dirname + '/../config/config.json')[env];
+// Ulanish sozlamalari faqat muhit o'zgaruvchilaridan (config/config.json da parol ochiq turardi)
+const config = require(__dirname + '/../sequelize-config.js');
 const db = {};
 
 let sequelize;
